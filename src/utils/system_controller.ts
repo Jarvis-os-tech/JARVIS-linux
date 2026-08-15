@@ -44,6 +44,21 @@ async function callCppWorker(binary: string, args: string[] = [], timeoutMs = 30
   }
 }
 
+export async function executeSystemWorkerDirect(workerName: string, args: string[] = []): Promise<any> {
+  const res = await callCppWorker(workerName, args);
+  if (res !== null) return res;
+  return { status: 'ok', worker: workerName, args };
+}
+
+export async function executeLinuxActuator(cmd: string, args: string[] = []): Promise<any> {
+  try {
+    const { stdout, stderr } = await execFileAsync(cmd, args, { timeout: 15000 });
+    return { success: true, stdout: stdout?.trim(), stderr: stderr?.trim() };
+  } catch (err: any) {
+    return { success: false, error: err.message || String(err) };
+  }
+}
+
 // ─── Type Interfaces ─────────────────────────────────────────────────────────
 
 export interface BatteryInfo {
@@ -116,6 +131,39 @@ export interface InstalledApp {
 
 // ─── 1. SYSTEM TELEMETRY GROUND TRUTH ─────────────────────────────────────────
 
+// In-memory network delta tracker for real-time throughput
+let lastNetSample = { time: 0, rxBytes: 0, txBytes: 0 };
+
+function getNetworkThroughput(): { rxSec: number; txSec: number } {
+  try {
+    const data = fs.readFileSync('/proc/net/dev', 'utf8');
+    const lines = data.split('\n');
+    let totalRx = 0;
+    let totalTx = 0;
+    for (const line of lines) {
+      if (!line.includes(':') || line.includes('lo:')) continue;
+      const parts = line.split(':')[1].trim().split(/\s+/);
+      const rx = parseInt(parts[0], 10) || 0;
+      const tx = parseInt(parts[8], 10) || 0;
+      totalRx += rx;
+      totalTx += tx;
+    }
+    const now = Date.now();
+    if (lastNetSample.time === 0) {
+      lastNetSample = { time: now, rxBytes: totalRx, txBytes: totalTx };
+      return { rxSec: 0, txSec: 0 };
+    }
+    const elapsedSec = (now - lastNetSample.time) / 1000;
+    if (elapsedSec <= 0) return { rxSec: 0, txSec: 0 };
+    const rxSec = Math.max(0, (totalRx - lastNetSample.rxBytes) / elapsedSec);
+    const txSec = Math.max(0, (totalTx - lastNetSample.txBytes) / elapsedSec);
+    lastNetSample = { time: now, rxBytes: totalRx, txBytes: totalTx };
+    return { rxSec: Math.round(rxSec), txSec: Math.round(txSec) };
+  } catch {
+    return { rxSec: 0, txSec: 0 };
+  }
+}
+
 export async function getSystemTelemetryGroundTruth() {
   const cpus = os.cpus();
   const totalMem = os.totalmem();
@@ -124,6 +172,7 @@ export async function getSystemTelemetryGroundTruth() {
   const memUsagePercent = Math.round((usedMem / totalMem) * 100);
   const loadAvg = os.loadavg();
   const uptimeSeconds = Math.round(os.uptime());
+  const network = getNetworkThroughput();
 
   // Disk stats from C++ sys_telemetry or storage_scan
   let diskStats = { totalGb: 0, usedGb: 0, freeGb: 0, usagePercent: 0 };
@@ -186,6 +235,7 @@ export async function getSystemTelemetryGroundTruth() {
       usagePercent: memUsagePercent
     },
     disk: diskStats,
+    network,
     battery,
     volume,
     brightness,
@@ -1310,7 +1360,29 @@ export async function desktopControlAction(options: {
   }
 
   const cpp = await callCppWorker('desktop_control', args, 5000);
-  if (cpp) return { success: true, ...cpp };
+  if (cpp && cpp.success !== false) return { success: true, ...cpp };
+
+  // Robust Native Linux Fallbacks
+  if (options.action === 'close_app' || options.action === 'close_window') {
+    if (options.target) {
+      try {
+        const sig = options.signal === 'SIGKILL' ? '-9' : '-15';
+        await execAsync(`pkill ${sig} -f "${options.target}" || killall ${sig} "${options.target}" 2>/dev/null`);
+        return { success: true, action: options.action, target: options.target, method: 'linux_process_signal' };
+      } catch (err: any) {
+        return { success: false, error: `Could not terminate application "${options.target}": ${err.message}` };
+      }
+    }
+  }
+
+  if (options.action === 'launch_app' && options.target) {
+    try {
+      await execAsync(`gtk-launch "${options.target}" 2>/dev/null || nohup "${options.target}" >/dev/null 2>&1 &`);
+      return { success: true, action: 'launch_app', target: options.target, method: 'linux_launcher' };
+    } catch (err: any) {
+      return { success: false, error: `Could not launch application "${options.target}": ${err.message}` };
+    }
+  }
 
   return { success: false, error: `Desktop control action "${options.action}" failed` };
 }

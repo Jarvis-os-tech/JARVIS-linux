@@ -743,12 +743,21 @@ export function extractGoogleId(input: string): string {
   return trimmed;
 }
 
+export interface WorkspaceToolResult {
+  success: boolean;
+  result?: any;
+  error?: string;
+  linkUrl?: string;
+  summary?: string;
+  visionControl?: { action: string; mode: string | null };
+}
+
 // 2. Execution Engine for all Workspace & System Tools
 export async function executeWorkspaceTool(
   toolName: string,
   args: Record<string, any>,
   accessToken: string
-): Promise<{ success: boolean; result?: any; error?: string; linkUrl?: string; summary?: string }> {
+): Promise<WorkspaceToolResult> {
   try {
     // =============================================================
     // SYSTEM INFORMATION & COMPUTER USE TOOLS (No Google Auth Required)

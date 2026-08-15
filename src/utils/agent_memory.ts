@@ -60,10 +60,56 @@ export function loadAgentMemory(): AgentMemoryState {
 export function saveAgentMemory(state: AgentMemoryState): void {
   try {
     const updated = { ...state, lastUpdated: new Date().toISOString() };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    }
+    // Asynchronously push to SQLite backend if in browser environment
+    if (typeof fetch !== 'undefined') {
+      for (const fact of state.facts) {
+        fetch('/api/memory', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(fact),
+        }).catch(() => {});
+      }
+    }
   } catch (err) {
     console.error('Failed to save agent memory:', err);
   }
+}
+
+export async function syncAgentMemoryFromBackend(): Promise<AgentMemoryState> {
+  try {
+    if (typeof fetch !== 'undefined') {
+      const res = await fetch('/api/memory');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.memories && Array.isArray(data.memories) && data.memories.length > 0) {
+          const formattedFacts: MemoryFact[] = data.memories.map((m: any) => ({
+            id: m.id,
+            category: m.category,
+            key: m.key,
+            value: m.value,
+            updatedAt: m.updated_at,
+            source: m.source,
+          }));
+          const current = loadAgentMemory();
+          const mergedState: AgentMemoryState = {
+            ...current,
+            facts: formattedFacts,
+            lastUpdated: new Date().toISOString(),
+          };
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(mergedState));
+          }
+          return mergedState;
+        }
+      }
+    }
+  } catch (e) {
+    // Fallback gracefully
+  }
+  return loadAgentMemory();
 }
 
 export function formatMemoryForSystemInstruction(state: AgentMemoryState): string {

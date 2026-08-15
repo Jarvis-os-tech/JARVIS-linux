@@ -71,6 +71,10 @@ export class AudioQueuePlayer {
     return this.ctx;
   }
 
+  public playChunk(base64Pcm: string) {
+    return this.enqueueChunk(base64Pcm);
+  }
+
   public enqueueChunk(base64Pcm: string) {
     const ctx = this.getAudioContext();
     try {

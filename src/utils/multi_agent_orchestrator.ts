@@ -8,6 +8,7 @@
 import { loadPersonaPrompt } from './prompt_loader';
 import { executeUnifiedAiChat } from './ai_engine';
 import { executeSystemCommand } from './system_controller';
+import { obsidianDailyLogger } from './obsidian_logger';
 
 export interface PersonaMetadata {
   id: string;
@@ -49,63 +50,53 @@ class MultiAgentOrchestrator {
     const baseList: Omit<PersonaMetadata, 'status' | 'lastActivityTime'>[] = [
       {
         id: 'jarvis',
-        name: 'J.A.R.V.I.S.',
-        callsign: 'Prime Orchestrator',
-        title: 'Chief Executive Officer (CEO)',
+        name: 'JARVIS',
+        callsign: 'The Elite Tactical Commander',
+        title: 'Chief Executive Officer (CEO) & Principal Tactical Architect',
         role: 'ceo',
         voiceName: 'Puck',
         accentColor: '#06b6d4', // Cyan
-        domain: 'Global intent routing, conversational state, manager delegation, voice priority'
+        domain: 'Global intent routing, executive team delegation, direct Ubuntu OS control, workspace mission management'
       },
       {
         id: 'friday',
-        name: 'F.R.I.D.A.Y.',
-        callsign: 'Master Intelligence',
-        title: 'Senior Analytics Manager',
+        name: 'FRIDAY',
+        callsign: 'Supreme Information Dominator',
+        title: 'Supreme AI & Tech Research Department Leader',
         role: 'manager',
-        voiceName: 'Aoede',
-        accentColor: '#10b981', // Emerald
-        domain: 'Deep data synthesis, complex code analysis, document drafting, macro-knowledge'
+        voiceName: 'Kore',
+        accentColor: '#f97316', // Vibrant Orange
+        domain: 'Global web intelligence, arXiv research papers, cutting-edge AI models, GitHub trend scraping, and real-time data verification'
       },
       {
         id: 'ultron',
-        name: 'U.L.T.R.O.N.',
-        callsign: 'Defensive Shield',
-        title: 'Chief Security Officer (CSO)',
+        name: 'ULTRON',
+        callsign: 'The Unforgiving Guardian & Silicon Optimizer',
+        title: 'Chief Security & System Performance Architect (CSO)',
         role: 'manager',
-        voiceName: 'Fenrir',
+        voiceName: 'Charon',
         accentColor: '#ef4444', // Red
-        domain: 'Firewall rules, listening ports, kernel security, exploit prevention, host care'
+        domain: '24/7 continuous kernel safety, port vulnerability shielding, RAM reclamation, CPU throttle tuning, system smoothness, and autonomous threat override'
       },
       {
         id: 'edith',
-        name: 'E.D.I.T.H.',
-        callsign: 'Internet Controller',
-        title: 'Tactical Reconnaissance Manager',
+        name: 'EDITH',
+        callsign: 'Deep Reasoning Chairman',
+        title: 'Strategic Architecture Planner & Deep Reasoning Chairman',
         role: 'manager',
-        voiceName: 'Kore',
+        voiceName: 'Zephyr',
         accentColor: '#3b82f6', // Blue
-        domain: 'Web scraping, API pipelines, wide-area search, perimeter diagnostics'
+        domain: 'Deep software design planning, algorithmic optimization, code readability enforcement, logical debugging, and 3-Stage Coding Council consensus'
       },
       {
         id: 'karen',
-        name: 'K.A.R.E.N.',
-        callsign: 'Tactical Co-Pilot',
-        title: 'Hardware & OS Manager',
+        name: 'KAREN',
+        callsign: 'The Automation Agency',
+        title: 'Director of Autonomous Workflows & Multi-Platform Automation Agency',
         role: 'manager',
-        voiceName: 'Charon',
+        voiceName: 'Aoede',
         accentColor: '#f59e0b', // Amber
-        domain: 'Laptop brightness, PulseAudio volume, thermals, battery conservation, shortcuts'
-      },
-      {
-        id: 'vision',
-        name: 'V.I.S.I.O.N.',
-        callsign: 'Multimodal Sentinel',
-        title: 'Visual Surveillance Specialist',
-        role: 'specialist',
-        voiceName: 'Puck',
-        accentColor: '#8b5cf6', // Purple
-        domain: 'Live screen analysis, camera visual reasoning, OCR, multimodal commentary'
+        domain: 'Multi-platform API integration, automated YouTube/media pipelines, WhatsApp/Telegram relays, cross-platform webhooks, and headless background workers'
       }
     ];
 
@@ -188,6 +179,13 @@ class MultiAgentOrchestrator {
       persona: target
     });
 
+    obsidianDailyLogger.logConversationTurn({
+      speaker: 'System',
+      role: 'system',
+      text: `Voice focus shifted from **${prev.name}** to **${target.name}** (${target.title}).`,
+      personaId: target.id
+    });
+
     console.log(`[Orchestrator] Persona hot-swapped from ${prev.name} to ${target.name}`);
 
     return {
@@ -241,6 +239,14 @@ class MultiAgentOrchestrator {
 
     this.mutedRelayEvents.push(event);
     if (this.mutedRelayEvents.length > 50) this.mutedRelayEvents.shift();
+
+    obsidianDailyLogger.logAgentDelegation({
+      sourceManagerId: manager.id,
+      sourceManagerName: manager.name,
+      task: (manager as PersonaMetadata).activeTask || 'Background Sentinel Audit',
+      relayedSummary,
+      severity
+    });
 
     this.emitEvent('muted_relay_alert', event);
     return event;
@@ -320,22 +326,30 @@ class MultiAgentOrchestrator {
     const ultron = this.personas.get('ultron');
     if (!ultron) return;
 
-    // Quick silent security inspection: check failed units and open listening ports
-    const [failedUnitsRes, listeningSocketsRes] = await Promise.all([
-      executeSystemCommand('systemctl --user --failed --no-pager --no-legend 2>/dev/null || true'),
-      executeSystemCommand('ss -tulpn 2>/dev/null | grep LISTEN | head -n 10 || true')
+    // Quick silent security & performance inspection: check failed units, listening sockets, memory pressure & load
+    const [failedUnitsRes, listeningSocketsRes, memInfoRes] = await Promise.all([
+      executeSystemCommand({ command: 'systemctl --user --failed --no-pager --no-legend 2>/dev/null || true' }),
+      executeSystemCommand({ command: 'ss -tulpn 2>/dev/null | grep LISTEN | head -n 10 || true' }),
+      executeSystemCommand({ command: 'awk \'/MemAvailable/ {print int($2/1024)}\' /proc/meminfo 2>/dev/null || echo "1024"' })
     ]);
 
-    const failedUnits = failedUnitsRes.result?.stdout?.trim();
+    const failedUnits = failedUnitsRes.stdout?.trim();
+    const memAvailableMb = parseInt(memInfoRes.stdout?.trim() || '1024', 10);
     const hasFailures = failedUnits && failedUnits.length > 0;
+    const isMemoryCritical = !isNaN(memAvailableMb) && memAvailableMb < 400; // less than 400MB free
 
     if (hasFailures) {
       this.processMutedRelayOutput(
         `{ULTRON_SECURITY_ALERT: Detected degraded user services: ${failedUnits.split('\n')[0]}}`,
         'ultron'
       );
+    } else if (isMemoryCritical) {
+      this.processMutedRelayOutput(
+        `{ULTRON_OPTIMIZATION_ALERT: Memory pressure detected (${memAvailableMb}MB available). Recommending background cache purge and zombie process sweep.}`,
+        'ultron'
+      );
     } else {
-      console.log('[Ultron Sentinel] Host security verification clean: 0 failed services.');
+      console.log(`[Ultron Sentinel] Host security & performance optimal: 0 failed units, ${memAvailableMb}MB available.`);
     }
   }
 
@@ -348,4 +362,5 @@ class MultiAgentOrchestrator {
 }
 
 export const masterOrchestratorInstance = new MultiAgentOrchestrator();
+export const multiAgentOrchestrator = masterOrchestratorInstance;
 export { MultiAgentOrchestrator };

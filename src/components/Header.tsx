@@ -12,6 +12,7 @@ interface HeaderProps {
   onOpenNlu?: () => void;
   onOpenSystemControl?: () => void;
   onOpenOrchestrator?: () => void;
+  onSwitchToModern?: () => void;
   memoryCount: number;
   mutedRelayCount?: number;
   batteryPercent?: number | null;
@@ -35,7 +36,8 @@ export const Header: React.FC<HeaderProps> = ({
   batteryPercent,
   brightnessPercent,
   volumePercent,
-  volumeMuted
+  volumeMuted,
+  onSwitchToModern
 }) => {
   const getStatusBadge = () => {
     switch (connectionState) {
@@ -92,7 +94,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
         <div>
           <h1 className="text-base font-semibold text-zinc-100 leading-none flex items-center gap-2">
-            J.A.R.V.I.S. MCU AI Hub
+            JARVIS MCU AI Hub
             <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 bg-cyan-500/20 text-cyan-300 rounded-md border border-cyan-500/30">
               Live Voice AI
             </span>
@@ -131,6 +133,17 @@ export const Header: React.FC<HeaderProps> = ({
           <Folder className="w-4 h-4 text-blue-400" />
           <span className="hidden md:inline">Workspace</span>
         </button>
+
+        {onSwitchToModern && (
+          <button
+            onClick={onSwitchToModern}
+            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600/30 to-blue-600/30 hover:from-cyan-500/40 hover:to-blue-500/40 text-cyan-300 hover:text-white transition-all flex items-center gap-1.5 text-xs font-bold border border-cyan-400/40 shadow-lg shadow-cyan-600/20"
+            title="Switch to New JARVIS MK-VII Console UI"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+            <span>MK-VII Console</span>
+          </button>
+        )}
 
         <button
           onClick={onOpenSettings}

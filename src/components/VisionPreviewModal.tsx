@@ -33,31 +33,51 @@ export const VisionPreviewModal: React.FC<VisionPreviewModalProps> = ({
     }
   }, [stream, isOpen]);
 
+  // Helper to capture a frame from the video element
+  const captureFrame = (quality = 0.60, isHighRes = false) => {
+    if (!videoRef.current) return null;
+    const video = videoRef.current;
+    if (video.videoWidth === 0 || video.videoHeight === 0) return null;
+
+    const canvas = document.createElement('canvas');
+    // Optimal dimensions: 854px for screen share, 640px for webcam (or 1280px for manual full snapshot)
+    const maxDimension = isHighRes ? (mode === 'screen' ? 1280 : 960) : (mode === 'screen' ? 854 : 640);
+    const scale = Math.min(1, maxDimension / Math.max(video.videoWidth, video.videoHeight));
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/jpeg', quality);
+    return dataUrl.split(',')[1] || null;
+  };
+
   // Automatic live streaming frame sender when isLiveStreaming is true
   useEffect(() => {
     if (!isLiveStreaming || !stream || !isOpen) return;
 
-    const interval = setInterval(() => {
-      if (!videoRef.current) return;
-      const video = videoRef.current;
-      if (video.videoWidth === 0 || video.videoHeight === 0) return;
-
-      const canvas = document.createElement('canvas');
-      canvas.width = 640;
-      canvas.height = Math.round((640 * video.videoHeight) / video.videoWidth);
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-      const base64Data = dataUrl.split(',')[1];
-      if (base64Data) {
-        onLiveStreamFrame(base64Data);
+    // Send an immediate first frame once video has dimensions
+    const initialTimer = setTimeout(() => {
+      const firstFrame = captureFrame(0.60, false);
+      if (firstFrame) {
+        onLiveStreamFrame(firstFrame);
       }
-    }, 1500); // Send frame every 1.5 seconds for fluid live streaming
+    }, 400);
 
-    return () => clearInterval(interval);
-  }, [isLiveStreaming, stream, isOpen, onLiveStreamFrame]);
+    const interval = setInterval(() => {
+      const frame = captureFrame(0.60, false);
+      if (frame) {
+        onLiveStreamFrame(frame);
+      }
+    }, 1800); // Send lightweight frame every 1.8s for balanced visual awareness and sub-200ms voice response
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
+  }, [isLiveStreaming, stream, isOpen, mode, onLiveStreamFrame]);
 
   if (!isOpen) return null;
 

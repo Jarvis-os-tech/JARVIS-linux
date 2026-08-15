@@ -9,3 +9,6 @@ workers_cpp/bin/
 *.log
 .env*
 !.env.example
+data/
+.vscode/
+

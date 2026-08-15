@@ -1,3 +1,7 @@
+---
+trigger: always_on
+---
+
 # J.A.R.V.I.S. Autonomous Master Execution & Architecture Contract
 
 > **MANDATORY ZERO-PROMPT PROTOCOL**: On EVERY user prompt or command, the agent MUST AUTONOMOUSLY inspect the request, query the knowledge graph (`codebase-memory-mcp`), search the master skill registry at `/home/gopi/Documents/jarvis-agents/`, and enforce the single-user high-performance architecture. NEVER ask permission to follow these protocols.
@@ -80,3 +84,11 @@ Always apply the minimalist filter before adding lines of code:
 - Verify every code change with local builds (`npm run build`, `make -C workers_cpp`, `cargo build`).
 - Run relevant unit tests or verification commands.
 - Trigger `detect_changes` on `codebase-memory-mcp` after modifications.
+
+---
+
+## 🚫 7. Git & Push Policy (Strict Explicit Command Rule)
+
+- **NEVER push code to GitHub (`git push`) without explicit confirmation or request from the user.**
+- Local builds, tests, and edits are executed locally; `git push` is triggered ONLY when the user explicitly instructs you to push.
+
