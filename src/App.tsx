@@ -848,66 +848,8 @@ export default function App() {
             onToggleVision={handleToggleVision}
           />
 
-          {/* Active NLU Intent & Entity Real-Time Badge */}
-          {latestNluResult && (
-            <div 
-              onClick={() => setIsNluModalOpen(true)}
-              className="w-full max-w-2xl mt-3 px-3.5 py-2 rounded-xl bg-zinc-900/80 border border-cyan-500/30 backdrop-blur-md flex items-center justify-between text-xs cursor-pointer hover:border-cyan-400/60 transition-all shadow-md group animate-fadeIn"
-              title="Click to open full NLU & Intent Breakdown"
-            >
-              <div className="flex items-center gap-2 overflow-hidden">
-                <span className="flex items-center gap-1 font-bold text-cyan-300 text-[11px] uppercase tracking-wider bg-cyan-500/10 px-2 py-0.5 rounded-md border border-cyan-500/20">
-                  <Zap className="w-3 h-3 text-cyan-400" />
-                  {latestNluResult.intent.name.replace(/_/g, ' ')} ({Math.round(latestNluResult.intent.confidence * 100)}%)
-                </span>
-                {latestNluResult.entities.length > 0 && (
-                  <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
-                    {latestNluResult.entities.slice(0, 3).map((ent, i) => (
-                      <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 whitespace-nowrap">
-                        {ent.type}: {ent.value}
-                      </span>
-                    ))}
-                    {latestNluResult.entities.length > 3 && (
-                      <span className="text-[10px] text-zinc-500 font-mono">+{latestNluResult.entities.length - 3}</span>
-                    )}
-                  </div>
-                )}
-              </div>
-              <span className="text-[10px] text-zinc-400 group-hover:text-cyan-300 font-medium flex items-center gap-1">
-                NLU Details →
-              </span>
-            </div>
-          )}
-
-          {/* Live Transcript & Chat Bubble Stream */}
-          {messages.length > 0 && (
-            <div className="w-full max-w-2xl mt-4 max-h-48 overflow-y-auto space-y-2 p-3 rounded-2xl bg-zinc-950/60 border border-white/10 backdrop-blur-md">
-              {messages.map((m) => (
-                <div
-                  key={m.id}
-                  className={`flex flex-col ${m.sender === 'user' ? 'items-end' : 'items-start'}`}
-                >
-                  <div
-                    className={`max-w-[85%] px-3.5 py-2 rounded-2xl text-xs ${
-                      m.sender === 'user'
-                        ? 'bg-blue-600/80 text-white rounded-br-none shadow-md'
-                        : 'bg-zinc-800/90 text-zinc-100 border border-white/10 rounded-bl-none shadow-md'
-                    }`}
-                  >
-                    {m.imageUrl && (
-                      <img src={m.imageUrl} alt="Snapshot" className="max-w-xs rounded-lg mb-1.5 border border-white/20" />
-                    )}
-                    <p className="leading-relaxed whitespace-pre-wrap">{m.text}</p>
-                    <span className="text-[10px] text-zinc-400 mt-1 block opacity-70">{m.timestamp}</span>
-                  </div>
-                </div>
-              ))}
-              <div ref={messagesEndRef} />
-            </div>
-          )}
-
           {/* Text Message & Command Input Bar */}
-          <div className="w-full max-w-2xl mt-3 flex items-center gap-2">
+          <div className="w-full max-w-2xl mt-4 flex items-center gap-2">
             <input
               type="text"
               placeholder={`Message ${selectedPersona.name} or type a command...`}
