@@ -9,6 +9,7 @@ import { loadPersonaPrompt } from './prompt_loader';
 import { executeUnifiedAiChat } from './ai_engine';
 import { executeSystemCommand } from './system_controller';
 import { obsidianDailyLogger } from './obsidian_logger';
+import { getGlobalGoogleAccessToken } from './workspace_tools';
 
 export interface PersonaMetadata {
   id: string;
@@ -273,12 +274,13 @@ class MultiAgentOrchestrator {
     });
 
     try {
+      const effectiveToken = googleAccessToken || getGlobalGoogleAccessToken() || process.env.GOOGLE_ACCESS_TOKEN || '';
       const prompt = loadPersonaPrompt(manager.id);
       const executionResult = await executeUnifiedAiChat({
         message: taskDescription,
         provider: 'auto',
         systemInstruction: `${prompt}\n[MUTED RELAY ENFORCEMENT]: You are running as a background manager. Wrap your final findings inside structural braces {${manager.name.toUpperCase()}_REPORT: ...}.`,
-        googleAccessToken
+        googleAccessToken: effectiveToken
       });
 
       manager.status = 'idle';

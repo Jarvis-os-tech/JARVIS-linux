@@ -78,13 +78,28 @@ export function AgentsView() {
           return (
             <article
               key={a.id}
+              style={
+                isSelected
+                  ? {
+                      borderColor: `color-mix(in oklab, ${a.accent} 50%, transparent)`,
+                      boxShadow: `0 0 20px color-mix(in oklab, ${a.accent} 20%, transparent)`,
+                    }
+                  : undefined
+              }
               className={cn(
-                "neu gloss animate-rise-in flex flex-col gap-2.5 rounded-2xl p-4 transition-transform hover:-translate-y-0.5 relative",
-                isSelected && "border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.15)]",
+                "neu gloss animate-rise-in flex flex-col gap-2.5 rounded-2xl p-4 transition-all hover:-translate-y-0.5 relative",
+                isSelected && "border",
               )}
             >
               {isSelected && (
-                <span className="absolute top-2 right-2 px-2 py-0.5 bg-cyan-500/20 text-cyan-300 rounded-full text-[9px] font-bold tracking-wider border border-cyan-500/40">
+                <span
+                  style={{
+                    backgroundColor: `color-mix(in oklab, ${a.accent} 20%, transparent)`,
+                    color: a.accent,
+                    borderColor: `color-mix(in oklab, ${a.accent} 40%, transparent)`,
+                  }}
+                  className="absolute top-2 right-2 px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wider border"
+                >
                   ACTIVE VOICE
                 </span>
               )}

@@ -32,12 +32,15 @@ export type Mission = {
 
 export type ChatMessage = {
   id: string;
-  role: "user" | "jarvis";
+  role: "user" | "jarvis" | "system";
   text: string;
   at: number;
-  kind?: "confirm" | "normal";
+  kind?: "confirm" | "normal" | "error" | "action" | "tool_call";
   imageUrl?: string;
   personaId?: string;
+  personaName?: string;
+  source?: "voice" | "text" | "relay" | "system";
+  actionDetails?: string;
 };
 
 export type Notification = {
@@ -124,7 +127,18 @@ export const seedAgents: Agent[] = [
   }
 ];
 
-export const seedMissions: Mission[] = [];
+export const seedMissions: Mission[] = [
+  {
+    id: "m-briefing",
+    title: "Morning Executive Briefing",
+    desc: "Aggregate overnight telemetry, check Google Calendar, triage emails, and prepare daily summary.",
+    icon: "☀",
+    accent: "var(--amber-hud)",
+    status: "progress",
+    progress: 70,
+    createdAt: Date.now() - 3600000,
+  },
+];
 
 export const seedNotifications: Notification[] = [];
 

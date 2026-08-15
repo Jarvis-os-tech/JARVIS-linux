@@ -1,4 +1,4 @@
-import { Mic, MicOff, Camera, Monitor, Square, Play, Sparkles, Volume2, Shield } from "lucide-react";
+import { Mic, MicOff, Camera, Monitor, Square, Play, Sparkles, Volume2, Shield, Loader2 } from "lucide-react";
 import { Conversation } from "../Conversation";
 import { OrbStage } from "../OrbStage";
 import { useJarvis, useStats } from "../JarvisProvider";
@@ -31,6 +31,7 @@ export function DashboardView() {
   } = useJarvis();
   const stats = useStats();
 
+  const isConnecting = connectionState === "connecting";
   const isConnected = connectionState !== "disconnected" && connectionState !== "error";
 
   return (
@@ -38,13 +39,30 @@ export function DashboardView() {
       {/* Header & Metric summary */}
       <header className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h1 className="font-display etched text-2xl font-bold tracking-wide">
               Good to see you, <span className="text-aurora">Gopi</span>
             </h1>
-            <span className="neu-inset px-2.5 py-0.5 rounded-full text-[10.5px] font-bold text-cyan-hud border border-cyan-500/20">
+            <span
+              className="neu-inset px-2.5 py-0.5 rounded-full text-[10.5px] font-bold border transition-all duration-300"
+              style={{
+                color: selectedPersona.accentColor,
+                borderColor: `color-mix(in oklab, ${selectedPersona.accentColor} 35%, transparent)`,
+                boxShadow: `0 0 10px color-mix(in oklab, ${selectedPersona.accentColor} 15%, transparent)`,
+              }}
+            >
               {selectedPersona.name} Active
             </span>
+            {isConnecting && (
+              <span className="neu-inset px-2.5 py-0.5 rounded-full text-[10.5px] font-bold text-amber-hud border border-amber-500/40 bg-amber-500/10 flex items-center gap-1.5 animate-pulse shadow-[0_0_8px_var(--amber-hud)]">
+                <Loader2 className="w-3 h-3 animate-spin" /> Connecting Live Voice…
+              </span>
+            )}
+            {isConnected && !isConnecting && (
+              <span className="neu-inset px-2.5 py-0.5 rounded-full text-[10.5px] font-bold text-emerald-hud border border-emerald-500/40 bg-emerald-500/10 flex items-center gap-1.5 shadow-[0_0_8px_var(--emerald-hud)]">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" /> Live Connected
+              </span>
+            )}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             Swarm active — {stats.running} agents online · {stats.active} missions in flight.
@@ -73,18 +91,33 @@ export function DashboardView() {
         <div className="flex items-center gap-1.5 overflow-x-auto">
           {PERSONAS.map((p) => {
             const active = selectedPersona.id === p.id;
+            const icon =
+              p.id === "jarvis" ? "◎" :
+              p.id === "friday" ? "🌐" :
+              p.id === "ultron" ? "💀" :
+              p.id === "edith" ? "🕶" :
+              p.id === "karen" ? "⚡" : "🧠";
             return (
               <button
                 key={p.id}
                 onClick={() => handleSwapPersona(p.id)}
+                style={
+                  active
+                    ? {
+                        color: p.accentColor,
+                        borderColor: `color-mix(in oklab, ${p.accentColor} 45%, transparent)`,
+                        boxShadow: `0 0 12px color-mix(in oklab, ${p.accentColor} 20%, transparent)`,
+                      }
+                    : undefined
+                }
                 className={cn(
                   "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer",
                   active
-                    ? "neu-inset text-cyan-hud border border-cyan-500/40 shadow-sm"
+                    ? "neu-inset border"
                     : "key text-muted-foreground hover:text-foreground",
                 )}
               >
-                <span>{p.id === "jarvis" ? "◎" : p.id === "friday" ? "📡" : p.id === "edith" ? "🛡" : "🧠"}</span>
+                <span>{icon}</span>
                 <span>{p.name}</span>
               </button>
             );
@@ -153,15 +186,30 @@ export function DashboardView() {
           {/* Main Connect / Disconnect */}
           <button
             onClick={isConnected ? handleStopSession : handleStartSession}
+            disabled={isConnecting}
             className={cn(
               "flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer",
-              isConnected
+              isConnecting
+                ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-lg shadow-amber-500/20 animate-pulse cursor-wait"
+                : isConnected
                 ? "bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30"
                 : "bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-600/25 hover:from-cyan-500 hover:to-blue-500",
             )}
           >
-            {isConnected ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-            <span>{isConnected ? "Disconnect" : "Connect Voice"}</span>
+            {isConnecting ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-300" />
+            ) : isConnected ? (
+              <Square className="w-3.5 h-3.5" />
+            ) : (
+              <Play className="w-3.5 h-3.5" />
+            )}
+            <span>
+              {isConnecting
+                ? "Connecting…"
+                : isConnected
+                ? "Disconnect"
+                : "Connect Voice"}
+            </span>
           </button>
         </div>
       </div>

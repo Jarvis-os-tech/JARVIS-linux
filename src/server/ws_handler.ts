@@ -1,7 +1,7 @@
 import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { GoogleGenAI, Modality, LiveServerMessage } from '@google/genai';
-import { WORKSPACE_FUNCTION_DECLARATIONS, executeWorkspaceTool } from '../utils/workspace_tools';
+import { WORKSPACE_FUNCTION_DECLARATIONS, executeWorkspaceTool, setGlobalGoogleAccessToken, getGlobalGoogleAccessToken } from '../utils/workspace_tools';
 import { masterOrchestratorInstance } from '../utils/multi_agent_orchestrator';
 import { obsidianDailyLogger } from '../utils/obsidian_logger';
 import { getSystemInfoSummaryForLLM } from '../utils/system_controller';
@@ -63,6 +63,7 @@ export function attachWebSocketServer(server: http.Server): WebSocketServer {
 
       if (config.googleAccessToken) {
         currentAccessToken = config.googleAccessToken;
+        setGlobalGoogleAccessToken(config.googleAccessToken);
       }
 
       try {
@@ -158,10 +159,11 @@ ${groundTruthContext}`;
                     functionCalls.map(async (call) => {
                       logTool.info(`Executing tool: ${call.name}`, call.args);
                       try {
+                        const tokenToUse = currentAccessToken || getGlobalGoogleAccessToken() || process.env.GOOGLE_ACCESS_TOKEN || '';
                         const toolResult = await executeWorkspaceTool(
                           call.name,
                           (call.args as Record<string, any>) || {},
-                          currentAccessToken
+                          tokenToUse
                         );
 
                         // Record tool execution in Obsidian Daily Log
@@ -315,8 +317,12 @@ ${groundTruthContext}`;
         }
 
         if (msg.type === 'update_token') {
-          currentAccessToken = msg.googleAccessToken || msg.token || '';
-          logVoice.info('Updated Google access token');
+          const token = msg.googleAccessToken || msg.token || '';
+          currentAccessToken = token;
+          if (token) {
+            setGlobalGoogleAccessToken(token);
+          }
+          logVoice.info('Updated Google access token across all agents');
           return;
         }
 

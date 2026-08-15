@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { executeWorkspaceTool } from '../utils/workspace_tools';
+import { executeWorkspaceTool, setGlobalGoogleAccessToken, getGlobalGoogleAccessToken } from '../utils/workspace_tools';
 import { executeUnifiedAiChat, AiProvider } from '../utils/ai_engine';
 import { analyzeUtterance } from '../utils/nlu_engine';
 import { masterOrchestratorInstance } from '../utils/multi_agent_orchestrator';
@@ -332,11 +332,37 @@ export function createApiRouter(): Router {
     }
   });
 
-  // --- Workspace Tools ---
+  // --- Workspace Tools & Token Management ---
+  router.post('/workspace/token', (req: Request, res: Response) => {
+    try {
+      const { token } = req.body;
+      if (token && typeof token === 'string' && token.trim()) {
+        setGlobalGoogleAccessToken(token.trim());
+        return res.json({ success: true, message: 'Google access token cached globally across all agents' });
+      }
+      return res.status(400).json({ success: false, error: 'Token string is required' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/workspace/token/status', (_req: Request, res: Response) => {
+    try {
+      const token = getGlobalGoogleAccessToken() || process.env.GOOGLE_ACCESS_TOKEN || '';
+      res.json({
+        connected: !!token,
+        hasToken: !!token
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   router.post('/workspace/execute', async (req: Request, res: Response) => {
     try {
       const { toolName, args, googleAccessToken } = req.body;
-      const token = googleAccessToken || (req.headers.authorization ? req.headers.authorization.replace('Bearer ', '') : '');
+      const token = googleAccessToken || (req.headers.authorization ? req.headers.authorization.replace('Bearer ', '') : '') || getGlobalGoogleAccessToken();
+      if (token) setGlobalGoogleAccessToken(token);
       const result = await executeWorkspaceTool(toolName, args || {}, token);
       res.json(result);
     } catch (err: any) {

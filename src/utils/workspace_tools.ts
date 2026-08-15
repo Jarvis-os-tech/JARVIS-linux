@@ -36,6 +36,18 @@ import {
   getEnvironmentInfo
 } from './system_controller';
 
+let globalGoogleAccessToken: string = process.env.GOOGLE_ACCESS_TOKEN || '';
+
+export function setGlobalGoogleAccessToken(token: string): void {
+  if (token && typeof token === 'string' && token.trim()) {
+    globalGoogleAccessToken = token.trim();
+  }
+}
+
+export function getGlobalGoogleAccessToken(): string {
+  return globalGoogleAccessToken;
+}
+
 export interface FunctionDeclaration {
   name: string;
   description: string;
@@ -1233,16 +1245,42 @@ export async function executeWorkspaceTool(
     // =============================================================
     // GOOGLE WORKSPACE TOOLS (Google OAuth Access Token Required)
     // =============================================================
-    if (!accessToken) {
+    const effectiveToken =
+      (accessToken && typeof accessToken === 'string' && accessToken.trim()) ||
+      globalGoogleAccessToken ||
+      process.env.GOOGLE_ACCESS_TOKEN ||
+      '';
+
+    if (effectiveToken && !globalGoogleAccessToken) {
+      setGlobalGoogleAccessToken(effectiveToken);
+    }
+
+    if (!effectiveToken) {
       return {
         success: false,
-        error: 'Google Account is not connected or authorization token is missing. Please click "Connect Google Account" in the Workspace Hub to grant access.'
+        error: 'Google Workspace account is not connected or authorization token is missing. Please click "Connect to Google" in the Connectors view to authorize full Workspace access for all agents.'
       };
     }
 
     const headers = {
-      Authorization: `Bearer ${accessToken}`,
+      Authorization: `Bearer ${effectiveToken}`,
       'Content-Type': 'application/json'
+    };
+
+    const checkGoogleError = (data: any) => {
+      if (data?.error) {
+        const code = data.error.code;
+        const msg = typeof data.error === 'string' ? data.error : data.error.message || 'Google API request failed';
+        if (
+          code === 401 ||
+          msg.toLowerCase().includes('invalid authentication credentials') ||
+          msg.toLowerCase().includes('oauth') ||
+          msg.toLowerCase().includes('invalid credentials')
+        ) {
+          throw new Error('Google OAuth access token is expired or unauthorized. Please re-authorize by clicking "Connect to Google" in the Connectors view.');
+        }
+        throw new Error(msg);
+      }
     };
 
     switch (toolName) {
@@ -1282,7 +1320,7 @@ export async function executeWorkspaceTool(
           body: JSON.stringify({ raw: encodedEmail })
         });
         const data = await res.json();
-        if (data.error) throw new Error(data.error.message || 'Gmail send failed');
+        checkGoogleError(data);
 
         return {
           success: true,
@@ -1301,7 +1339,7 @@ export async function executeWorkspaceTool(
         const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}${query ? `&q=${encodeURIComponent(query)}` : ''}`;
         const res = await fetch(url, { headers });
         const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
+        checkGoogleError(data);
 
         const messages = data.messages || [];
         const detailed = await Promise.all(
@@ -1334,7 +1372,7 @@ export async function executeWorkspaceTool(
         const messageId = args.messageId;
         const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`, { headers });
         const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
+        checkGoogleError(data);
 
         const hList = data.payload?.headers || [];
         let bodyText = data.snippet || '';
@@ -1375,7 +1413,7 @@ export async function executeWorkspaceTool(
           body: JSON.stringify({ message: { raw: encodedEmail } })
         });
         const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
+        checkGoogleError(data);
 
         return {
           success: true,
@@ -1414,7 +1452,7 @@ export async function executeWorkspaceTool(
           body: JSON.stringify(eventBody)
         });
         const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
+        checkGoogleError(data);
 
         return {
           success: true,
@@ -1436,7 +1474,7 @@ export async function executeWorkspaceTool(
 
         const res = await fetch(url, { headers });
         const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
+        checkGoogleError(data);
 
         const events = (data.items || []).map((ev: any) => ({
           id: ev.id,
@@ -1466,6 +1504,7 @@ export async function executeWorkspaceTool(
         });
         if (!res.ok && res.status !== 204) {
           const err = await res.json().catch(() => ({ error: { message: 'Delete failed' } }));
+          checkGoogleError(err);
           throw new Error(err.error?.message || 'Failed to delete event');
         }
 
@@ -1483,6 +1522,7 @@ export async function executeWorkspaceTool(
         const { title, notes, due } = args;
         const listRes = await fetch('https://tasks.googleapis.com/tasks/v1/users/@me/lists', { headers });
         const listData = await listRes.json();
+        checkGoogleError(listData);
         const listId = listData.items?.[0]?.id || '@default';
 
         const taskPayload: any = { title };
@@ -1495,7 +1535,7 @@ export async function executeWorkspaceTool(
           body: JSON.stringify(taskPayload)
         });
         const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
+        checkGoogleError(data);
 
         return {
           success: true,
@@ -1511,6 +1551,7 @@ export async function executeWorkspaceTool(
       case 'list_tasks': {
         const listRes = await fetch('https://tasks.googleapis.com/tasks/v1/users/@me/lists', { headers });
         const listData = await listRes.json();
+        checkGoogleError(listData);
         const listId = listData.items?.[0]?.id || '@default';
 
         const showCompleted = args.showCompleted ? 'true' : 'false';
@@ -1518,7 +1559,7 @@ export async function executeWorkspaceTool(
 
         const res = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks?showCompleted=${showCompleted}&maxResults=${maxResults}`, { headers });
         const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
+        checkGoogleError(data);
 
         const tasks = (data.items || []).map((t: any) => ({
           id: t.id,
@@ -1543,6 +1584,7 @@ export async function executeWorkspaceTool(
         const { taskId } = args;
         const listRes = await fetch('https://tasks.googleapis.com/tasks/v1/users/@me/lists', { headers });
         const listData = await listRes.json();
+        checkGoogleError(listData);
         const listId = listData.items?.[0]?.id || '@default';
 
         const res = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${taskId}`, {
@@ -1551,7 +1593,7 @@ export async function executeWorkspaceTool(
           body: JSON.stringify({ status: 'completed' })
         });
         const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
+        checkGoogleError(data);
 
         return {
           success: true,
@@ -1567,6 +1609,7 @@ export async function executeWorkspaceTool(
         const { taskId } = args;
         const listRes = await fetch('https://tasks.googleapis.com/tasks/v1/users/@me/lists', { headers });
         const listData = await listRes.json();
+        checkGoogleError(listData);
         const listId = listData.items?.[0]?.id || '@default';
 
         const res = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${taskId}`, {
@@ -1575,6 +1618,7 @@ export async function executeWorkspaceTool(
         });
         if (!res.ok && res.status !== 204) {
           const err = await res.json().catch(() => ({ error: { message: 'Delete failed' } }));
+          checkGoogleError(err);
           throw new Error(err.error?.message || 'Failed to delete task');
         }
 
@@ -1596,7 +1640,7 @@ export async function executeWorkspaceTool(
           body: JSON.stringify({ title: title || 'Untitled Document' })
         });
         const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
+        checkGoogleError(data);
 
         const docId = data.documentId;
         const docUrl = `https://docs.google.com/document/d/${docId}/edit`;
@@ -1637,7 +1681,7 @@ export async function executeWorkspaceTool(
         const docId = extractGoogleId(args.documentId);
         const res = await fetch(`https://docs.googleapis.com/v1/documents/${docId}`, { headers });
         const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
+        checkGoogleError(data);
 
         let fullText = '';
         if (data.body?.content) {
@@ -1668,7 +1712,7 @@ export async function executeWorkspaceTool(
         const { text } = args;
         const getRes = await fetch(`https://docs.googleapis.com/v1/documents/${docId}`, { headers });
         const docData = await getRes.json();
-        if (docData.error) throw new Error(docData.error.message);
+        checkGoogleError(docData);
 
         const bodyContent = docData.body?.content || [];
         const lastElem = bodyContent[bodyContent.length - 1];
@@ -1689,7 +1733,7 @@ export async function executeWorkspaceTool(
           })
         });
         const updateData = await updateRes.json();
-        if (updateData.error) throw new Error(updateData.error.message);
+        checkGoogleError(updateData);
 
         return {
           success: true,
@@ -1712,7 +1756,7 @@ export async function executeWorkspaceTool(
           })
         });
         const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
+        checkGoogleError(data);
 
         const sheetId = data.spreadsheetId;
         const sheetUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/edit`;
@@ -1769,7 +1813,7 @@ export async function executeWorkspaceTool(
         const range = args.range || 'Sheet1!A1:Z50';
         const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}`, { headers });
         const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
+        checkGoogleError(data);
 
         return {
           success: true,
@@ -1804,7 +1848,7 @@ export async function executeWorkspaceTool(
           body: JSON.stringify({ values: rowData })
         });
         const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
+        checkGoogleError(data);
 
         return {
           success: true,
@@ -1847,7 +1891,7 @@ export async function executeWorkspaceTool(
         const url = `https://www.googleapis.com/drive/v3/files?pageSize=${limit}&q=${encodeURIComponent(qStr)}&fields=files(id,name,mimeType,webViewLink,createdTime,modifiedTime,size,iconLink)`;
         const res = await fetch(url, { headers });
         const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
+        checkGoogleError(data);
 
         return {
           success: true,
@@ -1875,7 +1919,7 @@ export async function executeWorkspaceTool(
           body: JSON.stringify(payload)
         });
         const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
+        checkGoogleError(data);
 
         return {
           success: true,

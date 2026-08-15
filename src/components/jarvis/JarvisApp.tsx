@@ -37,6 +37,7 @@ function ViewRouter() {
 
 export function JarvisApp() {
   const {
+    view,
     latestActionToast,
     setLatestActionToast,
     isVisionActive,
@@ -59,11 +60,11 @@ export function JarvisApp() {
       <main className="relative z-10 mt-3 flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
         <Sidebar />
 
-        <section className="bezel flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl p-4 sm:p-5">
+        <section className="bezel flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl p-4 sm:p-5 transition-all duration-300">
           <ViewRouter />
         </section>
 
-        <MissionRail />
+        {view !== "memory" && <MissionRail />}
       </main>
 
       {/* Vision Preview PiP Widget */}

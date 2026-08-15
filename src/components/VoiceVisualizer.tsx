@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { ConnectionState } from '../types';
-import { Mic, MicOff, Square, Sparkles, Camera, Monitor } from 'lucide-react';
+import { Mic, MicOff, Square, Sparkles, Camera, Monitor, Loader2 } from 'lucide-react';
 
 interface VoiceVisualizerProps {
   connectionState: ConnectionState;
@@ -165,7 +165,7 @@ export const VoiceVisualizer: React.FC<VoiceVisualizerProps> = ({
   const getStatusText = () => {
     switch (connectionState) {
       case 'connecting':
-        return 'Connecting real-time socket...';
+        return `Connecting live voice for ${personaName}…`;
       case 'listening':
         return `${personaName} is listening to you...`;
       case 'speaking':
@@ -200,8 +200,8 @@ export const VoiceVisualizer: React.FC<VoiceVisualizerProps> = ({
           )}
 
           {connectionState === 'connecting' && (
-            <div className="w-16 h-16 rounded-full glass-panel shadow-2xl border border-white/20 flex items-center justify-center">
-              <Sparkles className="w-7 h-7 text-amber-400 animate-spin" />
+            <div className="w-16 h-16 rounded-full glass-panel shadow-2xl border border-amber-400/40 bg-amber-500/10 flex items-center justify-center animate-pulse shadow-[0_0_20px_rgba(245,158,11,0.3)]">
+              <Loader2 className="w-8 h-8 text-amber-400 animate-spin" />
             </div>
           )}
         </div>
@@ -210,6 +210,7 @@ export const VoiceVisualizer: React.FC<VoiceVisualizerProps> = ({
       {/* Dynamic Status Text */}
       <div className="mt-4 text-center">
         <p className="text-sm sm:text-base font-medium text-zinc-200 animate-fade-in flex items-center justify-center gap-2">
+          {connectionState === 'connecting' && <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />}
           {connectionState === 'speaking' && <span className="w-2 h-2 rounded-full bg-indigo-400 animate-ping" />}
           {connectionState === 'listening' && <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping" />}
           {getStatusText()}

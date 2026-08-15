@@ -4,7 +4,9 @@ export interface MemoryFact {
   key: string;
   value: string;
   updatedAt: string;
-  source: 'auto_extracted' | 'user_added';
+  source: 'auto_extracted' | 'user_added' | 'agent_sync';
+  agentId?: 'jarvis' | 'friday' | 'ultron' | 'edith' | 'karen' | 'user' | string;
+  agentName?: string;
 }
 
 export interface AgentMemoryState {
@@ -14,29 +16,55 @@ export interface AgentMemoryState {
   lastUpdated: string;
 }
 
+export const DEFAULT_SEED_MEMORIES: MemoryFact[] = [
+  {
+    id: 'mem-ultron-sentinel',
+    category: 'work_context',
+    key: 'ULTRON Security & Isolation Baseline',
+    value: 'Linux firewall policies active. Listening ports 3000 (HTTP/WebSocket Live Bridge) authorized. Mutter D-Bus and X11 display subsystems monitored. Zero privilege escalation vectors detected.',
+    updatedAt: new Date().toISOString(),
+    source: 'agent_sync',
+    agentId: 'ultron',
+    agentName: 'ULTRON Sentinel'
+  },
+  {
+    id: 'mem-friday-briefing',
+    category: 'topic',
+    key: 'FRIDAY Executive Briefing Schedule',
+    value: 'Morning Executive Briefing is configured as primary operational objective. Automates calendar triage, unread high-priority emails, and system health status synthesis.',
+    updatedAt: new Date().toISOString(),
+    source: 'agent_sync',
+    agentId: 'friday',
+    agentName: 'FRIDAY Executive'
+  },
+  {
+    id: 'mem-jarvis-core',
+    category: 'preference',
+    key: 'JARVIS Core Multilingual Protocol',
+    value: 'Real-time bidirectional speech auto-detection active. Immediate conversational adaptation to user language (English, Hindi, Telugu, Tamil, Spanish, French, etc.) with Puck voice synthesis.',
+    updatedAt: new Date().toISOString(),
+    source: 'agent_sync',
+    agentId: 'jarvis',
+    agentName: 'JARVIS Core'
+  },
+  {
+    id: 'mem-edith-actuators',
+    category: 'work_context',
+    key: 'EDITH System Actuators & POSIX Workers',
+    value: 'C++ POSIX worker binaries compiled in /workers_cpp/. Direct Mutter D-Bus, PulseAudio, and /proc actuators provide sub-millisecond execution with zero RAM persistence.',
+    updatedAt: new Date().toISOString(),
+    source: 'agent_sync',
+    agentId: 'edith',
+    agentName: 'EDITH Tactical Recon'
+  }
+];
+
 const STORAGE_KEY = 'jarvis_agent_memory_v1';
 
 const DEFAULT_MEMORY_STATE: AgentMemoryState = {
   enabled: true,
-  facts: [
-    {
-      id: 'fact-1',
-      category: 'work_context',
-      key: 'Project Focus',
-      value: 'Building J.A.R.V.I.S. Multimodal Voice AI Studio',
-      updatedAt: new Date().toISOString(),
-      source: 'user_added'
-    },
-    {
-      id: 'fact-2',
-      category: 'preference',
-      key: 'Communication Style',
-      value: 'Concise, natural conversational speech with light warmth',
-      updatedAt: new Date().toISOString(),
-      source: 'user_added'
-    }
-  ],
-  recentTopicsSummary: 'Voice companion setup, multimodal vision streaming, real-time WebSocket connection, and auto-lang detection.',
+  facts: DEFAULT_SEED_MEMORIES,
+  recentTopicsSummary: '',
   lastUpdated: new Date().toISOString()
 };
 
@@ -45,10 +73,15 @@ export function loadAgentMemory(): AgentMemoryState {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_MEMORY_STATE;
     const parsed = JSON.parse(raw);
+    // Filter out any legacy dummy facts
+    const rawFacts = Array.isArray(parsed.facts) ? parsed.facts : [];
+    const cleanFacts = rawFacts.filter(
+      (f: MemoryFact) => f && f.id !== 'fact-1' && f.id !== 'fact-2' && f.key !== 'Project Focus'
+    );
     return {
       enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : true,
-      facts: Array.isArray(parsed.facts) ? parsed.facts : DEFAULT_MEMORY_STATE.facts,
-      recentTopicsSummary: parsed.recentTopicsSummary || DEFAULT_MEMORY_STATE.recentTopicsSummary,
+      facts: cleanFacts.length > 0 ? cleanFacts : DEFAULT_SEED_MEMORIES,
+      recentTopicsSummary: parsed.recentTopicsSummary || '',
       lastUpdated: parsed.lastUpdated || new Date().toISOString()
     };
   } catch (err) {

@@ -14,7 +14,7 @@ const label: Record<Mission["status"], { text: string; cls: string }> = {
 };
 
 export function MissionControlView() {
-  const { missions, createMission, setMissionStatus, removeMission, log, workspaceActions } = useJarvis();
+  const { missions, createMission, setMissionStatus, removeMission, clearAllMissions, log, workspaceActions } = useJarvis();
   const stats = useStats();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
@@ -37,12 +37,22 @@ export function MissionControlView() {
             Direct oversight of every autonomous operation, background routine, and Google Workspace action.
           </p>
         </div>
-        <button
-          onClick={() => setOpen((o) => !o)}
-          className="flex shrink-0 items-center gap-2 rounded-xl border border-cyan-hud/40 bg-[linear-gradient(90deg,color-mix(in_oklab,var(--cyan-hud)_20%,transparent),color-mix(in_oklab,var(--blue-hud)_20%,transparent))] px-4 py-2.5 text-[13px] font-bold text-cyan-hud transition-transform hover:-translate-y-0.5 cursor-pointer shadow-lg shadow-cyan-600/20"
-        >
-          <Plus className="h-4 w-4" /> New Mission
-        </button>
+        <div className="flex items-center gap-2">
+          {missions.length > 0 && (
+            <button
+              onClick={clearAllMissions}
+              className="key flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-[12px] font-bold text-rose-400 border border-rose-500/30 hover:bg-rose-500/10 cursor-pointer"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Clear All
+            </button>
+          )}
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className="flex shrink-0 items-center gap-2 rounded-xl border border-cyan-hud/40 bg-[linear-gradient(90deg,color-mix(in_oklab,var(--cyan-hud)_20%,transparent),color-mix(in_oklab,var(--blue-hud)_20%,transparent))] px-4 py-2.5 text-[13px] font-bold text-cyan-hud transition-transform hover:-translate-y-0.5 cursor-pointer shadow-lg shadow-cyan-600/20"
+          >
+            <Plus className="h-4 w-4" /> New Mission
+          </button>
+        </div>
       </header>
 
       {/* Top metric tiles */}
@@ -114,12 +124,12 @@ export function MissionControlView() {
       </div>
 
       {/* Missions list + activity side panel */}
-      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
-        <div className="flex min-h-0 flex-col gap-2.5 overflow-y-auto pb-4 pr-1">
+      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_19rem]">
+        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pb-4 pr-1">
           {list.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-16 text-center neu-inset rounded-2xl p-6">
+            <div className="flex flex-col items-center justify-center my-auto py-16 text-center neu-inset rounded-2xl p-6">
               <span className="text-3xl mb-2">🎯</span>
-              <h3 className="text-sm font-bold text-foreground">No operations in this state</h3>
+              <h3 className="text-sm font-bold text-foreground">No operations in flight</h3>
               <p className="mt-1 text-xs text-muted-foreground max-w-sm">
                 Directives dispatched via voice, chat, or the Workflow Forge will appear and track here in real-time.
               </p>
@@ -134,9 +144,12 @@ export function MissionControlView() {
           {list.map((m) => {
             const s = label[m.status] || label.progress;
             return (
-              <article key={m.id} className="neu gloss animate-rise-in flex gap-3.5 rounded-2xl p-4">
+              <article
+                key={m.id}
+                className="neu gloss animate-rise-in flex shrink-0 gap-3.5 rounded-2xl p-4 border border-white/5 shadow-md"
+              >
                 <span
-                  className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-base"
+                  className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-lg"
                   style={{
                     background: `color-mix(in oklab, ${m.accent} 15%, transparent)`,
                     color: m.accent,
@@ -146,14 +159,18 @@ export function MissionControlView() {
                   {m.icon}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-baseline gap-x-3">
-                    <h3 className="text-[13.5px] font-bold">{m.title}</h3>
-                    <span className={cn("text-[11px] font-semibold", s.cls)}>{s.text}</span>
-                    <span className="ml-auto font-mono text-[10.5px] text-muted-foreground">
-                      {timeAgo(m.createdAt)}
-                    </span>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-[13.5px] font-bold text-foreground truncate">{m.title}</h3>
+                    <div className="flex items-center gap-2">
+                      <span className={cn("text-[11px] font-semibold", s.cls)}>{s.text}</span>
+                      <span className="font-mono text-[10.5px] text-muted-foreground">
+                        {timeAgo(m.createdAt)}
+                      </span>
+                    </div>
                   </div>
-                  <p className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground">{m.desc}</p>
+                  <p className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground break-words line-clamp-2">
+                    {m.desc}
+                  </p>
 
                   {m.linkUrl && (
                     <a
@@ -167,7 +184,7 @@ export function MissionControlView() {
                     </a>
                   )}
 
-                  <div className="mt-2.5 flex items-center gap-3">
+                  <div className="mt-3 flex items-center gap-3">
                     <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-foreground/10">
                       <i
                         className="block h-full rounded-full transition-all duration-700"
@@ -178,12 +195,12 @@ export function MissionControlView() {
                         }}
                       />
                     </span>
-                    <span className="font-mono text-[11px] text-muted-foreground">
+                    <span className="font-mono text-[11px] text-muted-foreground font-bold">
                       {Math.round(m.progress)}%
                     </span>
                   </div>
 
-                  <div className="mt-3 flex flex-wrap gap-1.5">
+                  <div className="mt-3 flex flex-wrap gap-1.5 pt-2 border-t border-white/5">
                     {m.status !== "done" && m.status !== "cancelled" && (
                       <>
                         {m.status === "progress" ? (
@@ -207,9 +224,9 @@ export function MissionControlView() {
           <p className="mb-2.5 text-[10.5px] font-bold tracking-[0.18em] text-muted-foreground">
             SYSTEM TELEMETRY LOG
           </p>
-          <div className="neu-inset min-h-0 flex-1 space-y-3 overflow-y-auto rounded-xl p-3.5">
+          <div className="neu-inset min-h-0 flex-1 space-y-3 overflow-y-auto rounded-2xl p-4">
             {log.map((l) => (
-              <div key={l.id} className="border-l-2 border-cyan-hud/40 pl-3">
+              <div key={l.id} className="border-l-2 border-cyan-hud/40 pl-3 py-0.5">
                 <p className="text-[11.5px] leading-snug text-foreground">{l.text}</p>
                 <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">{timeAgo(l.at)}</p>
               </div>

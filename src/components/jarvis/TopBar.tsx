@@ -1,5 +1,5 @@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Activity, Bell, Gauge, Power, Settings2, X, Sparkles, LayoutGrid } from "lucide-react";
+import { Activity, Bell, Gauge, Power, Settings2, X, Sparkles, LayoutGrid, Loader2 } from "lucide-react";
 import { useJarvis, useNow } from "./JarvisProvider";
 import { ThemeToggle } from "./ThemeToggle";
 import { timeAgo } from "@/lib/jarvis-data";
@@ -42,12 +42,14 @@ export function TopBar() {
     setTelemetryOn,
     setView,
     connectionState,
+    selectedPersona,
     handleStartSession,
     handleStopSession,
     onSwitchToClassic,
   } = useJarvis();
   const now = useNow();
 
+  const isConnecting = connectionState === "connecting";
   const isConnected = connectionState !== "disconnected" && connectionState !== "error";
 
   return (
@@ -69,6 +71,26 @@ export function TopBar() {
           </span>
         </div>
       </div>
+
+      {/* Voice Status Pill */}
+      {isConnecting ? (
+        <div className="neu-inset hidden md:flex items-center gap-2 px-3.5 py-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 text-amber-hud animate-pulse shadow-[0_0_12px_var(--amber-hud)]">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          <span className="text-[11px] font-mono font-bold tracking-wider">
+            CONNECTING TO {selectedPersona?.name?.toUpperCase() || "VOICE"}…
+          </span>
+        </div>
+      ) : isConnected ? (
+        <div className="neu-inset hidden md:flex items-center gap-2 px-3.5 py-1.5 rounded-xl border border-emerald-500/30 text-emerald-hud shadow-[0_0_8px_var(--emerald-hud)]">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          </span>
+          <span className="text-[11px] font-mono font-bold tracking-wider">
+            {selectedPersona?.name?.toUpperCase()} · LIVE ONLINE
+          </span>
+        </div>
+      ) : null}
 
       <div className="hidden items-center gap-2 xl:flex">
         <Gauge3 label="CPU" value={cpu} unit="%" color="var(--cyan-hud)" />
@@ -203,16 +225,35 @@ export function TopBar() {
         {/* Power / Live Connect Toggle */}
         <button
           onClick={isConnected ? handleStopSession : handleStartSession}
-          aria-label={isConnected ? "Disconnect Voice Session" : "Connect Live Voice Session"}
-          title={isConnected ? "Live Voice Connected (Click to Disconnect)" : "Voice Standby (Click to Connect)"}
+          disabled={isConnecting}
+          aria-label={
+            isConnecting
+              ? "Connecting Live Voice Stream…"
+              : isConnected
+              ? "Disconnect Voice Session"
+              : "Connect Live Voice Session"
+          }
+          title={
+            isConnecting
+              ? "Connecting to Voice Stream (Please wait)…"
+              : isConnected
+              ? "Live Voice Connected (Click to Disconnect)"
+              : "Voice Standby (Click to Connect)"
+          }
           className={cn(
             "neu grid h-10 w-10 place-items-center rounded-full transition-all cursor-pointer",
-            isConnected
+            isConnecting
+              ? "text-amber-hud glow-ring animate-pulse shadow-[0_0_14px_var(--amber-hud)] bg-amber-500/10 cursor-wait"
+              : isConnected
               ? "text-emerald-hud glow-ring shadow-[0_0_12px_var(--emerald-hud)]"
               : "text-muted-foreground hover:text-cyan-hud",
           )}
         >
-          <Power className="h-4 w-4" />
+          {isConnecting ? (
+            <Loader2 className="h-4 w-4 animate-spin text-amber-hud" />
+          ) : (
+            <Power className="h-4 w-4" />
+          )}
         </button>
       </div>
     </header>

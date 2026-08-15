@@ -1,4 +1,5 @@
 import { useJarvis, useStats } from "./JarvisProvider";
+import { cn } from "@/lib/utils";
 
 const TICKS = Array.from({ length: 60 }, (_, i) => {
   const a = (i / 60) * Math.PI * 2;
@@ -26,12 +27,20 @@ export function OrbStage() {
 
   const isSpeaking = connectionState === "speaking";
   const isListening = connectionState === "listening";
+  const isConnecting = connectionState === "connecting";
   const isConnected = connectionState !== "disconnected" && connectionState !== "error";
-  const active = thinking || isSpeaking || isListening || stats.active > 0;
-  const loadColor = isSpeaking ? "var(--violet-hud)" : isListening ? "var(--rose-hud)" : loadHue(cpu);
+  const active = thinking || isSpeaking || isListening || isConnecting || stats.active > 0;
+  const personaAccent = selectedPersona?.accentColor || "var(--cyan-hud)";
+  const loadColor = isConnecting
+    ? "var(--amber-hud)"
+    : isSpeaking
+    ? personaAccent
+    : isListening
+    ? "var(--emerald-hud)"
+    : personaAccent;
 
   // Dynamic pulse scale based on audio volume
-  const voiceScale = isSpeaking ? 1 + outputVolume * 0.4 : isListening ? 1 + inputVolume * 0.4 : 1;
+  const voiceScale = isConnecting ? 1.08 : isSpeaking ? 1 + outputVolume * 0.4 : isListening ? 1 + inputVolume * 0.4 : 1;
 
   return (
     <div className="bezel relative grid min-h-0 flex-1 place-items-center overflow-hidden rounded-2xl p-3">
@@ -42,12 +51,12 @@ export function OrbStage() {
         <defs>
           <radialGradient id="domeGrad" cx="50%" cy="34%">
             <stop offset="0%" stopColor="oklch(1 0 0)" stopOpacity="0.16" />
-            <stop offset="55%" stopColor="var(--cyan-hud)" stopOpacity="0.08" />
+            <stop offset="55%" stopColor={isConnecting ? "var(--amber-hud)" : "var(--cyan-hud)"} stopOpacity="0.08" />
             <stop offset="100%" stopColor="oklch(0.1 0 0)" stopOpacity="0.35" />
           </radialGradient>
           <radialGradient id="coreGrad" cx="50%" cy="50%">
-            <stop offset="0%" stopColor={loadColor} stopOpacity="0.5" />
-            <stop offset="62%" stopColor="var(--blue-hud)" stopOpacity="0.12" />
+            <stop offset="0%" stopColor={loadColor} stopOpacity={isConnecting ? 0.65 : 0.5} />
+            <stop offset="62%" stopColor={isConnecting ? "var(--amber-hud)" : "var(--blue-hud)"} stopOpacity="0.15" />
             <stop offset="100%" stopColor="transparent" stopOpacity="0" />
           </radialGradient>
           <linearGradient id="ringMetal" x1="0" y1="0" x2="0" y2="1">
@@ -72,7 +81,7 @@ export function OrbStage() {
         <circle cx="380" cy="256" r="187" fill="none" stroke="oklch(1 0 0 / 10%)" strokeWidth="1" />
 
         {/* tick marks */}
-        <g stroke="var(--cyan-hud)" strokeOpacity="0.45">
+        <g stroke={isConnecting ? "var(--amber-hud)" : "var(--cyan-hud)"} strokeOpacity={isConnecting ? 0.7 : 0.45}>
           {TICKS.map((t, i) => (
             <line
               key={i}
@@ -85,16 +94,17 @@ export function OrbStage() {
           ))}
         </g>
 
-        <g style={{ transformOrigin: "380px 256px" }} className="animate-spin-slow">
+        {/* Rotating connecting radar ring */}
+        <g style={{ transformOrigin: "380px 256px" }} className={isConnecting ? "animate-spin" : "animate-spin-slow"}>
           <circle
             cx="380"
             cy="256"
             r="148"
             fill="none"
-            stroke="var(--cyan-hud)"
-            strokeOpacity="0.3"
-            strokeWidth="1.5"
-            strokeDasharray="3 12"
+            stroke={isConnecting ? "var(--amber-hud)" : "var(--cyan-hud)"}
+            strokeOpacity={isConnecting ? "0.75" : "0.3"}
+            strokeWidth={isConnecting ? "2.5" : "1.5"}
+            strokeDasharray={isConnecting ? "18 18" : "3 12"}
           />
         </g>
         <g style={{ transformOrigin: "380px 256px" }} className="animate-spin-slower">
@@ -103,7 +113,7 @@ export function OrbStage() {
             cy="256"
             r="132"
             fill="none"
-            stroke="var(--violet-hud)"
+            stroke={isConnecting ? "var(--amber-hud)" : "var(--violet-hud)"}
             strokeOpacity="0.28"
             strokeWidth="1.2"
             strokeDasharray="46 220"
@@ -131,75 +141,142 @@ export function OrbStage() {
           r={150 * voiceScale}
           fill="url(#coreGrad)"
           filter="url(#soft)"
-          className="animate-core-pulse transition-all duration-150"
+          className={cn("transition-all duration-150", isConnecting ? "animate-pulse" : "animate-core-pulse")}
         />
         <circle cx="380" cy="256" r="120" fill="url(#domeGrad)" stroke="oklch(1 0 0 / 14%)" strokeWidth="1.5" />
         <ellipse cx="345" cy="196" rx="52" ry="26" fill="oklch(1 0 0 / 9%)" transform="rotate(-24 345 196)" />
 
-        {/* CPU load arc */}
+        {/* Ambient Holographic Ring */}
         <circle
           cx="380"
           cy="256"
           r="120"
           fill="none"
           stroke={loadColor}
-          strokeWidth="4"
-          strokeLinecap="round"
-          strokeDasharray={`${(cpu / 100) * 754} 900`}
+          strokeWidth="2.5"
+          strokeDasharray={isConnecting ? "60 120" : "120 40 40 40"}
           transform="rotate(-90 380 256)"
-          style={{ filter: `drop-shadow(0 0 8px ${loadColor})`, transition: "stroke 0.6s ease" }}
+          className={isConnecting ? "animate-spin" : "animate-spin-slow"}
+          style={{
+            transformOrigin: "380px 256px",
+            filter: `drop-shadow(0 0 10px ${loadColor})`,
+            transition: "stroke 0.6s ease",
+          }}
         />
 
-        {/* RAM load arc */}
+        {/* Inner Subtle Ring */}
         <circle
           cx="380"
           cy="256"
           r="104"
           fill="none"
-          stroke="var(--violet-hud)"
-          strokeWidth="3"
-          strokeLinecap="round"
-          strokeDasharray={`${(ram / 100) * 653} 900`}
-          transform="rotate(-90 380 256)"
-          strokeOpacity="0.75"
+          stroke={isConnecting ? "var(--amber-hud)" : "var(--violet-hud)"}
+          strokeWidth="1.5"
+          strokeDasharray={isConnecting ? "180 180" : "40 160"}
+          transform="rotate(45 380 256)"
+          className="animate-spin-slower"
+          style={{ transformOrigin: "380px 256px" }}
+          strokeOpacity="0.6"
         />
 
-        <text
-          x="380"
-          y="240"
-          textAnchor="middle"
-          fill="var(--foreground)"
-          fontSize="44"
-          fontWeight="700"
-          fontFamily="var(--font-mono)"
-        >
-          {cpu}%
-        </text>
-        <text
-          x="380"
-          y="266"
-          textAnchor="middle"
-          fill="var(--muted-foreground)"
-          fontSize="12"
-          letterSpacing="5"
-          fontFamily="var(--font-display)"
-        >
-          {selectedPersona?.name ? selectedPersona.name.toUpperCase() : "JARVIS CORE"}
-        </text>
-        <text
-          x="380"
-          y="312"
-          textAnchor="middle"
-          fill={loadColor}
-          fontSize="11"
-          letterSpacing="3"
-          fontFamily="var(--font-mono)"
-        >
-          {Math.round(net)} KB/S · {stats.running} AGENTS
-        </text>
+        {/* Central Display: Connecting vs Core Identity */}
+        {isConnecting ? (
+          <g>
+            <text
+              x="380"
+              y="238"
+              textAnchor="middle"
+              fill="var(--amber-hud)"
+              fontSize="22"
+              fontWeight="800"
+              letterSpacing="4"
+              fontFamily="var(--font-display)"
+              className="animate-pulse"
+            >
+              CONNECTING
+            </text>
+            <text
+              x="380"
+              y="266"
+              textAnchor="middle"
+              fill="var(--foreground)"
+              fontSize="12"
+              letterSpacing="4"
+              fontFamily="var(--font-mono)"
+            >
+              {selectedPersona?.name ? `INITIALIZING ${selectedPersona.name}` : "INITIALIZING STREAM"}
+            </text>
+            <text
+              x="380"
+              y="312"
+              textAnchor="middle"
+              fill="var(--amber-hud)"
+              fontSize="10"
+              letterSpacing="3"
+              fontFamily="var(--font-mono)"
+            >
+              16KHZ WEBSOCKET · LIVE API LINK
+            </text>
+          </g>
+        ) : (
+          <g>
+            <text
+              x="380"
+              y="244"
+              textAnchor="middle"
+              fill="var(--foreground)"
+              fontSize="34"
+              fontWeight="800"
+              letterSpacing="6"
+              fontFamily="var(--font-display)"
+              style={{
+                filter: `drop-shadow(0 0 12px ${loadColor})`,
+              }}
+            >
+              {selectedPersona?.name ? selectedPersona.name.toUpperCase() : "JARVIS"}
+            </text>
+            <text
+              x="380"
+              y="272"
+              textAnchor="middle"
+              fill="var(--muted-foreground)"
+              fontSize="11"
+              letterSpacing="4"
+              fontFamily="var(--font-mono)"
+            >
+              {connectionState === "speaking"
+                ? "SPEAKING"
+                : connectionState === "listening"
+                ? "LISTENING"
+                : "VOICE READY"}
+            </text>
+            <text
+              x="380"
+              y="312"
+              textAnchor="middle"
+              fill={loadColor}
+              fontSize="10"
+              letterSpacing="3"
+              fontFamily="var(--font-mono)"
+            >
+              {selectedPersona?.voiceName ? `VOICE: ${selectedPersona.voiceName.toUpperCase()}` : "NEURAL DUPLEX"}
+            </text>
+          </g>
+        )}
       </svg>
 
-      <div className="neu-inset absolute bottom-3 flex items-center gap-3 rounded-full px-4 py-2">
+      <div
+        className={cn(
+          "neu-inset absolute bottom-3 flex items-center gap-3 rounded-full px-4 py-2 transition-all duration-300",
+          isConnecting && "border border-amber-500/50 shadow-[0_0_14px_var(--amber-hud)] bg-amber-500/10"
+        )}
+      >
+        {isConnecting && (
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+          </span>
+        )}
         <span className="flex h-4 items-end gap-[3px]">
           {[0, 1, 2, 3, 4, 5, 6].map((i) => {
             const hScale = isSpeaking
@@ -212,19 +289,32 @@ export function OrbStage() {
             return (
               <i
                 key={i}
-                className="w-[3px] rounded-full bg-cyan-hud shadow-[0_0_6px_var(--cyan-hud)] transition-all duration-75"
+                className={cn(
+                  "w-[3px] rounded-full transition-all duration-75",
+                  isConnecting
+                    ? "bg-amber-hud shadow-[0_0_6px_var(--amber-hud)]"
+                    : "bg-cyan-hud shadow-[0_0_6px_var(--cyan-hud)]"
+                )}
                 style={{
                   height: "100%",
-                  transform: `scaleY(${hScale})`,
+                  transform: `scaleY(${isConnecting ? 0.3 + ((i * 2) % 5) * 0.15 : hScale})`,
                   transformOrigin: "bottom",
-                  opacity: active || isConnected ? 1 : 0.4,
+                  opacity: active || isConnected || isConnecting ? 1 : 0.4,
+                  animation: isConnecting ? `core-pulse 0.7s ease-in-out ${i * 0.08}s infinite alternate` : undefined,
                 }}
               />
             );
           })}
         </span>
-        <span className="text-[11px] font-bold uppercase tracking-[0.22em] text-muted-foreground">
-          {thinking
+        <span
+          className={cn(
+            "text-[11px] font-bold uppercase tracking-[0.22em]",
+            isConnecting ? "text-amber-hud animate-pulse" : "text-muted-foreground"
+          )}
+        >
+          {isConnecting
+            ? `Connecting to ${selectedPersona.name}…`
+            : thinking
             ? "Processing Directive…"
             : isSpeaking
             ? `${selectedPersona.name} Speaking`
@@ -238,3 +328,4 @@ export function OrbStage() {
     </div>
   );
 }
+

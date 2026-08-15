@@ -14,6 +14,7 @@ import {
   missionAccents,
   missionIcons,
   seedAgents,
+  seedMissions,
   uid,
   type Agent,
   type ChatMessage,
@@ -87,13 +88,33 @@ function useJarvisState(onSwitchToClassic?: () => void) {
   const [mutedRelayEvents, setMutedRelayEvents] = useState<MutedRelayEvent[]>([]);
   const [activeOrchestratorPersonaId, setActiveOrchestratorPersonaId] = useState<string>("jarvis");
 
-  // Missions & Actions (Persistent real operations only)
+  // Missions & Actions (User-dispatched and workflow operations only)
   const [missions, setMissions] = useState<Mission[]>(() => {
     try {
       const saved = localStorage.getItem("jarvis_missions_v1");
-      return saved ? JSON.parse(saved) : [];
+      if (!saved) return seedMissions;
+      const parsed = JSON.parse(saved);
+      if (!Array.isArray(parsed) || parsed.length === 0) return seedMissions;
+      // Filter out any legacy dummy/mock missions or raw tool logs
+      const clean = parsed.filter(
+        (m: Mission) =>
+          m &&
+          m.id &&
+          !["m1", "m2", "m3", "m4", "m5", "m6"].includes(m.id) &&
+          !["Daily Briefing", "Triage Inbox", "Quantum Simulation", "Satellite Uplink", "Codebase Sweep", "Security Sentinel Night Watch"].includes(m.title) &&
+          !m.title.startsWith("execute ") &&
+          !m.title.startsWith("Command ") &&
+          !m.title.startsWith("Failed ") &&
+          !m.title.startsWith("Found ") &&
+          !m.title.startsWith("get ") &&
+          !m.title.startsWith("search ") &&
+          !m.title.startsWith("list ") &&
+          !m.title.startsWith("Retrieved ") &&
+          !m.title.startsWith("System Health")
+      );
+      return clean.length > 0 ? clean : seedMissions;
     } catch {
-      return [];
+      return seedMissions;
     }
   });
   const [workspaceActions, setWorkspaceActions] = useState<WorkspaceActionItem[]>([]);
@@ -125,6 +146,25 @@ function useJarvisState(onSwitchToClassic?: () => void) {
       localStorage.setItem("jarvis_notifications_v1", JSON.stringify(notifications));
     } catch {}
   }, [notifications]);
+
+  // Synchronize Google OAuth token globally across backend server & active Live WebSocket
+  useEffect(() => {
+    const token = googleAccessToken || localStorage.getItem("g_access_token") || "";
+    if (token) {
+      fetch("/api/workspace/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      }).catch(() => {});
+
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: "update_token",
+          googleAccessToken: token,
+        }));
+      }
+    }
+  }, [googleAccessToken]);
 
   const [log, setLog] = useState<LogEntry[]>([
     { id: uid(), text: "JARVIS MK-VII Console initialized — subsystems nominal.", at: Date.now() },
@@ -486,22 +526,25 @@ function useJarvisState(onSwitchToClassic?: () => void) {
 
     setMessages((prev) => {
       const last = prev[prev.length - 1];
-      if (last && last.role === role) {
+      if (last && last.role === role && (role === "jarvis" ? last.personaId === selectedPersona.id : true)) {
         return [
           ...prev.slice(0, -1),
           { ...last, text: last.text + textChunk },
         ];
       } else {
-        return [
+        const nextList = [
           ...prev,
           {
             id: uid(),
             role,
             text: textChunk,
             at: Date.now(),
+            source: "voice" as const,
             personaId: role === "jarvis" ? selectedPersona.id : undefined,
+            personaName: role === "jarvis" ? selectedPersona.name : undefined,
           },
         ];
+        return nextList.slice(-100);
       }
     });
   }, [selectedPersona]);
@@ -611,22 +654,6 @@ function useJarvisState(onSwitchToClassic?: () => void) {
           if (msg.result?.battery?.percent !== undefined) {
             setBatteryPercent(msg.result.battery.percent);
           }
-
-          // Mission record
-          const missionEntry: Mission = {
-            id: uid(),
-            title: actionItem.title,
-            desc: actionItem.summary,
-            icon: "⚡",
-            accent: "var(--cyan-hud)",
-            status: msg.status === "completed" ? "done" : msg.status === "error" ? "cancelled" : "progress",
-            progress: msg.status === "completed" ? 100 : 50,
-            createdAt: Date.now(),
-            toolName: msg.toolName,
-            linkUrl: msg.result?.linkUrl,
-            resultSummary: msg.result?.summary,
-          };
-          setMissions((prev) => [missionEntry, ...prev.slice(0, 20)]);
         }
 
         // Dedicated vision_control push event from server
@@ -849,6 +876,15 @@ function useJarvisState(onSwitchToClassic?: () => void) {
     });
   }, [pushLog]);
 
+  const clearAllMissions = useCallback(() => {
+    setMissions([]);
+    try {
+      localStorage.removeItem("jarvis_missions_v1");
+    } catch {}
+    pushLog("All missions cleared.");
+    toast("All missions cleared");
+  }, [pushLog]);
+
   /* ------- Agents handling ------- */
   const setAgentStatus = useCallback((id: string, status: Agent["status"]) => {
     setAgents((prev) =>
@@ -879,7 +915,16 @@ function useJarvisState(onSwitchToClassic?: () => void) {
     const clean = text.trim();
     if (!clean) return;
 
-    setMessages((m) => [...m, { id: uid(), role: "user", text: clean, at: Date.now() }]);
+    setMessages((m) => [
+      ...m,
+      {
+        id: uid(),
+        role: "user" as const,
+        text: clean,
+        at: Date.now(),
+        source: "text" as const,
+      },
+    ].slice(-100));
     setThinking(true);
 
     setAgentMemoryState((prevMem) => autoExtractMemoriesFromText(clean, prevMem));
@@ -930,13 +975,15 @@ function useJarvisState(onSwitchToClassic?: () => void) {
           ...m,
           {
             id: uid(),
-            role: "jarvis",
+            role: "jarvis" as const,
             text: data.text,
             at: Date.now(),
-            kind: "normal",
+            kind: "normal" as const,
+            source: "text" as const,
             personaId: selectedPersona.id,
+            personaName: selectedPersona.name,
           },
-        ]);
+        ].slice(-100));
       }
     } catch (err: any) {
       setThinking(false);
@@ -944,11 +991,15 @@ function useJarvisState(onSwitchToClassic?: () => void) {
         ...m,
         {
           id: uid(),
-          role: "jarvis",
+          role: "jarvis" as const,
           text: `Command received: "${clean}". (Backend processing error: ${err.message})`,
           at: Date.now(),
+          kind: "error" as const,
+          source: "system" as const,
+          personaId: selectedPersona.id,
+          personaName: selectedPersona.name,
         },
-      ]);
+      ].slice(-100));
     }
   }, [selectedPersona, googleAccessToken]);
 
@@ -1015,6 +1066,7 @@ function useJarvisState(onSwitchToClassic?: () => void) {
     createMission,
     setMissionStatus,
     removeMission,
+    clearAllMissions,
     workspaceActions,
     latestActionToast,
     setLatestActionToast,
