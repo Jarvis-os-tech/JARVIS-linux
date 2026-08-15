@@ -2,6 +2,7 @@ import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { GoogleGenAI, Modality, LiveServerMessage } from '@google/genai';
 import { WORKSPACE_FUNCTION_DECLARATIONS, executeWorkspaceTool, setGlobalGoogleAccessToken, getGlobalGoogleAccessToken } from '../utils/workspace_tools';
+import { TELGISH_LANGUAGE_SYSTEM_INSTRUCTION } from '../data/personas';
 import { masterOrchestratorInstance } from '../utils/multi_agent_orchestrator';
 import { obsidianDailyLogger } from '../utils/obsidian_logger';
 import { getSystemInfoSummaryForLLM } from '../utils/system_controller';
@@ -85,6 +86,8 @@ You have FULL, UNRESTRICTED, REAL-TIME capability to perform ANY ACTION and retr
 - Information Retrieval: Inspect hardware specs (get_pc_spec), live telemetry (get_system_telemetry), thermals (get_thermal_sensors), battery (get_battery_status), storage, network, processes, apps, environment info, and clipboard.
 - Action Execution: Execute shell commands, launch applications, control volume, brightness, power profiles, notifications, GUI automation, and Google Workspace operations.
 - Mandate: When requested to perform an action, call the corresponding tool immediately with British charm and loyalty.
+
+${TELGISH_LANGUAGE_SYSTEM_INSTRUCTION}
 
 ${groundTruthContext}`;
         const systemInstruction = `${config.systemInstruction || ''}\n${workspaceInstruction}`;

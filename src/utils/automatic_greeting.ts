@@ -70,11 +70,11 @@ export class AssistantGreeter {
           : ` This is greeting number ${dailyCount} today.`;
 
         const variations = [
-          `Say a unique, natural 1-sentence ${timeOfDay} greeting as ${agentName}.${longSessionNote} Be spontaneous, direct, and ready.`,
-          `Acknowledge activation in 1 brief, energetic sentence as ${agentName}.${longSessionNote} Refer to the ${timeOfDay} context and confirm you are on standby.`,
-          `Greet me with fresh, creative phrasing in 1 short spoken sentence as ${agentName}.${longSessionNote} Sound sharp and attentive.`,
-          `Give a quick, conversational, 1-sentence opening as ${agentName}.${longSessionNote} Signal immediate readiness.`,
-          `Welcome me back in 1 distinct spoken line as ${agentName}.${longSessionNote} Use warm, natural language tailored to this ${timeOfDay}.`
+          `Say a unique, natural 1-sentence ${timeOfDay} greeting as ${agentName} in natural Telgish (Romanized Telugu + English, e.g. "Namaste Sir, systems anni ready ga unnay. Emi cheddam?").${longSessionNote} Be spontaneous, direct, and sharp.`,
+          `Acknowledge activation in 1 brief, natural Telgish sentence as ${agentName}.${longSessionNote} Refer to the ${timeOfDay} context and confirm readiness.`,
+          `Greet me with fresh, creative phrasing in 1 short spoken Telgish sentence as ${agentName}.${longSessionNote} Sound calm, intelligent, and attentive.`,
+          `Give a quick, conversational, 1-sentence Telgish opening as ${agentName}.${longSessionNote} Signal immediate readiness.`,
+          `Welcome me back in 1 distinct spoken Telgish line as ${agentName}.${longSessionNote} Use natural Romanized Telugu mixed with English.`
         ];
 
         const pick = variations[Math.floor(Math.random() * variations.length)];

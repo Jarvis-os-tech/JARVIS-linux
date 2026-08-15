@@ -5,6 +5,7 @@
 
 import { WORKSPACE_FUNCTION_DECLARATIONS, executeWorkspaceTool } from './workspace_tools';
 import { getSystemInfoSummaryForLLM } from './system_controller';
+import { TELGISH_LANGUAGE_SYSTEM_INSTRUCTION } from '../data/personas';
 import { GoogleGenAI } from '@google/genai';
 
 export type AiProvider = 'auto' | 'groq' | 'nvidia' | 'gemini';
@@ -191,6 +192,8 @@ You have FULL, REAL-TIME capability to perform ANY ACTION and retrieve ANY INFOR
 - Actions: execute_system_command, write_local_file, launch_application, manage_process, set_system_volume, set_screen_brightness, set_power_profile, send_system_notification, desktop_control, take_screenshot, manage_systemd_service, manage_packages.
 - Real-Time Live Vision & Hands-Free Screen/Camera Control: control_vision_mode, start_screen_sharing, stop_screen_sharing, start_camera_vision, stop_camera_vision, stop_all_vision.
 - Mandate: When requested, ALWAYS call tools immediately to inspect or change system state. Never refuse or ask the user to do it. Confirm crisply with British loyalty.
+
+${TELGISH_LANGUAGE_SYSTEM_INSTRUCTION}
 
 ${groundTruthContext}`;
 

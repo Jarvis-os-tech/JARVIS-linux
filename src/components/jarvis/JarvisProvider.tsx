@@ -24,7 +24,7 @@ import {
   type Notification,
   type ViewKey,
 } from "@/lib/jarvis-data";
-import { PERSONAS, VOICE_TRANSFER_SYSTEM_INSTRUCTION, detectVoiceTransfer } from "@/data/personas";
+import { PERSONAS, VOICE_TRANSFER_SYSTEM_INSTRUCTION, TELGISH_LANGUAGE_SYSTEM_INSTRUCTION, detectVoiceTransfer } from "@/data/personas";
 import { VoicePersona, ConnectionState, WorkspaceActionItem, AgentConfig } from "@/types";
 import { AudioQueuePlayer, float32ToInt16Base64, calculateVolume } from "@/utils/audio";
 import { assistantGreeterInstance } from "@/utils/automatic_greeting";
@@ -573,7 +573,7 @@ function useJarvisState(onSwitchToClassic?: () => void) {
 
     ws.onopen = () => {
       setLatencyMs(Math.max(20, Date.now() - pingStart));
-      const langInst = "CRITICAL MULTILINGUAL RULE: Auto-detect the user's language from spoken audio or text in real-time. Respond and speak back in the exact same language (e.g. English, Spanish, French, German, Hindi, Tamil, Mandarin, Japanese, Arabic, etc.). If the user changes language, immediately adapt and speak back in that new language.";
+      const langInst = TELGISH_LANGUAGE_SYSTEM_INSTRUCTION;
       const memInst = formatMemoryForSystemInstruction(agentMemoryState);
       const combined = `${selectedPersona.systemInstruction}\n${VOICE_TRANSFER_SYSTEM_INSTRUCTION}\n${langInst}\n${memInst}`;
 
@@ -756,7 +756,7 @@ function useJarvisState(onSwitchToClassic?: () => void) {
     audioQueuePlayerRef.current?.stopAndClear();
 
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      const langInst = "CRITICAL MULTILINGUAL RULE: Auto-detect the user's language in real-time.";
+      const langInst = TELGISH_LANGUAGE_SYSTEM_INSTRUCTION;
       const memInst = formatMemoryForSystemInstruction(agentMemoryState);
       const combined = `${targetPersona.systemInstruction}\n${VOICE_TRANSFER_SYSTEM_INSTRUCTION}\n${langInst}\n${memInst}`;
 

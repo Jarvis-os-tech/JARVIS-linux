@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { PERSONAS, VOICE_TRANSFER_SYSTEM_INSTRUCTION, detectVoiceTransfer } from '../data/personas';
+import { PERSONAS, VOICE_TRANSFER_SYSTEM_INSTRUCTION, TELGISH_LANGUAGE_SYSTEM_INSTRUCTION, detectVoiceTransfer } from '../data/personas';
 import { VoicePersona, ConnectionState, ConversationMessage, AgentConfig, WorkspaceActionItem } from '../types';
 import { Header } from './Header';
 import { VoiceVisualizer } from './VoiceVisualizer';
@@ -407,7 +407,7 @@ export function ClassicApp({ onSwitchToModern }: ClassicAppProps) {
 
     ws.onopen = () => {
       setLatencyMs(Math.max(20, Date.now() - pingStart));
-      const languageInstruction = "CRITICAL MULTILINGUAL RULE: Auto-detect the user's language from spoken audio or text in real-time. Respond and speak back in the exact same language (e.g. English, Spanish, French, German, Hindi, Tamil, Mandarin, Japanese, Arabic, etc.). If the user changes language, immediately adapt and speak back in that new language.";
+      const languageInstruction = TELGISH_LANGUAGE_SYSTEM_INSTRUCTION;
       const memoryInstruction = formatMemoryForSystemInstruction(agentMemoryState);
       const combinedInstruction = `${selectedPersona.systemInstruction}\n${VOICE_TRANSFER_SYSTEM_INSTRUCTION}\n${languageInstruction}\n${memoryInstruction}\n${agentConfig.customInstruction || ''}`;
 
@@ -614,7 +614,7 @@ export function ClassicApp({ onSwitchToModern }: ClassicAppProps) {
 
     // If connected to Gemini Live, gracefully re-initialize session with target agent's voice and system instruction
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      const languageInstruction = "CRITICAL MULTILINGUAL RULE: Auto-detect the user's language from spoken audio or text in real-time. Respond and speak back in the exact same language (e.g. English, Spanish, French, German, Hindi, Tamil, Mandarin, Japanese, Arabic, etc.). If the user changes language, immediately adapt and speak back in that new language.";
+      const languageInstruction = TELGISH_LANGUAGE_SYSTEM_INSTRUCTION;
       const memoryInstruction = formatMemoryForSystemInstruction(agentMemoryState);
       const combinedInstruction = `${targetPersona.systemInstruction}\n${VOICE_TRANSFER_SYSTEM_INSTRUCTION}\n${languageInstruction}\n${memoryInstruction}\n${agentConfig.customInstruction || ''}`;
 
