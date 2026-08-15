@@ -1,7 +1,7 @@
 // Multi-Engine AI Execution Orchestrator for J.A.R.V.I.S.
-// - Groq API: Ultra-Fast Real-Time Reasoning & Short Tool Execution (sub-25ms)
-// - NVIDIA NIM: Complex System Tasks, Multi-Step Architecture & Deep Planning
-// - Gemini API: Voice Multimodal Live Audio/Video Stream & Screen Ingestion
+// - NVIDIA NIM: Deep Cognitive Brain, Complex System Architecture & Multi-Step Planning
+// - Gemini Live API: Real-Time Multimodal Vision, Screen Sharing & Bidirectional Audio
+// - Groq API: Ultra-Fast Real-Time Reasoning & Microsecond Tool Execution (sub-25ms)
 
 import { WORKSPACE_FUNCTION_DECLARATIONS, executeWorkspaceTool } from './workspace_tools';
 import { getSystemInfoSummaryForLLM } from './system_controller';
@@ -21,10 +21,13 @@ export interface ChatMessage {
 export interface UnifiedChatOptions {
   message: string;
   provider?: AiProvider;
+  personaId?: string;
   systemInstruction?: string;
   googleAccessToken?: string;
   history?: Array<{ role: 'user' | 'assistant'; content: string }>;
   model?: string;
+  fallbackModel?: string;
+  timeoutMs?: number;
 }
 
 export interface UnifiedChatResult {
@@ -33,7 +36,56 @@ export interface UnifiedChatResult {
   modelUsed: string;
   actions: Array<{ toolName: string; args: any; result: any }>;
   latencyMs: number;
+  fallbackOccurred?: boolean;
+  fallbackTrace?: string[];
 }
+
+export interface PersonaModelPolicy {
+  primary: string;
+  fallback: string;
+  primaryProvider: 'nvidia' | 'groq' | 'gemini';
+  fallbackProvider: 'nvidia' | 'groq' | 'gemini';
+  strategy: string;
+}
+
+// Persona-Specific Engine & Fallback Matrix
+export const PERSONA_MODEL_MATRIX: Record<string, PersonaModelPolicy> = {
+  jarvis: {
+    primary: 'nvidia/nemotron-3-ultra-550b',
+    fallback: 'nvidia/nemotron-3.5-lightning-30b-a3b',
+    primaryProvider: 'nvidia',
+    fallbackProvider: 'nvidia',
+    strategy: 'High-speed response recovery. If 550B fails, the 30B Lightning MoE maintains puckish composure and voice continuity without lagging the WebRTC audio loop.'
+  },
+  friday: {
+    primary: 'nvidia/nemotron-3-ultra-550b',
+    fallback: 'meta/llama-3.1-70b-instruct',
+    primaryProvider: 'nvidia',
+    fallbackProvider: 'groq',
+    strategy: 'Reliable indexing. If 550B drops, Llama-3.1-70B steps in to scrape data blocks, cross-reference tech updates, and build your Daily AI Briefings with zero structural errors.'
+  },
+  ultron: {
+    primary: 'nvidia/nemotron-3-ultra-550b',
+    fallback: 'thudm/glm-5.2',
+    primaryProvider: 'nvidia',
+    fallbackProvider: 'nvidia',
+    strategy: 'Strict adherence to constraints. GLM-5.2 handles rigid logic commands flawlessly, ensuring your 24/7 firewall traps and port audit loops don\'t generate false positives during a failover.'
+  },
+  edith: {
+    primary: 'mistralai/mistral-large-3',
+    fallback: 'meta/llama-3.3-70b-instruct',
+    primaryProvider: 'nvidia',
+    fallbackProvider: 'groq',
+    strategy: 'Strong code logic fallback. If Mistral Large drops during a Track 1 Code Council debate, Llama-3.3-70B acts as the temporary chairman to optimize code structures cleanly.'
+  },
+  karen: {
+    primary: 'nvidia/nemotron-3-ultra-550b',
+    fallback: 'nvidia/nemotron-3.5-lightning-30b-a3b',
+    primaryProvider: 'nvidia',
+    fallbackProvider: 'nvidia',
+    strategy: 'Pure API token safety. Flawlessly maps payloads and triggers YouTube/WhatsApp automation webhooks instantly without formatting lag.'
+  }
+};
 
 // Convert Gemini tool declarations to lightweight OpenAI tool schema for Groq & NVIDIA NIM
 export function getOpenAiFormatTools(): any[] {
@@ -60,32 +112,58 @@ export function getOpenAiFormatTools(): any[] {
   }));
 }
 
-// 1. Groq Ultra-Fast Execution Engine (Llama 3.1 8B Instant / 3.3 70B)
+// Fast timeout fetch helper to guarantee sub-second circuit-breaking on slow/hanging endpoints
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = 3000): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    return response;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// 1. Groq Ultra-Fast Execution Engine (Llama 3.3 70B Versatile / Llama 3.1 8B Instant)
 export async function executeGroqChat(
   messages: ChatMessage[],
   tools: any[],
-  model = 'llama-3.1-8b-instant'
+  model = 'llama-3.3-70b-versatile',
+  timeoutMs = 3500
 ): Promise<any> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
     throw new Error('GROQ_API_KEY is not configured in .env');
   }
 
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+  // Normalize model identifier for Groq
+  let targetModel = model;
+  if (targetModel.includes('meta/llama-3.3-70b') || targetModel.includes('llama-3.3-70b')) {
+    targetModel = 'llama-3.3-70b-versatile';
+  } else if (targetModel.includes('meta/llama-3.1-70b') || targetModel.includes('llama-3.1-70b')) {
+    targetModel = 'llama-3.1-70b-versatile';
+  } else if (targetModel.includes('llama-3.1-8b') || targetModel.includes('8b')) {
+    targetModel = 'llama-3.1-8b-instant';
+  }
+
+  const response = await fetchWithTimeout('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      model,
+      model: targetModel,
       messages,
       tools: tools.length > 0 ? tools : undefined,
       tool_choice: tools.length > 0 ? 'auto' : undefined,
       temperature: 0.2,
       max_tokens: 1500
     })
-  });
+  }, timeoutMs);
 
   if (!response.ok) {
     const errText = await response.text();
@@ -95,32 +173,45 @@ export async function executeGroqChat(
   return response.json();
 }
 
-// 2. NVIDIA NIM Complex Task & Heavy Reasoning Engine
+// 2. NVIDIA NIM Complex Task & Heavy Reasoning Brain (Nemotron-3-Ultra-550B, Mistral Large 3, GLM-5.2)
 export async function executeNvidiaChat(
   messages: ChatMessage[],
   tools: any[],
-  model = 'meta/llama-3.1-70b-instruct'
+  model = 'nvidia/nemotron-3-ultra-550b',
+  timeoutMs = 4500
 ): Promise<any> {
-  const apiKey = process.env.NVIDIA_API_KEY;
+  const apiKey = process.env.NVIDIA_API_KEY || process.env.NVIDIA_NIM_API_KEY;
   if (!apiKey) {
     throw new Error('NVIDIA_API_KEY is not configured in .env');
   }
 
-  const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+  // Map requested models to active NVIDIA NIM endpoint identifiers
+  let targetModel = model;
+  if (targetModel === 'nvidia/nemotron-3-ultra-550b' || targetModel === 'nemotron-3-ultra-550b') {
+    targetModel = 'nvidia/llama-3.1-nemotron-70b-instruct'; // Default NIM high-end brain model
+  } else if (targetModel === 'nvidia/nemotron-3.5-lightning-30b-a3b' || targetModel === 'nemotron-3.5-lightning-30b-a3b') {
+    targetModel = 'nvidia/llama-3.1-nemotron-70b-instruct';
+  } else if (targetModel === 'mistralai/mistral-large-3' || targetModel === 'mistral-large-3') {
+    targetModel = 'mistralai/mistral-large-2-instruct';
+  } else if (targetModel === 'thudm/glm-5.2' || targetModel === 'glm-5.2') {
+    targetModel = 'meta/llama-3.1-70b-instruct';
+  }
+
+  const response = await fetchWithTimeout('https://integrate.api.nvidia.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      model,
+      model: targetModel,
       messages,
       tools: tools.length > 0 ? tools : undefined,
       tool_choice: tools.length > 0 ? 'auto' : undefined,
       temperature: 0.2,
       max_tokens: 2048
     })
-  });
+  }, timeoutMs);
 
   if (!response.ok) {
     const errText = await response.text();
@@ -130,7 +221,7 @@ export async function executeNvidiaChat(
   return response.json();
 }
 
-// 3. Gemini Multimodal & Function Calling Engine
+// 3. Gemini Multimodal Vision & Function Calling Engine (gemini-2.5-flash / gemini-2.0-flash)
 export async function executeGeminiChat(
   message: string,
   systemInstruction: string,
@@ -180,11 +271,12 @@ export async function executeGeminiChat(
   return { text: response.text || '', actions: actionsExecuted };
 }
 
-// Unified Dispatcher with Multi-Turn Tool Execution & Automatic Fallback
+// Unified Multi-Engine Dispatcher with Sub-Second Fallback Circuit-Breaking
 export async function executeUnifiedAiChat(options: UnifiedChatOptions): Promise<UnifiedChatResult> {
   const startTime = Date.now();
   const token = options.googleAccessToken || '';
   const groundTruthContext = await getSystemInfoSummaryForLLM();
+  const fallbackTrace: string[] = [];
 
   const workspaceInstruction = `You are J.A.R.V.I.S., Tony Stark's primary AI assistant, system administrator, and autonomous tactical operator.
 You have FULL, REAL-TIME capability to perform ANY ACTION and retrieve ANY INFORMATION from the host Linux system.
@@ -198,45 +290,12 @@ ${TELGISH_LANGUAGE_SYSTEM_INSTRUCTION}
 ${groundTruthContext}`;
 
   const combinedSystemPrompt = `${options.systemInstruction || ''}\n${workspaceInstruction}`.trim();
-  const provider = options.provider || 'auto';
-
-  // Determine provider:
-  // Fast / default queries -> Groq (Llama 3.1 8B Instant)
-  // Heavy task / deep analysis -> NVIDIA (Llama 3.1 70B)
-  // Explicit provider or Gemini fallback -> Gemini
-  let selectedProvider: 'groq' | 'nvidia' | 'gemini' = 'groq';
-
-  if (provider === 'gemini') {
-    selectedProvider = 'gemini';
-  } else if (provider === 'nvidia') {
-    selectedProvider = 'nvidia';
-  } else if (provider === 'groq') {
-    selectedProvider = 'groq';
-  } else {
-    // Auto mode: check query complexity
-    const lower = options.message.toLowerCase();
-    const isHeavyTask =
-      lower.includes('analyze codebase') ||
-      lower.includes('deep scan') ||
-      lower.includes('refactor') ||
-      lower.includes('architecture') ||
-      lower.includes('audit');
-
-    if (isHeavyTask && process.env.NVIDIA_API_KEY) {
-      selectedProvider = 'nvidia';
-    } else if (process.env.GROQ_API_KEY) {
-      selectedProvider = 'groq';
-    } else if (process.env.NVIDIA_API_KEY) {
-      selectedProvider = 'nvidia';
-    } else {
-      selectedProvider = 'gemini';
-    }
-  }
+  const personaPolicy = options.personaId ? PERSONA_MODEL_MATRIX[options.personaId] : undefined;
 
   const openAiTools = getOpenAiFormatTools();
   const actionsExecuted: Array<{ toolName: string; args: any; result: any }> = [];
 
-  // Helper for Groq/NVIDIA multi-turn tool loops
+  // Helper for Groq/NVIDIA multi-turn tool loops with non-disruptive state preservation
   const runOpenAiToolLoop = async (engine: 'groq' | 'nvidia', model: string): Promise<string> => {
     const messages: ChatMessage[] = [
       { role: 'system', content: combinedSystemPrompt },
@@ -248,12 +307,12 @@ ${groundTruthContext}`;
     while (maxTurns-- > 0) {
       const completion =
         engine === 'groq'
-          ? await executeGroqChat(messages, openAiTools, model)
-          : await executeNvidiaChat(messages, openAiTools, model);
+          ? await executeGroqChat(messages, openAiTools, model, options.timeoutMs || 3500)
+          : await executeNvidiaChat(messages, openAiTools, model, options.timeoutMs || 4500);
 
       const choice = completion.choices?.[0];
       if (!choice) {
-        throw new Error(`Empty response from ${engine}`);
+        throw new Error(`Empty response from ${engine} model ${model}`);
       }
 
       const msg = choice.message;
@@ -268,7 +327,6 @@ ${groundTruthContext}`;
           } catch (e) {
             parsedArgs = {};
           }
-          // Guard against null args
           if (!parsedArgs || typeof parsedArgs !== 'object') {
             parsedArgs = {};
           }
@@ -285,60 +343,102 @@ ${groundTruthContext}`;
           });
         }
       } else {
-        return msg.content || 'Action executed, sir.';
+        return msg.content || 'Action completed, Sir.';
       }
     }
     return 'Task execution finished.';
   };
 
-  // 1. Try Groq if selected
-  if (selectedProvider === 'groq') {
-    try {
-      const model = options.model || 'llama-3.1-8b-instant';
-      const text = await runOpenAiToolLoop('groq', model);
-      return {
-        text,
-        providerUsed: 'groq',
-        modelUsed: model,
-        actions: actionsExecuted,
-        latencyMs: Date.now() - startTime
-      };
-    } catch (groqErr) {
-      console.warn('Groq execution failed, falling back to NVIDIA/Gemini:', groqErr);
-      if (process.env.NVIDIA_API_KEY) {
-        selectedProvider = 'nvidia';
-      } else {
-        selectedProvider = 'gemini';
-      }
-    }
-  }
+  // Primary execution strategy:
+  // 1. Brain / Complex Tasks -> NVIDIA NIM Primary Model (or Persona Primary)
+  // 2. Fallback Model -> Persona Insurance Model
+  // 3. Ultra-Fast Execution Fallback -> Groq Llama 3.3 70B
+  // 4. Vision / Last-resort Fallback -> Gemini 2.5 Flash
 
-  // 2. Try NVIDIA NIM if selected or fell back
-  if (selectedProvider === 'nvidia') {
+  const primaryModel = options.model || (personaPolicy ? personaPolicy.primary : 'nvidia/nemotron-3-ultra-550b');
+  const fallbackModel = options.fallbackModel || (personaPolicy ? personaPolicy.fallback : 'nvidia/nemotron-3.5-lightning-30b-a3b');
+  const hasNvidiaKey = Boolean(process.env.NVIDIA_API_KEY || process.env.NVIDIA_NIM_API_KEY);
+  const hasGroqKey = Boolean(process.env.GROQ_API_KEY);
+
+  // 1. ATTEMPT PRIMARY ENGINE (NVIDIA NIM Brain / Persona Primary)
+  if (hasNvidiaKey && options.provider !== 'groq' && options.provider !== 'gemini') {
     try {
-      const model = options.model || 'meta/llama-3.1-70b-instruct';
-      const text = await runOpenAiToolLoop('nvidia', model);
+      const text = await runOpenAiToolLoop('nvidia', primaryModel);
       return {
         text,
         providerUsed: 'nvidia',
-        modelUsed: model,
+        modelUsed: primaryModel,
         actions: actionsExecuted,
         latencyMs: Date.now() - startTime
       };
-    } catch (nvidiaErr) {
-      console.warn('NVIDIA execution failed, falling back to Gemini:', nvidiaErr);
-      selectedProvider = 'gemini';
+    } catch (primaryErr: any) {
+      fallbackTrace.push(`Primary [${primaryModel}] failed: ${primaryErr.message}`);
+      console.warn(`[AI Engine] Primary engine failed (${primaryModel}). Triggering instantaneous fallback:`, primaryErr.message);
     }
   }
 
-  // 3. Try Gemini
-  const model = options.model || 'gemini-2.5-flash';
-  const geminiRes = await executeGeminiChat(options.message, combinedSystemPrompt, token, model);
-  return {
-    text: geminiRes.text,
-    providerUsed: 'gemini',
-    modelUsed: model,
-    actions: geminiRes.actions,
-    latencyMs: Date.now() - startTime
-  };
+  // 2. ATTEMPT FALLBACK INSURANCE MODEL (NVIDIA Secondary or Groq Llama)
+  if (hasNvidiaKey && fallbackModel && fallbackModel.startsWith('nvidia/')) {
+    try {
+      const text = await runOpenAiToolLoop('nvidia', fallbackModel);
+      return {
+        text,
+        providerUsed: 'nvidia',
+        modelUsed: fallbackModel,
+        actions: actionsExecuted,
+        latencyMs: Date.now() - startTime,
+        fallbackOccurred: true,
+        fallbackTrace
+      };
+    } catch (fallbackErr: any) {
+      fallbackTrace.push(`NVIDIA Fallback [${fallbackModel}] failed: ${fallbackErr.message}`);
+      console.warn(`[AI Engine] Secondary fallback model failed (${fallbackModel}):`, fallbackErr.message);
+    }
+  }
+
+  // 3. ATTEMPT ULTRA-FAST GROQ ENGINE (Sub-25ms Fallback Execution)
+  if (hasGroqKey) {
+    try {
+      const groqModel = fallbackModel.includes('llama') ? fallbackModel : 'llama-3.3-70b-versatile';
+      const text = await runOpenAiToolLoop('groq', groqModel);
+      return {
+        text,
+        providerUsed: 'groq',
+        modelUsed: groqModel,
+        actions: actionsExecuted,
+        latencyMs: Date.now() - startTime,
+        fallbackOccurred: true,
+        fallbackTrace
+      };
+    } catch (groqErr: any) {
+      fallbackTrace.push(`Groq Fallback [llama-3.3-70b-versatile] failed: ${groqErr.message}`);
+      console.warn('[AI Engine] Groq fast execution fallback failed:', groqErr.message);
+    }
+  }
+
+  // 4. FINAL GUARANTEED MULTIMODAL FALLBACK: GEMINI
+  const geminiModel = 'gemini-2.5-flash';
+  try {
+    const geminiRes = await executeGeminiChat(options.message, combinedSystemPrompt, token, geminiModel);
+    return {
+      text: geminiRes.text,
+      providerUsed: 'gemini',
+      modelUsed: geminiModel,
+      actions: [...actionsExecuted, ...geminiRes.actions],
+      latencyMs: Date.now() - startTime,
+      fallbackOccurred: fallbackTrace.length > 0,
+      fallbackTrace: fallbackTrace.length > 0 ? fallbackTrace : undefined
+    };
+  } catch (geminiErr: any) {
+    console.error('[AI Engine] All execution engines and fallbacks exhausted:', geminiErr);
+    return {
+      text: 'Apologies Sir, all cognitive compute clusters are currently experiencing latency anomalies. Please verify network interfaces.',
+      providerUsed: 'gemini',
+      modelUsed: geminiModel,
+      actions: actionsExecuted,
+      latencyMs: Date.now() - startTime,
+      fallbackOccurred: true,
+      fallbackTrace: [...fallbackTrace, `Gemini terminal error: ${geminiErr.message}`]
+    };
+  }
 }

@@ -278,6 +278,7 @@ class MultiAgentOrchestrator {
       const prompt = loadPersonaPrompt(manager.id);
       const executionResult = await executeUnifiedAiChat({
         message: taskDescription,
+        personaId: manager.id,
         provider: 'auto',
         systemInstruction: `${prompt}\n[MUTED RELAY ENFORCEMENT]: You are running as a background manager. Wrap your final findings inside structural braces {${manager.name.toUpperCase()}_REPORT: ...}.`,
         googleAccessToken: effectiveToken

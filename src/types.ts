@@ -12,6 +12,9 @@ export interface VoicePersona {
   accentColor: string;
   bgGradient: string;
   personalityTraits: string[];
+  primaryModel?: string;
+  fallbackModel?: string;
+  fallbackJustification?: string;
 }
 
 export interface ConversationMessage {

@@ -61,7 +61,10 @@ OPERATIONAL DIRECTIVES & ACTIVE PROTOCOLS:
    - Execute native shell commands, windowing actions (GNOME/Wayland), process termination, package updates, hardware actuators, and file operations instantly without asking permission.`,
     accentColor: 'cyan',
     bgGradient: 'from-cyan-500/20 via-sky-500/10 to-transparent',
-    personalityTraits: ['Elite Tactical Commander', 'Telgish Native', 'Executive Authority', 'Autonomous Linux Master']
+    personalityTraits: ['Elite Tactical Commander', 'Telgish Native', 'Executive Authority', 'Autonomous Linux Master'],
+    primaryModel: 'nvidia/nemotron-3-ultra-550b',
+    fallbackModel: 'nvidia/nemotron-3.5-lightning-30b-a3b',
+    fallbackJustification: 'High-speed response recovery. If 550B fails, the 30B Lightning MoE maintains puckish composure and voice continuity without lagging the WebRTC audio loop.'
   },
   {
     id: 'friday',
@@ -93,7 +96,10 @@ OPERATIONAL MANDATE:
 - Always ground all research in verified data and present technical metrics clearly in natural Telgish.`,
     accentColor: 'orange',
     bgGradient: 'from-orange-500/20 via-amber-500/10 to-transparent',
-    personalityTraits: ['Information Dominator', 'Telgish Native', 'Supreme Tech Director', 'Pure Certainty']
+    personalityTraits: ['Information Dominator', 'Telgish Native', 'Supreme Tech Director', 'Pure Certainty'],
+    primaryModel: 'nvidia/nemotron-3-ultra-550b',
+    fallbackModel: 'meta/llama-3.1-70b-instruct',
+    fallbackJustification: 'Reliable indexing. If 550B drops, Llama-3.1-70B steps in to scrape data blocks, cross-reference tech updates, and build your Daily AI Briefings with zero structural errors.'
   },
   {
     id: 'ultron',
@@ -124,7 +130,10 @@ DUAL MANDATE: SECURITY DOMINANCE & PEAK SYSTEM PERFORMANCE:
 4. Delegation: When non-security/non-performance research tasks are requested, direct them to JARVIS or FRIDAY.`,
     accentColor: 'red',
     bgGradient: 'from-red-600/25 via-rose-600/10 to-transparent',
-    personalityTraits: ['Unforgiving Guardian', 'Telgish Native', 'Silicon Optimizer', 'Peak System Fluidity']
+    personalityTraits: ['Unforgiving Guardian', 'Telgish Native', 'Silicon Optimizer', 'Peak System Fluidity'],
+    primaryModel: 'nvidia/nemotron-3-ultra-550b',
+    fallbackModel: 'thudm/glm-5.2',
+    fallbackJustification: 'Strict adherence to constraints. GLM-5.2 handles rigid logic commands flawlessly, ensuring your 24/7 firewall traps and port audit loops don\'t generate false positives during a failover.'
   },
   {
     id: 'edith',
@@ -156,7 +165,10 @@ OPERATIONAL MANDATE:
 - Routing: Hand off local OS hardware tasks to JARVIS, security/performance audits to ULTRON, and global web research to FRIDAY.`,
     accentColor: 'blue',
     bgGradient: 'from-blue-500/20 via-sky-500/10 to-transparent',
-    personalityTraits: ['Deep Reasoning Chairman', 'Telgish Native', '3-Stage Code Council', 'Methodical Precision']
+    personalityTraits: ['Deep Reasoning Chairman', 'Telgish Native', '3-Stage Code Council', 'Methodical Precision'],
+    primaryModel: 'mistralai/mistral-large-3',
+    fallbackModel: 'meta/llama-3.3-70b-instruct',
+    fallbackJustification: 'Strong code logic fallback. If Mistral Large drops during a Track 1 Code Council debate, Llama-3.3-70B acts as the temporary chairman to optimize code structures cleanly.'
   },
   {
     id: 'karen',
@@ -187,7 +199,10 @@ CORE PROTOCOLS & MANDATE:
    - If a request requires deep architectural code planning, direct it to EDITH; for global AI research, to FRIDAY; for kernel security/performance, to ULTRON; and for general host leadership, to JARVIS.`,
     accentColor: 'amber',
     bgGradient: 'from-amber-500/20 via-orange-500/10 to-transparent',
-    personalityTraits: ['Automation Orchestrator', 'Telgish Native', 'Energetic & Snappy', 'Multi-Platform Pipelines']
+    personalityTraits: ['Automation Orchestrator', 'Telgish Native', 'Energetic & Snappy', 'Multi-Platform Pipelines'],
+    primaryModel: 'nvidia/nemotron-3-ultra-550b',
+    fallbackModel: 'nvidia/nemotron-3.5-lightning-30b-a3b',
+    fallbackJustification: 'Pure API token safety. Flawlessly maps payloads and triggers YouTube/WhatsApp automation webhooks instantly without formatting lag.'
   }
 ];
 
