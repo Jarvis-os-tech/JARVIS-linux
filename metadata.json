@@ -1,0 +1,12 @@
+{
+  "name": "MCU J.A.R.V.I.S. & AI Voice Workspace",
+  "description": "Real-time low-latency MCU AI personas (J.A.R.V.I.S., F.R.I.D.A.Y., ULTRON, E.D.I.T.H., K.A.R.E.N., VISION) powered by Gemini Live API",
+  "requestFramePermissions": [
+    "microphone",
+    "camera",
+    "display-capture"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

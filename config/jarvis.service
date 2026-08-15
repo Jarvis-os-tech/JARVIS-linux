@@ -1,0 +1,24 @@
+[Unit]
+Description=J.A.R.V.I.S. 24/7 Master Multi-Agent Continuous Core
+After=network.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gopi
+WorkingDirectory=/home/gopi/Downloads/JARVIS-V0
+EnvironmentFile=/home/gopi/Downloads/JARVIS-V0/.env
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65536
+
+# Security Hardening
+PrivateTmp=true
+ProtectSystem=full
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

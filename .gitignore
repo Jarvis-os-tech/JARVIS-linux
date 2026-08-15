@@ -1,0 +1,11 @@
+node_modules/
+build/
+dist/
+coverage/
+target/
+.codebase-memory/
+workers_cpp/bin/
+.DS_Store
+*.log
+.env*
+!.env.example

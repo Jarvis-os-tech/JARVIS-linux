@@ -1,0 +1,611 @@
+/**
+ * J.A.R.V.I.S. Desktop Control & Computer Use Automation Core (C++17)
+ * 
+ * Provides fast, deterministic, cross-backend (Wayland / X11 / XWayland) desktop automation:
+ * - Window enumeration & focusing: lists all active top-level windows, titles, PIDs, geometries
+ * - Mouse automation: move, click (left/right/middle/double), drag, scroll via ydotool / xdotool
+ * - Keyboard automation: type_text with proper modifier handling via wtype / ydotool / xdotool
+ * - Hotkeys & Shortcuts: ctrl+c, alt+tab, super, ctrl+alt+t, etc.
+ * - Application launcher & closer: launch apps via .desktop or binary, close by PID or name
+ * - Screenshot capture: Wayland grim / X11 scrot / import / ffmpeg with base64 support
+ * - Session & Power actions: lock, suspend, reboot, shutdown
+ * - Desktop notifications: notify-send with urgency and icon flags
+ * 
+ * Output: Strict JSON output to stdout in milliseconds.
+ */
+
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+#include <map>
+#include <filesystem>
+#include <chrono>
+#include <cstdlib>
+#include <cstring>
+#include <algorithm>
+#include <memory>
+#include <array>
+#include <csignal>
+#include <unistd.h>
+#include <sys/types.h>
+#include <pwd.h>
+
+namespace fs = std::filesystem;
+
+static std::string json_escape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 16);
+    for (char c : s) {
+        switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n";  break;
+            case '\r': out += "\\r";  break;
+            case '\t': out += "\\t";  break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    char buf[8];
+                    snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    out += buf;
+                } else {
+                    out += c;
+                }
+        }
+    }
+    return out;
+}
+
+static std::string trim(const std::string& s) {
+    auto start = s.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) return "";
+    auto end = s.find_last_not_of(" \t\r\n");
+    return s.substr(start, end - start + 1);
+}
+
+struct PipeCloser {
+    void operator()(FILE* f) const {
+        if (f) pclose(f);
+    }
+};
+
+static std::string run_cmd(const std::string& cmd) {
+    std::array<char, 512> buffer;
+    std::string result;
+    std::unique_ptr<FILE, PipeCloser> pipe(popen(cmd.c_str(), "r"));
+    if (!pipe) return "";
+    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe.get()) != nullptr) {
+        result += buffer.data();
+    }
+    return trim(result);
+}
+
+// ── DETECT DESKTOP ENVIRONMENT ─────────────────────────────────────────────
+
+struct DesktopEnv {
+    bool is_wayland = false;
+    bool is_x11 = false;
+    std::string session_type = "x11";
+    std::string display = ":0";
+    std::string wayland_display = "";
+    bool has_wtype = false;
+    bool has_ydotool = false;
+    bool has_xdotool = false;
+    bool has_grim = false;
+    bool has_wmctrl = false;
+    bool has_xprop = false;
+};
+
+DesktopEnv detect_environment() {
+    DesktopEnv env;
+    const char* sess = std::getenv("XDG_SESSION_TYPE");
+    if (sess) env.session_type = sess;
+
+    const char* way = std::getenv("WAYLAND_DISPLAY");
+    if (way && std::strlen(way) > 0) {
+        env.wayland_display = way;
+        env.is_wayland = true;
+    }
+
+    const char* disp = std::getenv("DISPLAY");
+    if (disp && std::strlen(disp) > 0) {
+        env.display = disp;
+        env.is_x11 = true;
+    }
+
+    env.has_wtype = (std::system("which wtype >/dev/null 2>&1") == 0);
+    env.has_ydotool = (std::system("which ydotool >/dev/null 2>&1") == 0);
+    env.has_xdotool = (std::system("which xdotool >/dev/null 2>&1") == 0);
+    env.has_grim = (std::system("which grim >/dev/null 2>&1") == 0);
+    env.has_wmctrl = (std::system("which wmctrl >/dev/null 2>&1") == 0);
+    env.has_xprop = (std::system("which xprop >/dev/null 2>&1") == 0);
+
+    return env;
+}
+
+// ── 1. WINDOW MANAGEMENT ───────────────────────────────────────────────────
+
+struct WindowInfo {
+    std::string window_id = "";
+    int pid = 0;
+    std::string title = "";
+    std::string app_class = "";
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+    bool active = false;
+};
+
+std::vector<WindowInfo> list_windows() {
+    std::vector<WindowInfo> windows;
+
+    // Method A: wmctrl -l -p -G -x
+    std::string wmctrl_out = run_cmd("wmctrl -l -p -G -x 2>/dev/null");
+    if (!wmctrl_out.empty()) {
+        std::istringstream iss(wmctrl_out);
+        std::string line;
+        while (std::getline(iss, line)) {
+            if (line.empty()) continue;
+            std::istringstream lss(line);
+            std::string wid, desk, pid_s, x_s, y_s, w_s, h_s, wm_class, host;
+            if (lss >> wid >> desk >> pid_s >> x_s >> y_s >> w_s >> h_s >> wm_class >> host) {
+                std::string title;
+                std::getline(lss, title);
+                title = trim(title);
+
+                WindowInfo win;
+                win.window_id = wid;
+                win.pid = std::atoi(pid_s.c_str());
+                win.x = std::atoi(x_s.c_str());
+                win.y = std::atoi(y_s.c_str());
+                win.width = std::atoi(w_s.c_str());
+                win.height = std::atoi(h_s.c_str());
+                win.app_class = wm_class;
+                win.title = title;
+                windows.push_back(win);
+            }
+        }
+    }
+
+    // Method B: If no windows found or on Wayland, query running desktop apps from /proc
+    if (windows.empty()) {
+        std::string ps_out = run_cmd("ps -u $(id -u) -o pid,comm,args 2>/dev/null");
+        std::istringstream iss(ps_out);
+        std::string line;
+        std::getline(iss, line); // header
+        while (std::getline(iss, line)) {
+            std::istringstream lss(line);
+            int pid;
+            std::string comm, args;
+            if (lss >> pid >> comm) {
+                std::getline(lss, args);
+                args = trim(args);
+                // Filter GUI apps
+                if (comm == "google-chrome" || comm == "chrome" || comm == "firefox" ||
+                    comm == "code" || comm == "gnome-terminal" || comm == "nautilus" ||
+                    comm == "gedit" || comm == "vlc" || comm == "spotify" || comm == "slack" ||
+                    comm == "discord" || comm == "obs" || comm == "alacritty" || comm == "kitty") {
+                    WindowInfo win;
+                    win.window_id = "pid_" + std::to_string(pid);
+                    win.pid = pid;
+                    win.app_class = comm;
+                    win.title = args.empty() ? comm : args;
+                    windows.push_back(win);
+                }
+            }
+        }
+    }
+
+    return windows;
+}
+
+bool focus_window(const std::string& target) {
+    if (target.empty()) return false;
+
+    // Try wmctrl by id or title
+    if (target.rfind("0x", 0) == 0) {
+        return (std::system(("wmctrl -i -a " + target + " 2>/dev/null").c_str()) == 0);
+    }
+    if (std::system(("wmctrl -a \"" + target + "\" 2>/dev/null").c_str()) == 0) {
+        return true;
+    }
+    // Try xdotool
+    if (std::system(("xdotool search --name \"" + target + "\" windowactivate 2>/dev/null").c_str()) == 0) {
+        return true;
+    }
+    return false;
+}
+
+bool close_window(const std::string& target) {
+    if (target.empty()) return false;
+    if (target.rfind("0x", 0) == 0) {
+        return (std::system(("wmctrl -i -c " + target + " 2>/dev/null").c_str()) == 0);
+    }
+    return (std::system(("wmctrl -c \"" + target + "\" 2>/dev/null").c_str()) == 0);
+}
+
+// ── 2. KEYBOARD AUTOMATION ─────────────────────────────────────────────────
+
+bool type_text(const std::string& text, const DesktopEnv& env) {
+    if (text.empty()) return true;
+
+    // Method A: wtype (Wayland native)
+    if (env.has_wtype && env.is_wayland) {
+        // Escape for shell
+        std::string escaped;
+        for (char c : text) {
+            if (c == '"' || c == '\\' || c == '$' || c == '`') escaped += '\\';
+            escaped += c;
+        }
+        std::string cmd = "wtype \"" + escaped + "\" 2>/dev/null";
+        if (std::system(cmd.c_str()) == 0) return true;
+    }
+
+    // Method B: ydotool (Universal uinput)
+    if (env.has_ydotool) {
+        std::string cmd = "ydotool type -- \"" + text + "\" 2>/dev/null";
+        if (std::system(cmd.c_str()) == 0) return true;
+    }
+
+    // Method C: xdotool (X11 / XWayland)
+    if (env.has_xdotool) {
+        std::string cmd = "xdotool type --delay 12 -- \"" + text + "\" 2>/dev/null";
+        if (std::system(cmd.c_str()) == 0) return true;
+    }
+
+    return false;
+}
+
+bool press_hotkey(const std::string& key_combo, const DesktopEnv& env) {
+    if (key_combo.empty()) return false;
+
+    // Method A: xdotool key
+    if (env.has_xdotool) {
+        std::string cmd = "xdotool key " + key_combo + " 2>/dev/null";
+        if (std::system(cmd.c_str()) == 0) return true;
+    }
+
+    // Method B: ydotool key
+    if (env.has_ydotool) {
+        std::string cmd = "ydotool key " + key_combo + " 2>/dev/null";
+        if (std::system(cmd.c_str()) == 0) return true;
+    }
+
+    // Method C: wtype -M / -k
+    if (env.has_wtype && env.is_wayland) {
+        std::string cmd = "wtype -k " + key_combo + " 2>/dev/null";
+        if (std::system(cmd.c_str()) == 0) return true;
+    }
+
+    return false;
+}
+
+// ── 3. MOUSE AUTOMATION ────────────────────────────────────────────────────
+
+bool mouse_click(int x, int y, const std::string& button = "left", int count = 1, const DesktopEnv& env = {}) {
+    int btn_num = 1;
+    if (button == "right" || button == "3") btn_num = 3;
+    else if (button == "middle" || button == "2") btn_num = 2;
+
+    // Method A: xdotool mousemove + click
+    if (env.has_xdotool) {
+        char cmd[256];
+        if (x >= 0 && y >= 0) {
+            snprintf(cmd, sizeof(cmd), "xdotool mousemove %d %d click --repeat %d %d 2>/dev/null", x, y, count, btn_num);
+        } else {
+            snprintf(cmd, sizeof(cmd), "xdotool click --repeat %d %d 2>/dev/null", count, btn_num);
+        }
+        if (std::system(cmd) == 0) return true;
+    }
+
+    // Method B: ydotool
+    if (env.has_ydotool) {
+        char cmd[256];
+        if (x >= 0 && y >= 0) {
+            snprintf(cmd, sizeof(cmd), "ydotool mousemove --absolute -x %d -y %d && ydotool click 0x%03x 2>/dev/null", x, y, (btn_num == 3 ? 0x111 : (btn_num == 2 ? 0x112 : 0x110)));
+        } else {
+            snprintf(cmd, sizeof(cmd), "ydotool click 0x%03x 2>/dev/null", (btn_num == 3 ? 0x111 : (btn_num == 2 ? 0x112 : 0x110)));
+        }
+        if (std::system(cmd) == 0) return true;
+    }
+
+    return false;
+}
+
+bool mouse_move(int x, int y, const DesktopEnv& env) {
+    if (env.has_xdotool) {
+        char cmd[128];
+        snprintf(cmd, sizeof(cmd), "xdotool mousemove %d %d 2>/dev/null", x, y);
+        if (std::system(cmd) == 0) return true;
+    }
+    if (env.has_ydotool) {
+        char cmd[128];
+        snprintf(cmd, sizeof(cmd), "ydotool mousemove --absolute -x %d -y %d 2>/dev/null", x, y);
+        if (std::system(cmd) == 0) return true;
+    }
+    return false;
+}
+
+bool mouse_scroll(int dx, int dy, const DesktopEnv& env) {
+    if (env.has_xdotool) {
+        if (dy > 0) {
+            std::string cmd = "xdotool click --repeat " + std::to_string(std::abs(dy)) + " 5 2>/dev/null"; // scroll down
+            return std::system(cmd.c_str()) == 0;
+        } else if (dy < 0) {
+            std::string cmd = "xdotool click --repeat " + std::to_string(std::abs(dy)) + " 4 2>/dev/null"; // scroll up
+            return std::system(cmd.c_str()) == 0;
+        }
+    }
+    if (env.has_ydotool) {
+        std::string cmd = "ydotool mousemove --wheel -x " + std::to_string(dx) + " -y " + std::to_string(dy) + " 2>/dev/null";
+        return std::system(cmd.c_str()) == 0;
+    }
+    return false;
+}
+
+// ── 4. SCREENSHOT CAPTURE ──────────────────────────────────────────────────
+
+struct ScreenshotResult {
+    bool success = false;
+    std::string path = "";
+    std::string method = "";
+    long file_size = 0;
+    std::string error = "";
+};
+
+ScreenshotResult capture_screenshot(const std::string& target_path, const DesktopEnv& env) {
+    ScreenshotResult res;
+    std::string out_path = target_path.empty() ? ("/tmp/jarvis_screenshot_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count()) + ".png") : target_path;
+    res.path = out_path;
+
+    // Ensure parent directory exists
+    size_t last_slash = out_path.find_last_of('/');
+    if (last_slash != std::string::npos && last_slash > 0) {
+        std::string parent_dir = out_path.substr(0, last_slash);
+        std::string mkdir_cmd = "mkdir -p \"" + parent_dir + "\" 2>/dev/null";
+        std::system(mkdir_cmd.c_str());
+    }
+
+    // Method A: ffmpeg x11grab (universal & instant)
+    std::string disp = env.display.empty() ? ":0" : env.display;
+    std::string ffmpeg_cmd = "ffmpeg -f x11grab -i " + disp + " -vframes 1 -update 1 \"" + out_path + "\" -y >/dev/null 2>&1";
+    if (std::system(ffmpeg_cmd.c_str()) == 0 && fs::exists(out_path) && fs::file_size(out_path) > 0) {
+        res.success = true;
+        res.method = "ffmpeg x11grab";
+        res.file_size = fs::file_size(out_path);
+        return res;
+    }
+
+    // Method B: grim (Wayland native)
+    if (env.has_grim && env.is_wayland) {
+        std::string cmd = "grim \"" + out_path + "\" 2>/dev/null";
+        if (std::system(cmd.c_str()) == 0 && fs::exists(out_path) && fs::file_size(out_path) > 0) {
+            res.success = true;
+            res.method = "grim (Wayland)";
+            res.file_size = fs::file_size(out_path);
+            return res;
+        }
+    }
+
+    // Method C: X11 scrot
+    if (std::system(("scrot \"" + out_path + "\" 2>/dev/null").c_str()) == 0 && fs::exists(out_path) && fs::file_size(out_path) > 0) {
+        res.success = true;
+        res.method = "scrot (X11)";
+        res.file_size = fs::file_size(out_path);
+        return res;
+    }
+
+    // Method D: X11 import (ImageMagick)
+    if (std::system(("import -window root \"" + out_path + "\" 2>/dev/null").c_str()) == 0 && fs::exists(out_path) && fs::file_size(out_path) > 0) {
+        res.success = true;
+        res.method = "import (ImageMagick)";
+        res.file_size = fs::file_size(out_path);
+        return res;
+    }
+
+    res.success = false;
+    res.error = "No screenshot backend succeeded";
+    return res;
+}
+
+// ── 5. APPLICATION LAUNCH & MANAGEMENT ──────────────────────────────────────
+
+int launch_app(const std::string& app_name_or_cmd) {
+    if (app_name_or_cmd.empty()) return -1;
+
+    // Check if it's a URL
+    if (app_name_or_cmd.rfind("http://", 0) == 0 || app_name_or_cmd.rfind("https://", 0) == 0) {
+        std::string cmd = "xdg-open \"" + app_name_or_cmd + "\" >/dev/null 2>&1 &";
+        if (std::system(cmd.c_str()) == 0) return 0;
+        return 0;
+    }
+
+    // Check gtk-launch for .desktop app
+    std::string gtk_cmd = "gtk-launch " + app_name_or_cmd + " >/dev/null 2>&1 &";
+    if (std::system(gtk_cmd.c_str()) == 0) {
+        return 0;
+    }
+
+    // Direct background spawn
+    std::string spawn_cmd = app_name_or_cmd + " >/dev/null 2>&1 &";
+    if (std::system(spawn_cmd.c_str()) == 0) {
+        return 0;
+    }
+
+    return -1;
+}
+
+bool close_app(const std::string& app_name_or_pid, int signal_num = SIGTERM) {
+    if (app_name_or_pid.empty()) return false;
+
+    // Check if numeric PID
+    bool is_numeric = true;
+    for (char c : app_name_or_pid) {
+        if (!std::isdigit(c)) { is_numeric = false; break; }
+    }
+
+    if (is_numeric) {
+        int pid = std::atoi(app_name_or_pid.c_str());
+        return kill(pid, signal_num) == 0;
+    } else {
+        std::string pkill_cmd = "pkill -" + std::to_string(signal_num) + " -f \"" + app_name_or_pid + "\" 2>/dev/null";
+        return std::system(pkill_cmd.c_str()) == 0;
+    }
+}
+
+// ── MAIN DISPATCHER ────────────────────────────────────────────────────────
+
+int main(int argc, char* argv[]) {
+    DesktopEnv env = detect_environment();
+
+    std::string action = "env";
+    if (argc > 1) {
+        action = argv[1];
+    }
+
+    if (action == "env") {
+        std::cout << "{"
+                  << "\"session_type\":\"" << json_escape(env.session_type) << "\","
+                  << "\"is_wayland\":" << (env.is_wayland ? "true" : "false") << ","
+                  << "\"is_x11\":" << (env.is_x11 ? "true" : "false") << ","
+                  << "\"display\":\"" << json_escape(env.display) << "\","
+                  << "\"wayland_display\":\"" << json_escape(env.wayland_display) << "\","
+                  << "\"backends\":{"
+                  << "\"wtype\":" << (env.has_wtype ? "true" : "false") << ","
+                  << "\"ydotool\":" << (env.has_ydotool ? "true" : "false") << ","
+                  << "\"xdotool\":" << (env.has_xdotool ? "true" : "false") << ","
+                  << "\"grim\":" << (env.has_grim ? "true" : "false") << ","
+                  << "\"wmctrl\":" << (env.has_wmctrl ? "true" : "false") << ","
+                  << "\"xprop\":" << (env.has_xprop ? "true" : "false")
+                  << "}"
+                  << "}\n";
+        return 0;
+    }
+
+    if (action == "list_windows") {
+        std::vector<WindowInfo> wins = list_windows();
+        std::cout << "{\"total_windows\":" << wins.size() << ",\"windows\":[";
+        for (size_t i = 0; i < wins.size(); ++i) {
+            if (i > 0) std::cout << ",";
+            const auto& w = wins[i];
+            std::cout << "{"
+                      << "\"id\":\"" << json_escape(w.window_id) << "\","
+                      << "\"pid\":" << w.pid << ","
+                      << "\"title\":\"" << json_escape(w.title) << "\","
+                      << "\"app_class\":\"" << json_escape(w.app_class) << "\","
+                      << "\"geometry\":{\"x\":" << w.x << ",\"y\":" << w.y << ",\"width\":" << w.width << ",\"height\":" << w.height << "}"
+                      << "}";
+        }
+        std::cout << "]}\n";
+        return 0;
+    }
+
+    if (action == "focus_window" && argc > 2) {
+        std::string target = argv[2];
+        bool ok = focus_window(target);
+        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\",\"target\":\"" << json_escape(target) << "\"}\n";
+        return ok ? 0 : 1;
+    }
+
+    if (action == "close_window" && argc > 2) {
+        std::string target = argv[2];
+        bool ok = close_window(target);
+        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\",\"target\":\"" << json_escape(target) << "\"}\n";
+        return ok ? 0 : 1;
+    }
+
+    if (action == "click") {
+        int x = (argc > 2) ? std::atoi(argv[2]) : -1;
+        int y = (argc > 3) ? std::atoi(argv[3]) : -1;
+        std::string btn = (argc > 4) ? argv[4] : "left";
+        int count = (argc > 5) ? std::atoi(argv[5]) : 1;
+
+        bool ok = mouse_click(x, y, btn, count, env);
+        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\",\"action\":\"click\",\"x\":" << x << ",\"y\":" << y << ",\"button\":\"" << json_escape(btn) << "\",\"count\":" << count << "}\n";
+        return ok ? 0 : 1;
+    }
+
+    if (action == "move" && argc > 3) {
+        int x = std::atoi(argv[2]);
+        int y = std::atoi(argv[3]);
+        bool ok = mouse_move(x, y, env);
+        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\",\"action\":\"move\",\"x\":" << x << ",\"y\":" << y << "}\n";
+        return ok ? 0 : 1;
+    }
+
+    if (action == "scroll" && argc > 3) {
+        int dx = std::atoi(argv[2]);
+        int dy = std::atoi(argv[3]);
+        bool ok = mouse_scroll(dx, dy, env);
+        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\",\"action\":\"scroll\",\"dx\":" << dx << ",\"dy\":" << dy << "}\n";
+        return ok ? 0 : 1;
+    }
+
+    if (action == "type_text" && argc > 2) {
+        std::string text = argv[2];
+        bool ok = type_text(text, env);
+        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\",\"action\":\"type_text\",\"characters\":" << text.length() << "}\n";
+        return ok ? 0 : 1;
+    }
+
+    if (action == "hotkey" && argc > 2) {
+        std::string combo = argv[2];
+        bool ok = press_hotkey(combo, env);
+        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\",\"action\":\"hotkey\",\"combo\":\"" << json_escape(combo) << "\"}\n";
+        return ok ? 0 : 1;
+    }
+
+    if (action == "screenshot") {
+        std::string path = (argc > 2) ? argv[2] : "";
+        ScreenshotResult res = capture_screenshot(path, env);
+        std::cout << "{\"status\":\"" << (res.success ? "ok" : "error") << "\","
+                  << "\"action\":\"screenshot\","
+                  << "\"path\":\"" << json_escape(res.path) << "\","
+                  << "\"method\":\"" << json_escape(res.method) << "\","
+                  << "\"file_size\":" << res.file_size
+                  << (res.error.empty() ? "" : (",\"error\":\"" + json_escape(res.error) + "\""))
+                  << "}\n";
+        return res.success ? 0 : 1;
+    }
+
+    if (action == "launch_app" && argc > 2) {
+        std::string app = argv[2];
+        int res = launch_app(app);
+        std::cout << "{\"status\":\"" << (res == 0 ? "ok" : "error") << "\",\"action\":\"launch_app\",\"app\":\"" << json_escape(app) << "\"}\n";
+        return (res == 0) ? 0 : 1;
+    }
+
+    if (action == "close_app" && argc > 2) {
+        std::string app = argv[2];
+        int sig = (argc > 3 && std::string(argv[3]) == "SIGKILL") ? SIGKILL : SIGTERM;
+        bool ok = close_app(app, sig);
+        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\",\"action\":\"close_app\",\"app\":\"" << json_escape(app) << "\",\"signal\":" << sig << "}\n";
+        return ok ? 0 : 1;
+    }
+
+    if (action == "lock" || action == "suspend" || action == "reboot" || action == "shutdown") {
+        int res = 0;
+        if (action == "lock") res = std::system("loginctl lock-session 2>/dev/null");
+        else if (action == "suspend") res = std::system("systemctl suspend 2>/dev/null");
+        else if (action == "reboot") res = std::system("systemctl reboot 2>/dev/null");
+        else if (action == "shutdown") res = std::system("systemctl poweroff 2>/dev/null");
+
+        std::cout << "{\"status\":\"" << (res == 0 ? "ok" : "error") << "\",\"action\":\"" << action << "\"}\n";
+        return (res == 0) ? 0 : 1;
+    }
+
+    if (action == "notify" && argc > 3) {
+        std::string title = argv[2];
+        std::string msg = argv[3];
+        std::string urgency = (argc > 4) ? argv[4] : "normal";
+        std::string cmd = "notify-send -a \"J.A.R.V.I.S.\" -u " + urgency + " \"" + title + "\" \"" + msg + "\" 2>/dev/null";
+        int res = std::system(cmd.c_str());
+        std::cout << "{\"status\":\"" << (res == 0 ? "ok" : "error") << "\",\"action\":\"notify\",\"title\":\"" << json_escape(title) << "\"}\n";
+        return (res == 0) ? 0 : 1;
+    }
+
+    std::cout << "{\"error\":\"Unknown action: " << json_escape(action) << "\",\"usage\":\"desktop_control <env|list_windows|focus_window|close_window|click|move|scroll|type_text|hotkey|screenshot|launch_app|close_app|lock|suspend|reboot|shutdown|notify>\"}\n";
+    return 1;
+}
