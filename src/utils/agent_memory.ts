@@ -18,6 +18,36 @@ export interface AgentMemoryState {
 
 export const DEFAULT_SEED_MEMORIES: MemoryFact[] = [
   {
+    id: 'mem-user-profile-gopi',
+    category: 'personal_fact',
+    key: 'Operator Identity & Engineering Profile',
+    value: 'User name is Gopi. BTech Computer Science engineer specializing in autonomous multi-system agent architectures and local-first systems. Work cycle: 09:00 AM - 18:30 PM IST.',
+    updatedAt: '2026-06-21T00:00:00.000Z',
+    source: 'agent_sync',
+    agentId: 'user',
+    agentName: 'OPERATOR'
+  },
+  {
+    id: 'mem-user-obsidian-localfirst',
+    category: 'preference',
+    key: 'Obsidian Vault & Local-First Architecture',
+    value: 'User prefers Obsidian markdown vaults (/JARVIS-MEMORY/) as primary truth store. Strict local-first architecture prioritizing native POSIX/C++ workers and SQLite over cloud dependencies.',
+    updatedAt: '2026-06-18T00:00:00.000Z',
+    source: 'agent_sync',
+    agentId: 'user',
+    agentName: 'OPERATOR'
+  },
+  {
+    id: 'mem-user-browser-chrome',
+    category: 'preference',
+    key: 'Browser Automation Standards',
+    value: 'Always use standard Google Chrome (never Beta/unstable channels) for browser automations, Playwright workflows, and web inspection.',
+    updatedAt: '2026-06-21T00:00:00.000Z',
+    source: 'agent_sync',
+    agentId: 'user',
+    agentName: 'OPERATOR'
+  },
+  {
     id: 'mem-ultron-sentinel',
     category: 'work_context',
     key: 'ULTRON Security & Isolation Baseline',
@@ -41,7 +71,7 @@ export const DEFAULT_SEED_MEMORIES: MemoryFact[] = [
     id: 'mem-jarvis-core',
     category: 'preference',
     key: 'JARVIS Core Multilingual Protocol',
-    value: 'Real-time bidirectional speech auto-detection active. Immediate conversational adaptation to user language (English, Hindi, Telugu, Tamil, Spanish, French, etc.) with Puck voice synthesis.',
+    value: 'Real-time bidirectional speech auto-detection active with Telgish primary mode. Immediate conversational adaptation to user language with Puck voice synthesis.',
     updatedAt: new Date().toISOString(),
     source: 'agent_sync',
     agentId: 'jarvis',

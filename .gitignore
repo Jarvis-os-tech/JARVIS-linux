@@ -12,3 +12,10 @@ workers_cpp/bin/
 data/
 .vscode/
 
+# Obsidian & Local Memory Vault (Structure Only Tracked in Git, Zero Personal Data)
+JARVIS-MEMORY/**
+!JARVIS-MEMORY/**/
+!JARVIS-MEMORY/**/.gitkeep
+!JARVIS-MEMORY/README.md
+!JARVIS-MEMORY/.obsidian/
+!JARVIS-MEMORY/.obsidian/.gitkeep
