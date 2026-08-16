@@ -4,6 +4,7 @@ use crate::types::{EdgeKind, MemoryEdge};
 use rusqlite::{params, Row};
 use std::str::FromStr;
 
+#[derive(Clone)]
 pub struct EdgeRepository {
     pool: DatabasePool,
 }

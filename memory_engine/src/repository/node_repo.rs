@@ -4,6 +4,7 @@ use crate::types::{MemoryNode, MemoryVector, NodeKind, Tier};
 use rusqlite::{params, Row};
 use std::str::FromStr;
 
+#[derive(Clone)]
 pub struct NodeRepository {
     pool: DatabasePool,
 }

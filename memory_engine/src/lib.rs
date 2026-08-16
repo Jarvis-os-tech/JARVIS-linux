@@ -4,6 +4,7 @@ pub mod error;
 pub mod repository;
 pub mod search;
 pub mod security;
+pub mod tree;
 pub mod types;
 pub mod vault;
 
@@ -18,5 +19,9 @@ pub use search::{
     SearchQuery, SearchResult, SignalScores, VectorCandidate, VectorSearchEngine,
 };
 pub use security::{SecretFinding, SecretScanner};
+pub use tree::{
+    CascadeSealer, DrillDownNode, Summarizer, SummaryPayload, TreeBuffer,
+    TreeBufferRepository, TreeEngine, TreeFlusher, TreeRetrieval,
+};
 pub use types::*;
 pub use vault::{bootstrap_obsidian_vault, VaultFrontmatter, VaultWriter};
