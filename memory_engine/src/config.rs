@@ -32,13 +32,8 @@ impl Default for Config {
             base_dir.join("memory.db")
         };
 
-        let vault_dir = if base_dir.join("memory").exists() {
-            base_dir.clone()
-        } else {
-            base_dir.join("vault")
-        };
-
-        let cache_dir = base_dir.join("cache");
+        let vault_dir = base_dir.clone();
+        let cache_dir = base_dir.join(".cache");
 
         let http_port = std::env::var("JARVIS_MEMORY_PORT")
             .ok()
