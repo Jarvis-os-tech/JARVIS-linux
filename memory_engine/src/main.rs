@@ -49,10 +49,15 @@ enum Commands {
         #[arg(long)]
         db_path: Option<PathBuf>,
     },
-    /// Start the memory engine daemon server
+    /// Start the memory engine daemon server (Axum REST + WebSocket)
     Serve {
         #[arg(short, long, default_value_t = 50051)]
         port: u16,
+        #[arg(long)]
+        db_path: Option<PathBuf>,
+    },
+    /// Start the Model Context Protocol (MCP) JSON-RPC stdio server
+    Mcp {
         #[arg(long)]
         db_path: Option<PathBuf>,
     },
@@ -356,17 +361,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Serve { port, db_path }) => {
             let config = get_config(db_path);
             config.ensure_directories()?;
-            let _pool = DatabasePool::from_config(&config)?;
-            println!("{{\"status\":\"running\", \"port\": {}, \"db_path\":\"{}\"}}", port, config.db_path.display());
+            let pool = DatabasePool::from_config(&config)?;
+            let state = jarvis_memory_engine::AppState::new(config, pool)?;
+            let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+            println!("{{\"status\":\"running\", \"port\": {}, \"protocol\":\"http/ws\"}}", port);
+            jarvis_memory_engine::start_server(state, addr).await?;
+        }
+        Some(Commands::Mcp { db_path }) => {
+            let config = get_config(db_path);
+            config.ensure_directories()?;
+            let pool = DatabasePool::from_config(&config)?;
+            let state = jarvis_memory_engine::AppState::new(config, pool)?;
+            let mcp = jarvis_memory_engine::McpServer::new(state);
+            mcp.run_stdio()?;
         }
         None => {
             let config = get_config(None);
             config.ensure_directories()?;
-            let _pool = DatabasePool::from_config(&config)?;
+            let pool = DatabasePool::from_config(&config)?;
+            let state = jarvis_memory_engine::AppState::new(config, pool)?;
             if cli.mcp_stdio {
-                eprintln!("JARVIS Memory Engine ready on stdio");
+                let mcp = jarvis_memory_engine::McpServer::new(state);
+                mcp.run_stdio()?;
             } else {
-                println!("{{\"status\":\"ready\", \"port\": {}, \"db_path\":\"{}\"}}", cli.port, config.db_path.display());
+                let addr = std::net::SocketAddr::from(([0, 0, 0, 0], cli.port));
+                println!("{{\"status\":\"running\", \"port\": {}, \"protocol\":\"http/ws\"}}", cli.port);
+                jarvis_memory_engine::start_server(state, addr).await?;
             }
         }
     }

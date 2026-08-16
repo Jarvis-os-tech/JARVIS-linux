@@ -105,6 +105,11 @@ impl SecretScanner {
         findings
     }
 
+    /// Check if text contains any secrets
+    pub fn contains_secrets(text: &str) -> bool {
+        !Self::scan(text).is_empty()
+    }
+
     /// Enforce security: Returns Err(MemoryError::SecurityViolation) if any secret is detected
     pub fn scan_and_enforce(text: &str) -> Result<()> {
         let findings = Self::scan(text);

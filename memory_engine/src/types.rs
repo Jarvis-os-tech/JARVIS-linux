@@ -43,6 +43,7 @@ impl std::str::FromStr for NodeKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Tier {
     Session = 0,
     Working = 1,

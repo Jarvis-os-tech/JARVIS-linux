@@ -1,9 +1,11 @@
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod mcp;
 pub mod repository;
 pub mod search;
 pub mod security;
+pub mod server;
 pub mod tree;
 pub mod types;
 pub mod vault;
@@ -11,6 +13,7 @@ pub mod vault;
 pub use config::Config;
 pub use db::DatabasePool;
 pub use error::{MemoryError, Result};
+pub use mcp::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, McpServer};
 pub use repository::{
     ConversationRepository, EdgeRepository, GraphRepository, NodeRepository,
 };
@@ -19,6 +22,7 @@ pub use search::{
     SearchQuery, SearchResult, SignalScores, VectorCandidate, VectorSearchEngine,
 };
 pub use security::{SecretFinding, SecretScanner};
+pub use server::{create_router, start_server, AppState, MemoryEvent};
 pub use tree::{
     CascadeSealer, DrillDownNode, Summarizer, SummaryPayload, TreeBuffer,
     TreeBufferRepository, TreeEngine, TreeFlusher, TreeRetrieval,

@@ -3,6 +3,7 @@ use crate::error::{MemoryError, Result};
 use crate::types::{ConversationTurn, Session};
 use rusqlite::{params, Row};
 
+#[derive(Clone)]
 pub struct ConversationRepository {
     pool: DatabasePool,
 }

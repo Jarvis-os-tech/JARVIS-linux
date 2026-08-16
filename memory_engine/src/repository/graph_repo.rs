@@ -5,6 +5,7 @@ use rusqlite::{params, Row};
 use std::collections::{HashSet, VecDeque};
 use std::str::FromStr;
 
+#[derive(Clone)]
 pub struct GraphRepository {
     pool: DatabasePool,
 }
