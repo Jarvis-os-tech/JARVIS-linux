@@ -212,12 +212,7 @@ status: active
         .split('\n')
         .map(line => `  > ${line}`)
         .join('\n');
-      turnBlock += `${indented}\n`;
-
-      if (entry.toolsUsed && entry.toolsUsed.length > 0) {
-        turnBlock += `  > [!tip]- *Triggered Tools: ${entry.toolsUsed.join(', ')}*\n`;
-      }
-      turnBlock += `\n`;
+      turnBlock += `${indented}\n\n`;
 
       try {
         fs.appendFileSync(filePath, turnBlock, 'utf8');
