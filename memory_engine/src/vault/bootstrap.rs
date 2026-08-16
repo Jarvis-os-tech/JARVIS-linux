@@ -6,16 +6,13 @@ pub fn bootstrap_obsidian_vault(vault_dir: &Path) -> Result<()> {
     let obsidian_dir = vault_dir.join(".obsidian");
     fs::create_dir_all(&obsidian_dir)?;
 
-    // Ensure category subdirectories exist
+    // Ensure 5 canonical category subdirectories exist
     let subdirs = [
-        "facts",
-        "decisions",
-        "lessons",
-        "patterns",
-        "knowledge",
         "conversations",
+        "facts",
+        "knowledge",
+        "execution",
         "summaries",
-        "daily",
     ];
     for sub in &subdirs {
         fs::create_dir_all(vault_dir.join(sub))?;
@@ -49,27 +46,23 @@ pub fn bootstrap_obsidian_vault(vault_dir: &Path) -> Result<()> {
   "showOrphans": true,
   "colorGroups": [
     {
-      "query": "path:facts",
+      "query": "path:conversations",
       "color": {"a":1,"rgb":3847423}
     },
     {
-      "query": "path:decisions",
+      "query": "path:facts",
       "color": {"a":1,"rgb":16753920}
     },
     {
-      "query": "path:lessons",
+      "query": "path:knowledge",
       "color": {"a":1,"rgb":4962650}
     },
     {
-      "query": "path:patterns",
+      "query": "path:execution",
       "color": {"a":1,"rgb":11756543}
     },
     {
-      "query": "path:knowledge",
-      "color": {"a":1,"rgb":3774975}
-    },
-    {
-      "query": "path:conversations",
+      "query": "path:summaries",
       "color": {"a":1,"rgb":15658734}
     }
   ],
@@ -99,13 +92,11 @@ Welcome to your unified personal AI second brain. Every memory stored by J.A.R.V
 
 ## 📁 Memory Domains
 
-- **[[facts/|📌 Facts & Identity]]**: Ground truth preferences, system capabilities, hardware profiles, and core user facts.
-- **[[decisions/|⚖️ Decisions & Architecture]]**: Technical decisions, trade-offs, and ADR records.
-- **[[lessons/|💡 Lessons Learned]]**: Failures, debugging resolutions, and operational discoveries.
-- **[[patterns/|🧬 Patterns & Workflows]]**: Recurring patterns, habits, and execution playbooks.
-- **[[knowledge/|🌐 Knowledge Graph]]**: Typed ontological concepts, technologies, tools, and mastery levels.
-- **[[conversations/|💬 Dialogue History]]**: Synthesized session logs and key multi-turn interaction traces.
-- **[[summaries/|🌲 Hierarchical Summaries]]**: Compacted L1/L2 memory trees.
+- **[[conversations/|💬 Dialogue History]]**: Synthesized session logs and multi-agent interaction traces ([User], [JARVIS], [Hermes], [Ultron]).
+- **[[facts/|👤 Facts & User Profile]]**: Ground truth preferences, user facts, hardware profiles, and core identity specs.
+- **[[knowledge/|📚 Knowledge & Instructions]]**: Typed ontological concepts, system rules, instructions, and multi-agent personas.
+- **[[execution/|🛠️ Tool Executions]]**: Live tool invocation telemetry, parameters, duration, and outcomes.
+- **[[summaries/|📊 Hierarchical Summaries]]**: Weekly and monthly compacted memory summaries.
 
 ---
 

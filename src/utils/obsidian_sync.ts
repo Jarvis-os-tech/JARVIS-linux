@@ -7,7 +7,11 @@ import { obsidianDailyLogger } from './obsidian_logger';
 export class ObsidianMemorySyncBridge {
   private static instance: ObsidianMemorySyncBridge;
   private vaultRoot: string;
+  private factsDir: string;
   private knowledgeDir: string;
+  private conversationsDir: string;
+  private executionDir: string;
+  private summariesDir: string;
 
   public static getInstance(): ObsidianMemorySyncBridge {
     if (!ObsidianMemorySyncBridge.instance) {
@@ -18,20 +22,33 @@ export class ObsidianMemorySyncBridge {
 
   constructor() {
     this.vaultRoot = path.join(process.cwd(), 'JARVIS-MEMORY');
-    this.knowledgeDir = path.join(this.vaultRoot, 'memory', 'Knowledge Base');
+    this.factsDir = path.join(this.vaultRoot, 'facts');
+    this.knowledgeDir = path.join(this.vaultRoot, 'knowledge');
+    this.conversationsDir = path.join(this.vaultRoot, 'conversations');
+    this.executionDir = path.join(this.vaultRoot, 'execution');
+    this.summariesDir = path.join(this.vaultRoot, 'summaries');
     this.ensureDirs();
     this.bindEvents();
     logObsidian.info('Obsidian 2-Way Memory Sync Bridge active.');
   }
 
   private ensureDirs() {
-    if (!fs.existsSync(this.knowledgeDir)) {
-      fs.mkdirSync(this.knowledgeDir, { recursive: true });
+    const dirs = [
+      this.conversationsDir,
+      this.factsDir,
+      this.knowledgeDir,
+      this.executionDir,
+      this.summariesDir,
+    ];
+    for (const dir of dirs) {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
     }
     const indexPath = path.join(this.vaultRoot, 'INDEX.md');
     const lowerIndexPath = path.join(this.vaultRoot, 'index.md');
     if (!fs.existsSync(indexPath)) {
-      const indexContent = `# 🧠 JARVIS Universal Memory Vault\n\n- [[memory/Knowledge Base/|Knowledge Base]]\n- [[memory/Daily Logs/|Daily Logs]]\n`;
+      const indexContent = `# 🧠 JARVIS Universal Memory Vault\n\n- [[conversations/|💬 Conversations]]\n- [[facts/|👤 Facts & Profile]]\n- [[knowledge/|📚 Knowledge & Instructions]]\n- [[execution/|🛠️ Tool Executions]]\n- [[summaries/|📊 Summaries]]\n`;
       fs.writeFileSync(indexPath, indexContent, 'utf-8');
     }
     if (!fs.existsSync(lowerIndexPath)) {
@@ -55,7 +72,7 @@ export class ObsidianMemorySyncBridge {
       });
     });
 
-    // 2. Sync tool execution to daily log
+    // 2. Sync tool execution to execution log
     eventBus.on('tool:after_execute', (data) => {
       obsidianDailyLogger.logToolExecution({
         toolName: data.toolName,
@@ -66,7 +83,7 @@ export class ObsidianMemorySyncBridge {
       });
     });
 
-    // 3. Sync completed tasks to daily objectives
+    // 3. Sync completed tasks to conversation log
     eventBus.on('task:completed', (data) => {
       obsidianDailyLogger.logDailyTask(`Task Completed: ${data.taskId}`, true);
     });
@@ -74,7 +91,8 @@ export class ObsidianMemorySyncBridge {
 
   public syncFactToMarkdown(fact: { category: string; key: string; value: string; updated_at?: string }) {
     try {
-      const filePath = path.join(this.knowledgeDir, 'User Profile & Preferences.md');
+      this.ensureDirs();
+      const filePath = path.join(this.factsDir, 'User Profile & Preferences.md');
       let content = '';
 
       if (fs.existsSync(filePath)) {
@@ -85,8 +103,9 @@ title: User Profile & Preferences
 tags:
   - jarvis
   - memory
+  - facts
   - user-profile
-type: permanent-memory
+type: facts-profile
 status: active
 ---
 
@@ -137,13 +156,11 @@ status: active
     }
 
     const domainFolders = [
-      { id: 'facts', name: 'Facts & Identity', sub: 'facts' },
-      { id: 'decisions', name: 'Decisions & Architecture', sub: 'decisions' },
-      { id: 'lessons', name: 'Lessons Learned', sub: 'lessons' },
-      { id: 'patterns', name: 'Patterns & Workflows', sub: 'patterns' },
-      { id: 'knowledge', name: 'Knowledge Graph', sub: 'knowledge' },
       { id: 'conversations', name: 'Dialogue History', sub: 'conversations' },
-      { id: 'daily', name: 'Daily Logs', sub: 'daily' },
+      { id: 'facts', name: 'Facts & User Profile', sub: 'facts' },
+      { id: 'knowledge', name: 'Knowledge & Instructions', sub: 'knowledge' },
+      { id: 'execution', name: 'Tool Executions', sub: 'execution' },
+      { id: 'summaries', name: 'Weekly & Monthly Summaries', sub: 'summaries' },
     ];
 
     let totalFiles = 0;

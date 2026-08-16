@@ -39,24 +39,40 @@ export interface FactExtractedLog {
 }
 
 export class ObsidianDailyLogger {
-  private baseDir: string;
-  private currentDailyFile: string = '';
-  private currentDateStr: string = '';
+  private vaultRoot: string;
+  private conversationsDir: string;
+  private executionDir: string;
+  private factsDir: string;
+  private knowledgeDir: string;
+  private summariesDir: string;
   private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(vaultPath?: string) {
-    const root = vaultPath || path.join(process.cwd(), 'JARVIS-MEMORY');
-    this.baseDir = path.join(root, 'memory', 'Daily Logs');
-    this.ensureDirectoryExists();
+    this.vaultRoot = vaultPath || path.join(process.cwd(), 'JARVIS-MEMORY');
+    this.conversationsDir = path.join(this.vaultRoot, 'conversations');
+    this.executionDir = path.join(this.vaultRoot, 'execution');
+    this.factsDir = path.join(this.vaultRoot, 'facts');
+    this.knowledgeDir = path.join(this.vaultRoot, 'knowledge');
+    this.summariesDir = path.join(this.vaultRoot, 'summaries');
+    this.ensureDirectoriesExist();
   }
 
-  private ensureDirectoryExists(): void {
+  private ensureDirectoriesExist(): void {
     try {
-      if (!fs.existsSync(this.baseDir)) {
-        fs.mkdirSync(this.baseDir, { recursive: true });
+      const dirs = [
+        this.conversationsDir,
+        this.executionDir,
+        this.factsDir,
+        this.knowledgeDir,
+        this.summariesDir,
+      ];
+      for (const dir of dirs) {
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
       }
     } catch (err) {
-      console.error('[ObsidianLogger] Failed to create Daily Logs directory:', err);
+      console.error('[ObsidianLogger] Failed to create directories:', err);
     }
   }
 
@@ -78,68 +94,86 @@ export class ObsidianDailyLogger {
   }
 
   /**
-   * Checks if today's daily note exists. If not, creates it with frontmatter & structure.
+   * Ensures today's conversation file exists in conversations/YYYY-MM-DD.md
    */
-  public ensureDailyFileExists(): string {
-    this.ensureDirectoryExists();
+  public ensureConversationFileExists(): string {
+    this.ensureDirectoriesExist();
     const dateStr = this.getLocalDateString();
-    const filePath = path.join(this.baseDir, `${dateStr}.md`);
-
-    if (this.currentDailyFile === filePath && this.currentDateStr === dateStr && fs.existsSync(filePath)) {
-      return filePath;
-    }
-
-    this.currentDailyFile = filePath;
-    this.currentDateStr = dateStr;
+    const filePath = path.join(this.conversationsDir, `${dateStr}.md`);
 
     if (!fs.existsSync(filePath)) {
       const template = `---
-title: Daily Memory Log - ${dateStr}
+title: Conversation Log - ${dateStr}
 date: ${dateStr}
 tags:
   - jarvis
-  - memory
-  - daily-log
-type: daily-note
+  - conversation
+  - dialogue
+type: conversation-log
 status: active
 ---
 
-# 🧠 JARVIS Daily Operations & Memory Log — ${dateStr}
+# 💬 Dialogue History — ${dateStr}
 
-> [!NOTE] System State
-> Autonomous Life OS & Memory Vault active. Synchronized with JARVIS Prime Orchestrator.
-
----
-
-## 🎯 Daily Objectives & Active Tasks
-- [ ] Active interaction session in progress
+> [!NOTE] Synchronized Conversation Stream
+> Multi-agent dialogue log tagged by speaker ([User], [JARVIS], [Hermes], [Ultron], etc.).
 
 ---
-
-## 💬 Conversation & Interaction Log
-
----
-
-## 🛠️ Tool Executions & System Actions
-
----
-
-## 🤖 Multi-Agent Delegations & Relay Briefings
-
----
-
-## 💡 Key Facts & User Context Extracted
 
 `;
       try {
         fs.writeFileSync(filePath, template, 'utf8');
-        console.log(`[ObsidianLogger] Initialized new daily log for ${dateStr} at ${filePath}`);
       } catch (err) {
-        console.error('[ObsidianLogger] Error creating daily file:', err);
+        console.error('[ObsidianLogger] Error creating conversation file:', err);
       }
     }
 
     return filePath;
+  }
+
+  /**
+   * Ensures today's execution file exists in execution/YYYY-MM-DD.md
+   */
+  public ensureExecutionFileExists(): string {
+    this.ensureDirectoriesExist();
+    const dateStr = this.getLocalDateString();
+    const filePath = path.join(this.executionDir, `${dateStr}.md`);
+
+    if (!fs.existsSync(filePath)) {
+      const template = `---
+title: Tool Execution Log - ${dateStr}
+date: ${dateStr}
+tags:
+  - jarvis
+  - execution
+  - tools
+type: execution-log
+status: active
+---
+
+# 🛠️ Tool & System Execution Log — ${dateStr}
+
+> [!NOTE] Execution Telemetry
+> Live tool calls, parameter arguments, duration, and success/failure outcomes.
+
+---
+
+`;
+      try {
+        fs.writeFileSync(filePath, template, 'utf8');
+      } catch (err) {
+        console.error('[ObsidianLogger] Error creating execution file:', err);
+      }
+    }
+
+    return filePath;
+  }
+
+  /**
+   * Backward-compatible alias for existing callers
+   */
+  public ensureDailyFileExists(): string {
+    return this.ensureConversationFileExists();
   }
 
   /**
@@ -157,109 +191,161 @@ status: active
   }
 
   /**
-   * Appends text under a specific Markdown heading in today's daily log.
+   * Logs a conversation turn tagged by speaker ([User], [JARVIS], [Hermes], [Ultron], etc.).
    */
-  private async appendUnderSection(sectionHeading: string, markdownContent: string): Promise<void> {
+  public logConversationTurn(entry: ConversationTurnLog): Promise<void> {
     return this.queueAppend(async () => {
-      const filePath = this.ensureDailyFileExists();
+      const filePath = this.ensureConversationFileExists();
+      const time = this.getLocalTimeString(entry.timestamp || new Date());
+      const isUser = entry.role === 'user';
+      
+      const agentTag = isUser
+        ? `[User]`
+        : `[${(entry.speaker || entry.personaId || 'JARVIS').toUpperCase()}]`;
+
+      const speakerLabel = isUser
+        ? `👤 **${agentTag}**`
+        : `🤖 **${agentTag}**${entry.personaId && entry.personaId.toLowerCase() !== entry.speaker.toLowerCase() ? ` *(${entry.personaId})*` : ''}`;
+
+      let turnBlock = `* **\`[${time}]\`** ${speakerLabel}:\n`;
+      const indented = entry.text
+        .split('\n')
+        .map(line => `  > ${line}`)
+        .join('\n');
+      turnBlock += `${indented}\n`;
+
+      if (entry.toolsUsed && entry.toolsUsed.length > 0) {
+        turnBlock += `  > [!tip]- *Triggered Tools: ${entry.toolsUsed.join(', ')}*\n`;
+      }
+      turnBlock += `\n`;
+
       try {
-        let content = fs.readFileSync(filePath, 'utf8');
-        // Match exact or prefix of heading (e.g. "## 💬 Conversation & Interaction")
-        const headingPrefix = sectionHeading.split('&')[0].trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const headingRegex = new RegExp(`(${headingPrefix}[^\\r\\n]*[\\r\\n]+)`, 'i');
-
-        if (headingRegex.test(content)) {
-          content = content.replace(headingRegex, `$1\n${markdownContent}\n`);
-        } else {
-          content += `\n\n${sectionHeading}\n\n${markdownContent}\n`;
-        }
-
-        fs.writeFileSync(filePath, content, 'utf8');
+        fs.appendFileSync(filePath, turnBlock, 'utf8');
       } catch (err) {
-        console.error(`[ObsidianLogger] Failed to append under section ${sectionHeading}:`, err);
+        console.error(`[ObsidianLogger] Failed to log conversation turn:`, err);
       }
     });
   }
 
   /**
-   * Logs a conversation turn (User prompt or Agent response).
-   */
-  public logConversationTurn(entry: ConversationTurnLog): Promise<void> {
-    const time = this.getLocalTimeString(entry.timestamp || new Date());
-    const isUser = entry.role === 'user';
-    const speakerLabel = isUser
-      ? `👤 **User**`
-      : `🤖 **${entry.speaker || 'JARVIS'}**${entry.personaId ? ` *(${entry.personaId})*` : ''}`;
-
-    let turnBlock = `* **\`[${time}]\`** ${speakerLabel}:\n`;
-    const indented = entry.text
-      .split('\n')
-      .map(line => `  > ${line}`)
-      .join('\n');
-    turnBlock += `${indented}\n`;
-
-    if (entry.toolsUsed && entry.toolsUsed.length > 0) {
-      turnBlock += `  > [!tip]- *Triggered Tools: ${entry.toolsUsed.join(', ')}*\n`;
-    }
-
-    return this.appendUnderSection('## 💬 Conversation & Interaction Log', turnBlock);
-  }
-
-  /**
-   * Logs a tool execution event.
+   * Logs a tool execution event to execution/YYYY-MM-DD.md
    */
   public logToolExecution(entry: ToolExecutionLog): Promise<void> {
-    const time = this.getLocalTimeString(entry.timestamp || new Date());
-    const statusIcon = entry.success ? '✅' : '❌';
-    const duration = entry.durationMs ? ` (${entry.durationMs}ms)` : '';
+    return this.queueAppend(async () => {
+      const filePath = this.ensureExecutionFileExists();
+      const time = this.getLocalTimeString(entry.timestamp || new Date());
+      const statusIcon = entry.success ? '✅ Success' : '❌ Failed';
+      const duration = entry.durationMs ? ` (${entry.durationMs}ms)` : '';
 
-    let argsPreview = '';
-    try {
-      argsPreview = JSON.stringify(entry.args);
-      if (argsPreview.length > 120) argsPreview = argsPreview.slice(0, 117) + '...';
-    } catch {
-      argsPreview = String(entry.args);
-    }
+      let argsPreview = '';
+      try {
+        argsPreview = JSON.stringify(entry.args, null, 2);
+      } catch {
+        argsPreview = String(entry.args);
+      }
 
-    let toolBlock = `* **\`[${time}]\`** ${statusIcon} \`${entry.toolName}\`${duration}\n`;
-    toolBlock += `  * **Args**: \`${argsPreview}\`\n`;
-    if (entry.resultSummary) {
-      const summaryClean = entry.resultSummary.length > 200 ? entry.resultSummary.slice(0, 197) + '...' : entry.resultSummary;
-      toolBlock += `  * **Result**: ${summaryClean}\n`;
-    }
+      let toolBlock = `### \`[${time}]\` ${entry.toolName} — ${statusIcon}${duration}\n\n`;
+      toolBlock += `* **Status**: \`${entry.success ? 'SUCCESS' : 'FAILED'}\`\n`;
+      toolBlock += `* **Parameters**:\n\`\`\`json\n${argsPreview}\n\`\`\`\n`;
+      if (entry.resultSummary) {
+        toolBlock += `* **Output / Summary**:\n\`\`\`\n${entry.resultSummary.length > 500 ? entry.resultSummary.slice(0, 497) + '...' : entry.resultSummary}\n\`\`\`\n\n`;
+      } else {
+        toolBlock += `\n`;
+      }
 
-    return this.appendUnderSection('## 🛠️ Tool Executions & System Actions', toolBlock);
+      try {
+        fs.appendFileSync(filePath, toolBlock, 'utf8');
+      } catch (err) {
+        console.error(`[ObsidianLogger] Failed to log tool execution:`, err);
+      }
+    });
   }
 
   /**
-   * Logs an agent delegation event (e.g. ULTRON, FRIDAY, EDITH).
+   * Logs an agent delegation event.
    */
   public logAgentDelegation(entry: AgentDelegationLog): Promise<void> {
-    const time = this.getLocalTimeString(entry.timestamp || new Date());
-    const badge = entry.severity === 'critical' ? '🔴 DANGER' : entry.severity === 'warning' ? '🟡 WARNING' : '🔵 INFO';
+    return this.queueAppend(async () => {
+      const filePath = this.ensureConversationFileExists();
+      const time = this.getLocalTimeString(entry.timestamp || new Date());
+      const badge = entry.severity === 'critical' ? '🔴 DANGER' : entry.severity === 'warning' ? '🟡 WARNING' : '🔵 INFO';
 
-    let delegationBlock = `* **\`[${time}]\`** **[${badge}] ${entry.sourceManagerName}**: ${entry.relayedSummary}\n`;
-    delegationBlock += `  * **Delegated Task**: \`${entry.task}\`\n`;
+      const delegationBlock = `> [!important] **\`[${time}]\` [${badge}] Multi-Agent Delegation [${entry.sourceManagerName.toUpperCase()}]**\n> * **Task**: \`${entry.task}\`\n> * **Briefing**: ${entry.relayedSummary}\n\n`;
 
-    return this.appendUnderSection('## 🤖 Multi-Agent Delegations & Relay Briefings', delegationBlock);
+      try {
+        fs.appendFileSync(filePath, delegationBlock, 'utf8');
+      } catch (err) {
+        console.error(`[ObsidianLogger] Failed to log delegation:`, err);
+      }
+    });
   }
 
   /**
-   * Logs an extracted user fact or preference.
+   * Logs an extracted user fact or preference into facts/.
    */
   public logFactExtracted(entry: FactExtractedLog): Promise<void> {
-    const time = this.getLocalTimeString(entry.timestamp || new Date());
-    const factBlock = `* **\`[${time}]\`** \`[${entry.category.toUpperCase()}]\` **${entry.key}**: ${entry.value} *(Source: ${entry.source || 'auto_extracted'})*\n`;
-    return this.appendUnderSection('## 💡 Key Facts & User Context Extracted', factBlock);
+    return this.queueAppend(async () => {
+      this.ensureDirectoriesExist();
+      const filePath = path.join(this.factsDir, 'User Profile & Preferences.md');
+      const time = this.getLocalTimeString(entry.timestamp || new Date());
+      const dateStr = this.getLocalDateString();
+      const factLine = `- **${entry.key}**: ${entry.value} *(Category: ${entry.category}, Recorded: ${dateStr} ${time})*`;
+
+      try {
+        let content = '';
+        if (fs.existsSync(filePath)) {
+          content = fs.readFileSync(filePath, 'utf8');
+        } else {
+          content = `---
+title: User Profile & Preferences
+tags:
+  - jarvis
+  - memory
+  - facts
+  - user-profile
+type: facts-profile
+status: active
+---
+
+# 👤 User Profile, Facts & Preferences
+
+> [!NOTE] Facts Repository
+> Auto-synchronized memory facts, identity vectors, and system preferences.
+
+---
+
+## 📌 Extracted Facts & Preferences
+`;
+        }
+
+        if (!content.includes(`**${entry.key}**:`)) {
+          content += `\n${factLine}\n`;
+        } else {
+          const regex = new RegExp(`- \\*\\*${entry.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\*\\*:.*`, 'g');
+          content = content.replace(regex, factLine);
+        }
+
+        fs.writeFileSync(filePath, content, 'utf8');
+      } catch (err) {
+        console.error(`[ObsidianLogger] Failed to log fact:`, err);
+      }
+    });
   }
 
   /**
-   * Appends or updates a daily objective / checklist item.
+   * Appends or updates a daily objective / checklist item in conversation log.
    */
   public logDailyTask(taskName: string, completed: boolean = false): Promise<void> {
-    const box = completed ? '[x]' : '[ ]';
-    const taskLine = `- ${box} ${taskName}\n`;
-    return this.appendUnderSection('## 🎯 Daily Objectives & Active Tasks', taskLine);
+    return this.queueAppend(async () => {
+      const filePath = this.ensureConversationFileExists();
+      const box = completed ? '[x]' : '[ ]';
+      const taskLine = `* ${box} **Task**: ${taskName}\n`;
+      try {
+        fs.appendFileSync(filePath, taskLine, 'utf8');
+      } catch (err) {
+        console.error(`[ObsidianLogger] Failed to log daily task:`, err);
+      }
+    });
   }
 }
 

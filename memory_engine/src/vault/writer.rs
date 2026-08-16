@@ -42,9 +42,9 @@ impl VaultWriter {
     fn folder_for_kind(kind: NodeKind) -> &'static str {
         match kind {
             NodeKind::Fact => "facts",
-            NodeKind::Decision => "decisions",
-            NodeKind::Lesson => "lessons",
-            NodeKind::Pattern => "patterns",
+            NodeKind::Decision => "knowledge",
+            NodeKind::Lesson => "knowledge",
+            NodeKind::Pattern => "knowledge",
             NodeKind::Entity => "knowledge",
             NodeKind::Conversation => "conversations",
             NodeKind::Chunk => "summaries",
