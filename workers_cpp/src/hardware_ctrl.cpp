@@ -75,15 +75,17 @@ static std::string run_fast_cmd(const std::string& cmd) {
     return trim(result);
 }
 
-// ── 1. AUDIO VOLUME & MUTE ──────────────────────────────────────────────────
+// ── 1. AUDIO VOLUME, MUTE & SOUND SERVER HEALTH ─────────────────────────────
 
 struct VolumeData {
     int volume_percent = 50;
     bool muted = false;
+    std::string backend = "pipewire";
 };
 
 VolumeData get_audio_volume() {
     VolumeData v;
+    // Tier 1: wpctl (PipeWire / WirePlumber)
     std::string out = run_fast_cmd("wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null");
     if (!out.empty()) {
         size_t idx = out.find("Volume:");
@@ -91,12 +93,46 @@ VolumeData get_audio_volume() {
             float val = 0.5f;
             if (sscanf(out.c_str() + idx, "Volume: %f", &val) == 1) {
                 v.volume_percent = static_cast<int>(val * 100.0f + 0.5f);
+                v.backend = "pipewire";
             }
             if (out.find("[MUTED]") != std::string::npos) {
                 v.muted = true;
             }
+            return v;
         }
     }
+
+    // Tier 2: pactl (PulseAudio / pipewire-pulse)
+    std::string pactl_out = run_fast_cmd("pactl get-sink-volume @DEFAULT_SINK@ 2>/dev/null");
+    if (!pactl_out.empty()) {
+        size_t pct_idx = pactl_out.find('%');
+        if (pct_idx != std::string::npos && pct_idx > 2) {
+            size_t slash_idx = pactl_out.rfind('/', pct_idx);
+            if (slash_idx != std::string::npos) {
+                int pct = std::atoi(pactl_out.c_str() + slash_idx + 1);
+                v.volume_percent = std::clamp(pct, 0, 150);
+                v.backend = "pulseaudio";
+                std::string mute_out = run_fast_cmd("pactl get-sink-mute @DEFAULT_SINK@ 2>/dev/null");
+                v.muted = (mute_out.find("yes") != std::string::npos);
+                return v;
+            }
+        }
+    }
+
+    // Tier 3: amixer (ALSA direct)
+    std::string amixer_out = run_fast_cmd("amixer sget Master 2>/dev/null");
+    if (!amixer_out.empty()) {
+        size_t b1 = amixer_out.find('[');
+        size_t b2 = amixer_out.find('%', b1);
+        if (b1 != std::string::npos && b2 != std::string::npos && b2 > b1) {
+            int pct = std::atoi(amixer_out.substr(b1 + 1, b2 - b1 - 1).c_str());
+            v.volume_percent = std::clamp(pct, 0, 100);
+            v.muted = (amixer_out.find("[off]") != std::string::npos);
+            v.backend = "alsa";
+            return v;
+        }
+    }
+
     return v;
 }
 
@@ -104,23 +140,42 @@ VolumeData adjust_audio_volume(const std::string& target_str) {
     std::string trimmed = trim(target_str);
     if (trimmed.empty()) return get_audio_volume();
 
-    // Check if relative e.g. "+10%", "-5%", "+10", "-5"
-    if (trimmed.front() == '+' || trimmed.front() == '-') {
-        std::string cleaned = trimmed;
-        if (cleaned.back() == '%') cleaned.pop_back();
+    bool is_relative = (!trimmed.empty() && (trimmed.front() == '+' || trimmed.front() == '-'));
+    std::string cleaned = trimmed;
+    if (cleaned.back() == '%') cleaned.pop_back();
+
+    if (is_relative) {
         float delta = std::atof(cleaned.c_str()) / 100.0f;
         char buf[128];
         snprintf(buf, sizeof(buf), "wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ %.2f%c >/dev/null 2>&1", std::abs(delta), (delta >= 0 ? '+' : '-'));
-        if (std::system(buf) == 0) {}
+        if (std::system(buf) != 0) {
+            // Fallback to pactl
+            char pbuf[128];
+            snprintf(pbuf, sizeof(pbuf), "pactl set-sink-volume @DEFAULT_SINK@ %+d%% >/dev/null 2>&1", static_cast<int>(delta * 100.0f));
+            if (std::system(pbuf) != 0) {
+                // Fallback to amixer
+                char abuf[128];
+                snprintf(abuf, sizeof(abuf), "amixer sset Master %d%%%c >/dev/null 2>&1", std::abs(static_cast<int>(delta * 100.0f)), (delta >= 0 ? '+' : '-'));
+                (void)std::system(abuf);
+            }
+        }
     } else {
-        std::string cleaned = trimmed;
-        if (cleaned.back() == '%') cleaned.pop_back();
         int pct = std::atoi(cleaned.c_str());
         pct = std::clamp(pct, 0, 150);
         float decimal = static_cast<float>(pct) / 100.0f;
         char buf[128];
         snprintf(buf, sizeof(buf), "wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ %.2f >/dev/null 2>&1", decimal);
-        if (std::system(buf) == 0) {}
+        if (std::system(buf) != 0) {
+            // Fallback to pactl
+            char pbuf[128];
+            snprintf(pbuf, sizeof(pbuf), "pactl set-sink-volume @DEFAULT_SINK@ %d%% >/dev/null 2>&1", pct);
+            if (std::system(pbuf) != 0) {
+                // Fallback to amixer
+                char abuf[128];
+                snprintf(abuf, sizeof(abuf), "amixer sset Master %d%% >/dev/null 2>&1", std::clamp(pct, 0, 100));
+                (void)std::system(abuf);
+            }
+        }
     }
 
     return get_audio_volume();
@@ -128,13 +183,94 @@ VolumeData adjust_audio_volume(const std::string& target_str) {
 
 VolumeData set_audio_mute(bool mute) {
     std::string cmd = std::string("wpctl set-mute @DEFAULT_AUDIO_SINK@ ") + (mute ? "1" : "0") + " >/dev/null 2>&1";
-    if (std::system(cmd.c_str()) == 0) {}
+    if (std::system(cmd.c_str()) != 0) {
+        std::string pcmd = std::string("pactl set-sink-mute @DEFAULT_SINK@ ") + (mute ? "1" : "0") + " >/dev/null 2>&1";
+        if (std::system(pcmd.c_str()) != 0) {
+            std::string acmd = std::string("amixer sset Master ") + (mute ? "mute" : "unmute") + " >/dev/null 2>&1";
+            (void)std::system(acmd.c_str());
+        }
+    }
     return get_audio_volume();
 }
 
 VolumeData toggle_audio_mute() {
-    if (std::system("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle >/dev/null 2>&1") == 0) {}
+    if (std::system("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle >/dev/null 2>&1") != 0) {
+        if (std::system("pactl set-sink-mute @DEFAULT_SINK@ toggle >/dev/null 2>&1") != 0) {
+            (void)std::system("amixer sset Master toggle >/dev/null 2>&1");
+        }
+    }
     return get_audio_volume();
+}
+
+struct SoundServerStatus {
+    bool healthy = true;
+    bool pipewire_running = false;
+    bool wireplumber_running = false;
+    bool pulse_running = false;
+    std::string active_backend = "unknown";
+    std::string active_sink = "";
+    int volume_percent = 50;
+    bool muted = false;
+    std::string alsa_cards = "";
+};
+
+SoundServerStatus diagnose_sound_server() {
+    SoundServerStatus s;
+    std::string pw_act = run_fast_cmd("systemctl --user is-active pipewire 2>/dev/null");
+    std::string wp_act = run_fast_cmd("systemctl --user is-active wireplumber 2>/dev/null");
+    std::string pulse_act = run_fast_cmd("systemctl --user is-active pipewire-pulse 2>/dev/null");
+
+    s.pipewire_running = (pw_act == "active");
+    s.wireplumber_running = (wp_act == "active");
+    s.pulse_running = (pulse_act == "active");
+
+    VolumeData v = get_audio_volume();
+    s.volume_percent = v.volume_percent;
+    s.muted = v.muted;
+    s.active_backend = v.backend;
+
+    std::string sink_info = run_fast_cmd("wpctl inspect @DEFAULT_AUDIO_SINK@ 2>/dev/null | grep 'node.description' | head -n 1");
+    if (sink_info.empty()) {
+        sink_info = run_fast_cmd("pactl get-default-sink 2>/dev/null");
+    }
+    s.active_sink = trim(sink_info);
+
+    std::string cards = read_file_string("/proc/asound/cards");
+    s.alsa_cards = cards;
+
+    s.healthy = (s.pipewire_running || s.pulse_running) && (v.volume_percent >= 0);
+    return s;
+}
+
+SoundServerStatus heal_sound_server() {
+    (void)std::system("systemctl --user restart pipewire wireplumber pipewire-pulse 2>&1 >/dev/null");
+    (void)std::system("amixer sset Master unmute 2>/dev/null || true");
+    usleep(150000);
+    return diagnose_sound_server();
+}
+
+static std::string get_jarvis_config_dir() {
+    const char* home = std::getenv("HOME");
+    std::string base = (home && std::strlen(home) > 0) ? home : "/home/gopi";
+    std::string cfg = base + "/.config/jarvis";
+    try {
+        fs::create_directories(cfg);
+    } catch (...) {}
+    return cfg;
+}
+
+bool save_persisted_audio_profile(const std::string& profile_json) {
+    std::string p = get_jarvis_config_dir() + "/audio_profile.json";
+    std::ofstream out(p);
+    if (!out.is_open()) return false;
+    out << profile_json;
+    return true;
+}
+
+std::string get_persisted_audio_profile() {
+    std::string p = get_jarvis_config_dir() + "/audio_profile.json";
+    std::string content = read_file_string(p);
+    return content.empty() ? "{}" : content;
 }
 
 // ── 2. SCREEN BRIGHTNESS ────────────────────────────────────────────────────
@@ -360,23 +496,65 @@ int main(int argc, char* argv[]) {
         std::cout << "{\"status\":\"" << (ok ? "ok" : "error")
                   << "\",\"profile\":\"" << json_escape(get_power_profile()) << "\"}\n";
     }
+    else if (action == "diagnose_sound_server" || action == "check_sound_server") {
+        SoundServerStatus s = diagnose_sound_server();
+        std::cout << "{"
+                  << "\"healthy\":" << (s.healthy ? "true" : "false") << ","
+                  << "\"pipewire_running\":" << (s.pipewire_running ? "true" : "false") << ","
+                  << "\"wireplumber_running\":" << (s.wireplumber_running ? "true" : "false") << ","
+                  << "\"pulse_running\":" << (s.pulse_running ? "true" : "false") << ","
+                  << "\"active_backend\":\"" << json_escape(s.active_backend) << "\","
+                  << "\"active_sink\":\"" << json_escape(s.active_sink) << "\","
+                  << "\"volume_percent\":" << s.volume_percent << ","
+                  << "\"muted\":" << (s.muted ? "true" : "false")
+                  << "}\n";
+    }
+    else if (action == "heal_sound_server" || action == "repair_sound_server") {
+        SoundServerStatus s = heal_sound_server();
+        std::cout << "{"
+                  << "\"status\":\"ok\","
+                  << "\"healthy\":" << (s.healthy ? "true" : "false") << ","
+                  << "\"pipewire_running\":" << (s.pipewire_running ? "true" : "false") << ","
+                  << "\"wireplumber_running\":" << (s.wireplumber_running ? "true" : "false") << ","
+                  << "\"pulse_running\":" << (s.pulse_running ? "true" : "false") << ","
+                  << "\"active_backend\":\"" << json_escape(s.active_backend) << "\","
+                  << "\"active_sink\":\"" << json_escape(s.active_sink) << "\","
+                  << "\"volume_percent\":" << s.volume_percent << ","
+                  << "\"muted\":" << (s.muted ? "true" : "false")
+                  << "}\n";
+    }
+    else if (action == "get_audio_profile") {
+        std::string p = get_persisted_audio_profile();
+        std::cout << "{\"status\":\"ok\",\"profile\":" << p << "}\n";
+    }
+    else if (action == "set_audio_profile" && argc > 2) {
+        std::string p = argv[2];
+        bool ok = save_persisted_audio_profile(p);
+        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\"}\n";
+    }
     else {
         VolumeData vd = get_audio_volume();
         BrightnessData bd = get_screen_brightness();
         BatteryData bat = read_kernel_battery();
         std::string prof = get_power_profile();
+        SoundServerStatus s = diagnose_sound_server();
 
         auto t_end = std::chrono::high_resolution_clock::now();
         double elapsed_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
 
         std::cout << "{"
-                  << "\"volume\":{\"percent\":" << vd.volume_percent << ",\"muted\":" << (vd.muted ? "true" : "false") << "},"
+                  << "\"volume\":{\"percent\":" << vd.volume_percent << ",\"muted\":" << (vd.muted ? "true" : "false") << ",\"backend\":\"" << json_escape(vd.backend) << "\"},"
                   << "\"brightness\":{\"percent\":" << bd.percent << ",\"device\":\"" << json_escape(bd.device) << "\"},"
                   << "\"battery\":{\"available\":" << (bat.available ? "true" : "false")
                   << ",\"percent\":" << bat.percent
                   << ",\"status\":\"" << json_escape(bat.status) << "\""
                   << ",\"plugged\":" << (bat.plugged ? "true" : "false") << "},"
                   << "\"power_profile\":\"" << json_escape(prof) << "\","
+                  << "\"sound_server\":{\"healthy\":" << (s.healthy ? "true" : "false")
+                  << ",\"pipewire\":" << (s.pipewire_running ? "true" : "false")
+                  << ",\"wireplumber\":" << (s.wireplumber_running ? "true" : "false")
+                  << ",\"pulse\":" << (s.pulse_running ? "true" : "false")
+                  << ",\"backend\":\"" << json_escape(s.active_backend) << "\"},"
                   << "\"execution_time_ms\":" << elapsed_ms
                   << "}\n";
     }

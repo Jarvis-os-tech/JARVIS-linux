@@ -1,3 +1,5 @@
+import { PersonaAudioProfile } from '../types';
+
 /**
  * Utility functions for Web Audio API PCM capture, base64 encoding/decoding,
  * gapless audio queue playback at 24kHz, and volume visualization metering.
@@ -46,7 +48,7 @@ export function calculateVolume(buffer: Float32Array): number {
 }
 
 /**
- * Audio Queue Manager for scheduling 24kHz incoming PCM chunks gaplessly
+ * Audio Queue Manager with Real-Time DSP Voice Shaping and Resilient Sound-Server Watchdog
  */
 export class AudioQueuePlayer {
   private ctx: AudioContext | null = null;
@@ -55,20 +57,143 @@ export class AudioQueuePlayer {
   private onVolumeChange?: (volume: number) => void;
   private onPlaybackStateChange?: (isPlaying: boolean) => void;
 
+  // DSP Nodes
+  private personaGainNode: GainNode | null = null;
+  private bassFilterNode: BiquadFilterNode | null = null;
+  private midFilterNode: BiquadFilterNode | null = null;
+  private trebleFilterNode: BiquadFilterNode | null = null;
+  private compressorNode: DynamicsCompressorNode | null = null;
+  private masterGainNode: GainNode | null = null;
+
+  private currentProfile: PersonaAudioProfile | null = null;
+  private watchdogTimer: any = null;
+
   constructor(onVolumeChange?: (vol: number) => void, onPlaybackStateChange?: (isPlaying: boolean) => void) {
     this.onVolumeChange = onVolumeChange;
     this.onPlaybackStateChange = onPlaybackStateChange;
+  }
+
+  private initDspGraph(ctx: AudioContext): void {
+    try {
+      this.personaGainNode = ctx.createGain();
+      this.personaGainNode.gain.value = 1.0;
+
+      // Bass EQ (Low Shelf @ 150Hz)
+      this.bassFilterNode = ctx.createBiquadFilter();
+      this.bassFilterNode.type = 'lowshelf';
+      this.bassFilterNode.frequency.value = 150;
+      this.bassFilterNode.gain.value = 0.0;
+
+      // Mid EQ (Peaking @ 1500Hz)
+      this.midFilterNode = ctx.createBiquadFilter();
+      this.midFilterNode.type = 'peaking';
+      this.midFilterNode.frequency.value = 1500;
+      this.midFilterNode.Q.value = 1.0;
+      this.midFilterNode.gain.value = 0.0;
+
+      // Treble EQ (High Shelf @ 6000Hz)
+      this.trebleFilterNode = ctx.createBiquadFilter();
+      this.trebleFilterNode.type = 'highshelf';
+      this.trebleFilterNode.frequency.value = 6000;
+      this.trebleFilterNode.gain.value = 0.0;
+
+      // Dynamics Compressor (Vocal Clarity & Anti-clipping)
+      this.compressorNode = ctx.createDynamicsCompressor();
+      this.compressorNode.threshold.value = -24;
+      this.compressorNode.knee.value = 12;
+      this.compressorNode.ratio.value = 3.0;
+      this.compressorNode.attack.value = 0.003;
+      this.compressorNode.release.value = 0.25;
+
+      // Master Gain
+      this.masterGainNode = ctx.createGain();
+      this.masterGainNode.gain.value = 1.0;
+
+      // Connect DSP Chain: personaGain -> bass -> mid -> treble -> compressor -> masterGain -> destination
+      this.personaGainNode.connect(this.bassFilterNode);
+      this.bassFilterNode.connect(this.midFilterNode);
+      this.midFilterNode.connect(this.trebleFilterNode);
+      this.trebleFilterNode.connect(this.compressorNode);
+      this.compressorNode.connect(this.masterGainNode);
+      this.masterGainNode.connect(ctx.destination);
+
+      if (this.currentProfile) {
+        this.applyProfileDirect(this.currentProfile);
+      }
+    } catch (err) {
+      console.warn('[AudioQueuePlayer] Error initializing DSP graph:', err);
+    }
   }
 
   public getAudioContext(): AudioContext {
     if (!this.ctx || this.ctx.state === 'closed') {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       this.ctx = new AudioCtx({ sampleRate: 24000 });
+      this.initDspGraph(this.ctx);
+
+      // Sound Server Watchdog: Listen for PipeWire/ALSA server disconnects or suspend states
+      this.ctx.onstatechange = () => {
+        if (this.ctx?.state === 'suspended' || (this.ctx as any)?.state === 'interrupted') {
+          console.warn('[AudioQueuePlayer] AudioContext suspended or interrupted by sound server. Auto-resuming...');
+          this.ctx.resume().catch((e) => console.warn('Resume failed:', e));
+        }
+      };
+
+      this.startWatchdog();
     }
+
     if (this.ctx.state === 'suspended') {
-      this.ctx.resume();
+      this.ctx.resume().catch(() => {});
     }
+
     return this.ctx;
+  }
+
+  private startWatchdog(): void {
+    if (this.watchdogTimer) clearInterval(this.watchdogTimer);
+    this.watchdogTimer = setInterval(() => {
+      if (this.ctx && (this.ctx.state === 'suspended' || (this.ctx as any)?.state === 'interrupted')) {
+        this.ctx.resume().catch(() => {});
+      }
+    }, 2500);
+  }
+
+  public setAudioProfile(profile: PersonaAudioProfile): void {
+    this.currentProfile = profile;
+    this.applyProfileDirect(profile);
+  }
+
+  private applyProfileDirect(profile: PersonaAudioProfile): void {
+    if (!this.ctx || this.ctx.state === 'closed') return;
+    const now = this.ctx.currentTime;
+    const ramp = 0.05; // 50ms smooth transition to prevent pops
+
+    try {
+      if (this.personaGainNode) {
+        this.personaGainNode.gain.cancelScheduledValues(now);
+        this.personaGainNode.gain.setTargetAtTime(profile.gain || 1.0, now, ramp);
+      }
+      if (this.bassFilterNode) {
+        this.bassFilterNode.gain.cancelScheduledValues(now);
+        this.bassFilterNode.gain.setTargetAtTime(profile.bassGainDb || 0.0, now, ramp);
+      }
+      if (this.midFilterNode) {
+        this.midFilterNode.gain.cancelScheduledValues(now);
+        this.midFilterNode.gain.setTargetAtTime(profile.midGainDb || 0.0, now, ramp);
+      }
+      if (this.trebleFilterNode) {
+        this.trebleFilterNode.gain.cancelScheduledValues(now);
+        this.trebleFilterNode.gain.setTargetAtTime(profile.trebleGainDb || 0.0, now, ramp);
+      }
+      if (this.compressorNode) {
+        this.compressorNode.threshold.cancelScheduledValues(now);
+        this.compressorNode.threshold.setTargetAtTime(profile.compressorThreshold ?? -24, now, ramp);
+        this.compressorNode.ratio.cancelScheduledValues(now);
+        this.compressorNode.ratio.setTargetAtTime(profile.compressorRatio ?? 3.0, now, ramp);
+      }
+    } catch (err) {
+      console.warn('[AudioQueuePlayer] Failed to apply DSP audio profile:', err);
+    }
   }
 
   public playChunk(base64Pcm: string) {
@@ -87,7 +212,13 @@ export class AudioQueuePlayer {
 
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
-      source.connect(ctx.destination);
+
+      // Route through persona DSP node chain
+      if (this.personaGainNode) {
+        source.connect(this.personaGainNode);
+      } else {
+        source.connect(ctx.destination);
+      }
 
       const currentTime = ctx.currentTime;
       if (this.nextStartTime < currentTime) {
@@ -143,10 +274,20 @@ export class AudioQueuePlayer {
   }
 
   public close() {
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
     this.stopAndClear();
     if (this.ctx) {
       this.ctx.close();
       this.ctx = null;
     }
+    this.personaGainNode = null;
+    this.bassFilterNode = null;
+    this.midFilterNode = null;
+    this.trebleFilterNode = null;
+    this.compressorNode = null;
+    this.masterGainNode = null;
   }
 }

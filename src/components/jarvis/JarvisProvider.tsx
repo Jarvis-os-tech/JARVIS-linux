@@ -24,7 +24,7 @@ import {
   type Notification,
   type ViewKey,
 } from "@/lib/jarvis-data";
-import { PERSONAS, VOICE_TRANSFER_SYSTEM_INSTRUCTION, TELGISH_LANGUAGE_SYSTEM_INSTRUCTION, detectVoiceTransfer } from "@/data/personas";
+import { PERSONAS, VOICE_TRANSFER_SYSTEM_INSTRUCTION, TELGISH_LANGUAGE_SYSTEM_INSTRUCTION, detectVoiceTransfer, getPersonaAudioProfile } from "@/data/personas";
 import { VoicePersona, ConnectionState, WorkspaceActionItem, AgentConfig } from "@/types";
 import { AudioQueuePlayer, float32ToInt16Base64, calculateVolume } from "@/utils/audio";
 import { assistantGreeterInstance } from "@/utils/automatic_greeting";
@@ -592,8 +592,10 @@ function useJarvisState(onSwitchToClassic?: () => void) {
 
         if (msg.type === "connected") {
           setConnectionState("connected");
+          const initialProfile = selectedPersona.audioProfile || getPersonaAudioProfile(selectedPersona.id);
+          audioQueuePlayerRef.current?.setAudioProfile(initialProfile);
           startMicStream();
-          pushLog(`Live API connected. Agent: ${selectedPersona.name}.`);
+          pushLog(`Live API connected. Agent: ${selectedPersona.name}. Voice DSP calibrated.`);
           pushNotification("◎", `JARVIS connected with ${selectedPersona.name}`);
 
           const greetingContext = assistantGreeterInstance.getGreetingContext(selectedPersona.name);
@@ -668,10 +670,15 @@ function useJarvisState(onSwitchToClassic?: () => void) {
         }
 
         if (msg.type === "persona_swapped") {
-          if (msg.newPersonaId) {
-            setActiveOrchestratorPersonaId(msg.newPersonaId);
-            const matching = PERSONAS.find((p) => p.id === msg.newPersonaId);
-            if (matching) setSelectedPersona(matching);
+          const targetId = msg.newPersonaId || msg.targetPersonaId || msg.persona?.id;
+          if (targetId) {
+            setActiveOrchestratorPersonaId(targetId);
+            const matching = PERSONAS.find((p) => p.id === targetId.toLowerCase());
+            if (matching) {
+              setSelectedPersona(matching);
+              const profile = msg.audioProfile || matching.audioProfile || getPersonaAudioProfile(matching.id);
+              audioQueuePlayerRef.current?.setAudioProfile(profile);
+            }
           }
         }
 
@@ -698,6 +705,16 @@ function useJarvisState(onSwitchToClassic?: () => void) {
 
         if ((msg.type === "input_transcription" || msg.type === "inputTranscript") && msg.text) {
           appendTranscriptChunk("user", msg.text);
+        }
+
+        if (msg.type === "connected") {
+          setConnectionState("listening");
+          setErrorMsg(null);
+        }
+
+        if (msg.type === "reconnecting") {
+          pushLog(`Audio bridge re-syncing (${msg.reason || 'reconnecting'})...`);
+          setConnectionState("connecting");
         }
 
         if (msg.type === "interrupted") {
@@ -755,6 +772,9 @@ function useJarvisState(onSwitchToClassic?: () => void) {
     setActiveOrchestratorPersonaId(targetPersona.id);
     audioQueuePlayerRef.current?.stopAndClear();
 
+    const profile = targetPersona.audioProfile || getPersonaAudioProfile(targetPersona.id);
+    audioQueuePlayerRef.current?.setAudioProfile(profile);
+
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       const langInst = TELGISH_LANGUAGE_SYSTEM_INSTRUCTION;
       const memInst = formatMemoryForSystemInstruction(agentMemoryState);
@@ -780,7 +800,7 @@ function useJarvisState(onSwitchToClassic?: () => void) {
       body: JSON.stringify({ personaId: targetPersona.id }),
     }).catch(() => {});
 
-    pushLog(`Voice swapped to ${targetPersona.name} (${targetPersona.voiceName}).`);
+    pushLog(`Voice swapped to ${targetPersona.name} (${targetPersona.voiceName}) with customized acoustic DSP profile.`);
     pushNotification("▶", `Swapped to ${targetPersona.name}`);
   }, [agentMemoryState, googleAccessToken, pushLog, pushNotification]);
 

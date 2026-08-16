@@ -3,11 +3,12 @@
  * 
  * Provides fast, deterministic, cross-backend (Wayland / X11 / XWayland) desktop automation:
  * - Window enumeration & focusing: lists all active top-level windows, titles, PIDs, geometries
+ * - Window closing: multi-layer fallback (xdotool, client message, alt+F4, SIGTERM, wmctrl)
  * - Mouse automation: move, click (left/right/middle/double), drag, scroll via ydotool / xdotool
  * - Keyboard automation: type_text with proper modifier handling via wtype / ydotool / xdotool
- * - Hotkeys & Shortcuts: ctrl+c, alt+tab, super, ctrl+alt+t, etc.
+ * - Hotkeys & Shortcuts: alt+F4, ctrl+c, alt+tab, super, ctrl+alt+t, ctrl+w, etc.
  * - Application launcher & closer: launch apps via .desktop or binary, close by PID or name
- * - Screenshot capture: Wayland grim / X11 scrot / import / ffmpeg with base64 support
+ * - Screenshot capture: Wayland grim / X11 scrot / ffmpeg x11grab / import
  * - Session & Power actions: lock, suspend, reboot, shutdown
  * - Desktop notifications: notify-send with urgency and icon flags
  * 
@@ -20,6 +21,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
 #include <filesystem>
 #include <chrono>
 #include <cstdlib>
@@ -140,8 +142,9 @@ struct WindowInfo {
 
 std::vector<WindowInfo> list_windows() {
     std::vector<WindowInfo> windows;
+    std::set<std::string> seen_keys;
 
-    // Method A: wmctrl -l -p -G -x
+    // Method A: wmctrl -l -p -G -x (Standard X11 Window Manager)
     std::string wmctrl_out = run_cmd("wmctrl -l -p -G -x 2>/dev/null");
     if (!wmctrl_out.empty()) {
         std::istringstream iss(wmctrl_out);
@@ -165,13 +168,42 @@ std::vector<WindowInfo> list_windows() {
                 win.app_class = wm_class;
                 win.title = title;
                 windows.push_back(win);
+                seen_keys.insert(wid);
             }
         }
     }
 
-    // Method B: If no windows found or on Wayland, query running desktop apps from /proc
-    if (windows.empty()) {
-        std::string ps_out = run_cmd("ps -u $(id -u) -o pid,comm,args 2>/dev/null");
+    // Method B: xdotool + xprop window enumeration (XWayland & X11)
+    std::string xdo_out = run_cmd("xdotool search --onlyvisible --class '' 2>/dev/null");
+    if (!xdo_out.empty()) {
+        std::istringstream iss(xdo_out);
+        std::string wid;
+        while (iss >> wid) {
+            if (wid.empty() || seen_keys.count(wid)) continue;
+            std::string name = run_cmd("xdotool getwindowname " + wid + " 2>/dev/null");
+            std::string pid_s = run_cmd("xdotool getwindowpid " + wid + " 2>/dev/null");
+            std::string cls_s = run_cmd("xprop -id " + wid + " WM_CLASS 2>/dev/null | cut -d '=' -f 2 | tr -d '\" '");
+
+            // Ignore mutter guard / empty dummy root surfaces
+            if (name == "mutter guard window" || cls_s.find("not found") != std::string::npos) {
+                if (cls_s.empty() && pid_s.empty()) continue;
+            }
+
+            if (!name.empty() && name != "mutter guard window") {
+                WindowInfo win;
+                win.window_id = wid;
+                win.pid = pid_s.empty() ? 0 : std::atoi(pid_s.c_str());
+                win.title = name;
+                win.app_class = (cls_s.find("not found") == std::string::npos) ? cls_s : "";
+                windows.push_back(win);
+                seen_keys.insert(wid);
+            }
+        }
+    }
+
+    // Method C: Query active GUI top-level processes from /proc
+    std::string ps_out = run_cmd("ps -u $(id -u) -o pid,comm,args 2>/dev/null");
+    if (!ps_out.empty()) {
         std::istringstream iss(ps_out);
         std::string line;
         std::getline(iss, line); // header
@@ -182,17 +214,43 @@ std::vector<WindowInfo> list_windows() {
             if (lss >> pid >> comm) {
                 std::getline(lss, args);
                 args = trim(args);
-                // Filter GUI apps
-                if (comm == "google-chrome" || comm == "chrome" || comm == "firefox" ||
-                    comm == "code" || comm == "gnome-terminal" || comm == "nautilus" ||
-                    comm == "gedit" || comm == "vlc" || comm == "spotify" || comm == "slack" ||
-                    comm == "discord" || comm == "obs" || comm == "alacritty" || comm == "kitty") {
-                    WindowInfo win;
-                    win.window_id = "pid_" + std::to_string(pid);
-                    win.pid = pid;
-                    win.app_class = comm;
-                    win.title = args.empty() ? comm : args;
-                    windows.push_back(win);
+
+                // Ignore subprocess workers/renderers/zygote helpers
+                if (args.find("--type=renderer") != std::string::npos ||
+                    args.find("--type=zygote") != std::string::npos ||
+                    args.find("--type=gpu-process") != std::string::npos ||
+                    args.find("--type=utility") != std::string::npos) {
+                    continue;
+                }
+
+                std::string app_name = "";
+                if (comm == "chrome" || comm == "google-chrome") app_name = "Google Chrome";
+                else if (comm == "firefox") app_name = "Mozilla Firefox";
+                else if (comm == "code") app_name = "Visual Studio Code";
+                else if (comm == "gnome-terminal" || comm == "gnome-terminal-") app_name = "Terminal";
+                else if (comm == "nautilus") app_name = "Files / File Manager";
+                else if (comm == "gedit") app_name = "Text Editor (gedit)";
+                else if (comm == "vlc") app_name = "VLC Media Player";
+                else if (comm == "spotify") app_name = "Spotify";
+                else if (comm == "slack") app_name = "Slack";
+                else if (comm == "discord") app_name = "Discord";
+                else if (comm == "obs") app_name = "OBS Studio";
+                else if (comm == "alacritty") app_name = "Alacritty Terminal";
+                else if (comm == "kitty") app_name = "Kitty Terminal";
+                else if (comm == "gnome-control-c" || comm == "gnome-control-center") app_name = "GNOME Settings";
+                else if (comm == "gnome-calculato" || comm == "gnome-calculator") app_name = "Calculator";
+
+                if (!app_name.empty()) {
+                    std::string key = "proc_" + comm;
+                    if (!seen_keys.count(key)) {
+                        WindowInfo win;
+                        win.window_id = "pid_" + std::to_string(pid);
+                        win.pid = pid;
+                        win.app_class = comm;
+                        win.title = app_name;
+                        windows.push_back(win);
+                        seen_keys.insert(key);
+                    }
                 }
             }
         }
@@ -204,26 +262,95 @@ std::vector<WindowInfo> list_windows() {
 bool focus_window(const std::string& target) {
     if (target.empty()) return false;
 
-    // Try wmctrl by id or title
-    if (target.rfind("0x", 0) == 0) {
-        return (std::system(("wmctrl -i -a " + target + " 2>/dev/null").c_str()) == 0);
+    // Check if numeric or hex ID
+    bool is_num = true;
+    for (char c : target) {
+        if (!std::isdigit(c) && c != 'x' && c != 'X' && c != 'a' && c != 'b' && c != 'c' && c != 'd' && c != 'e' && c != 'f') {
+            is_num = false;
+            break;
+        }
     }
-    if (std::system(("wmctrl -a \"" + target + "\" 2>/dev/null").c_str()) == 0) {
-        return true;
+
+    if (is_num) {
+        if (std::system(("xdotool windowactivate " + target + " 2>/dev/null").c_str()) == 0) return true;
+        if (std::system(("wmctrl -i -a " + target + " 2>/dev/null").c_str()) == 0) return true;
     }
-    // Try xdotool
+
+    // Try xdotool by window title / name
     if (std::system(("xdotool search --name \"" + target + "\" windowactivate 2>/dev/null").c_str()) == 0) {
         return true;
     }
+
+    // Try xdotool by window class
+    if (std::system(("xdotool search --class \"" + target + "\" windowactivate 2>/dev/null").c_str()) == 0) {
+        return true;
+    }
+
+    // Try wmctrl
+    if (std::system(("wmctrl -a \"" + target + "\" 2>/dev/null").c_str()) == 0) {
+        return true;
+    }
+
+    // Try gtk-launch which focuses existing application instance in GNOME
+    if (std::system(("gtk-launch \"" + target + "\" 2>/dev/null").c_str()) == 0) {
+        return true;
+    }
+
     return false;
 }
 
 bool close_window(const std::string& target) {
-    if (target.empty()) return false;
-    if (target.rfind("0x", 0) == 0) {
-        return (std::system(("wmctrl -i -c " + target + " 2>/dev/null").c_str()) == 0);
+    // Case 1: Close currently active/focused window if target is empty or "active" / "current"
+    if (target.empty() || target == "active" || target == "current" || target == "focused" || target == "this") {
+        if (std::system("xdotool getactivewindow windowclose 2>/dev/null") == 0) return true;
+        if (std::system("xdotool key --clearmodifiers alt+F4 2>/dev/null") == 0) return true;
+        if (std::system("wtype -M alt -k F4 2>/dev/null") == 0) return true;
+        return false;
     }
-    return (std::system(("wmctrl -c \"" + target + "\" 2>/dev/null").c_str()) == 0);
+
+    // Case 2: Target is a numeric or hex Window ID (e.g. "4194307" or "0x02800003")
+    bool is_num = true;
+    for (char c : target) {
+        if (!std::isdigit(c) && c != 'x' && c != 'X' && c != 'a' && c != 'b' && c != 'c' && c != 'd' && c != 'e' && c != 'f') {
+            is_num = false;
+            break;
+        }
+    }
+
+    if (is_num) {
+        if (std::system(("xdotool windowclose " + target + " 2>/dev/null").c_str()) == 0) return true;
+        if (std::system(("wmctrl -i -c " + target + " 2>/dev/null").c_str()) == 0) return true;
+        if (std::system(("xdotool windowkill " + target + " 2>/dev/null").c_str()) == 0) return true;
+    }
+
+    // Case 3: Target is a title, application name, or class name (e.g. "chrome", "firefox", "terminal", "code")
+    // Method A: xdotool search --name windowclose
+    if (std::system(("xdotool search --name \"" + target + "\" windowclose 2>/dev/null").c_str()) == 0) {
+        return true;
+    }
+
+    // Method B: xdotool search --class windowclose
+    if (std::system(("xdotool search --class \"" + target + "\" windowclose 2>/dev/null").c_str()) == 0) {
+        return true;
+    }
+
+    // Method C: wmctrl -c
+    if (std::system(("wmctrl -c \"" + target + "\" 2>/dev/null").c_str()) == 0) {
+        return true;
+    }
+
+    // Method D: Process-level graceful termination (SIGTERM)
+    std::string pkill_cmd = "pkill -15 -i -f \"" + target + "\" 2>/dev/null || killall -15 -r -i \"" + target + "\" 2>/dev/null";
+    if (std::system(pkill_cmd.c_str()) == 0) {
+        return true;
+    }
+
+    // Method E: Activate and send Alt+F4
+    if (std::system(("xdotool search --onlyvisible --name \"" + target + "\" windowactivate key --clearmodifiers alt+F4 2>/dev/null").c_str()) == 0) {
+        return true;
+    }
+
+    return false;
 }
 
 // ── 2. KEYBOARD AUTOMATION ─────────────────────────────────────────────────
@@ -233,7 +360,6 @@ bool type_text(const std::string& text, const DesktopEnv& env) {
 
     // Method A: wtype (Wayland native)
     if (env.has_wtype && env.is_wayland) {
-        // Escape for shell
         std::string escaped;
         for (char c : text) {
             if (c == '"' || c == '\\' || c == '$' || c == '`') escaped += '\\';
@@ -261,9 +387,9 @@ bool type_text(const std::string& text, const DesktopEnv& env) {
 bool press_hotkey(const std::string& key_combo, const DesktopEnv& env) {
     if (key_combo.empty()) return false;
 
-    // Method A: xdotool key
+    // Method A: xdotool key --clearmodifiers
     if (env.has_xdotool) {
-        std::string cmd = "xdotool key " + key_combo + " 2>/dev/null";
+        std::string cmd = "xdotool key --clearmodifiers " + key_combo + " 2>/dev/null";
         if (std::system(cmd.c_str()) == 0) return true;
     }
 
@@ -273,7 +399,7 @@ bool press_hotkey(const std::string& key_combo, const DesktopEnv& env) {
         if (std::system(cmd.c_str()) == 0) return true;
     }
 
-    // Method C: wtype -M / -k
+    // Method C: wtype -k
     if (env.has_wtype && env.is_wayland) {
         std::string cmd = "wtype -k " + key_combo + " 2>/dev/null";
         if (std::system(cmd.c_str()) == 0) return true;
@@ -331,10 +457,10 @@ bool mouse_move(int x, int y, const DesktopEnv& env) {
 bool mouse_scroll(int dx, int dy, const DesktopEnv& env) {
     if (env.has_xdotool) {
         if (dy > 0) {
-            std::string cmd = "xdotool click --repeat " + std::to_string(std::abs(dy)) + " 5 2>/dev/null"; // scroll down
+            std::string cmd = "xdotool click --repeat " + std::to_string(std::abs(dy)) + " 5 2>/dev/null";
             return std::system(cmd.c_str()) == 0;
         } else if (dy < 0) {
-            std::string cmd = "xdotool click --repeat " + std::to_string(std::abs(dy)) + " 4 2>/dev/null"; // scroll up
+            std::string cmd = "xdotool click --repeat " + std::to_string(std::abs(dy)) + " 4 2>/dev/null";
             return std::system(cmd.c_str()) == 0;
         }
     }
@@ -365,7 +491,7 @@ ScreenshotResult capture_screenshot(const std::string& target_path, const Deskto
     if (last_slash != std::string::npos && last_slash > 0) {
         std::string parent_dir = out_path.substr(0, last_slash);
         std::string mkdir_cmd = "mkdir -p \"" + parent_dir + "\" 2>/dev/null";
-        std::system(mkdir_cmd.c_str());
+        (void)std::system(mkdir_cmd.c_str());
     }
 
     // Method A: ffmpeg x11grab (universal & instant)
@@ -450,7 +576,11 @@ bool close_app(const std::string& app_name_or_pid, int signal_num = SIGTERM) {
         int pid = std::atoi(app_name_or_pid.c_str());
         return kill(pid, signal_num) == 0;
     } else {
-        std::string pkill_cmd = "pkill -" + std::to_string(signal_num) + " -f \"" + app_name_or_pid + "\" 2>/dev/null";
+        // Try graceful window close first
+        (void)std::system(("xdotool search --class \"" + app_name_or_pid + "\" windowclose 2>/dev/null").c_str());
+        
+        // Then send process signal
+        std::string pkill_cmd = "pkill -" + std::to_string(signal_num) + " -i -f \"" + app_name_or_pid + "\" 2>/dev/null || killall -" + std::to_string(signal_num) + " -r -i \"" + app_name_or_pid + "\" 2>/dev/null";
         return std::system(pkill_cmd.c_str()) == 0;
     }
 }
@@ -486,7 +616,7 @@ int main(int argc, char* argv[]) {
 
     if (action == "list_windows") {
         std::vector<WindowInfo> wins = list_windows();
-        std::cout << "{\"total_windows\":" << wins.size() << ",\"windows\":[";
+        std::cout << "{\"status\":\"ok\",\"total_windows\":" << wins.size() << ",\"windows\":[";
         for (size_t i = 0; i < wins.size(); ++i) {
             if (i > 0) std::cout << ",";
             const auto& w = wins[i];
@@ -502,17 +632,17 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    if (action == "focus_window" && argc > 2) {
-        std::string target = argv[2];
+    if (action == "focus_window") {
+        std::string target = (argc > 2) ? argv[2] : "";
         bool ok = focus_window(target);
-        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\",\"target\":\"" << json_escape(target) << "\"}\n";
+        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\",\"action\":\"focus_window\",\"target\":\"" << json_escape(target) << "\"}\n";
         return ok ? 0 : 1;
     }
 
-    if (action == "close_window" && argc > 2) {
-        std::string target = argv[2];
+    if (action == "close_window") {
+        std::string target = (argc > 2) ? argv[2] : "active";
         bool ok = close_window(target);
-        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\",\"target\":\"" << json_escape(target) << "\"}\n";
+        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\",\"action\":\"close_window\",\"target\":\"" << json_escape(target) << "\"}\n";
         return ok ? 0 : 1;
     }
 

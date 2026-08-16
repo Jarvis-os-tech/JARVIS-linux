@@ -2,12 +2,13 @@ import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { GoogleGenAI, Modality, LiveServerMessage } from '@google/genai';
 import { WORKSPACE_FUNCTION_DECLARATIONS, executeWorkspaceTool, setGlobalGoogleAccessToken, getGlobalGoogleAccessToken } from '../utils/workspace_tools';
-import { TELGISH_LANGUAGE_SYSTEM_INSTRUCTION } from '../data/personas';
+import { TELGISH_LANGUAGE_SYSTEM_INSTRUCTION, PERSONAS, getPersonaAudioProfile, VOICE_TRANSFER_SYSTEM_INSTRUCTION } from '../data/personas';
 import { masterOrchestratorInstance } from '../utils/multi_agent_orchestrator';
 import { obsidianDailyLogger } from '../utils/obsidian_logger';
 import { getSystemInfoSummaryForLLM } from '../utils/system_controller';
 import { logVoice, logOrchestrator, logTool } from '../core/logger';
 import { eventBus } from '../core/event_bus';
+import { memoryRepo } from '../db/db';
 
 export function attachWebSocketServer(server: http.Server): WebSocketServer {
   const wss = new WebSocketServer({ server, path: '/live' });
@@ -37,6 +38,83 @@ export function attachWebSocketServer(server: http.Server): WebSocketServer {
     let currentAccessToken: string = '';
     let accumulatedUserSpeech = '';
     let accumulatedModelSpeech = '';
+    let isConnecting = false;
+    let lastSessionConfig: { voiceName?: string; systemInstruction?: string; model?: string; googleAccessToken?: string } = {};
+    let reconnectTimer: NodeJS.Timeout | null = null;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 5;
+    const pendingLiveMessages: Array<{ type: 'audio' | 'text' | 'image'; payload: any }> = [];
+
+    const flushPendingMessages = () => {
+      if (!session || isConnecting) return;
+      while (pendingLiveMessages.length > 0) {
+        const item = pendingLiveMessages.shift();
+        if (!item) continue;
+        try {
+          if (item.type === 'audio') {
+            session.sendRealtimeInput({
+              audio: {
+                data: item.payload,
+                mimeType: 'audio/pcm;rate=16000'
+              }
+            });
+          } else if (item.type === 'text') {
+            session.sendClientContent({
+              turns: [{
+                role: 'user',
+                parts: [{ text: item.payload }]
+              }],
+              turnComplete: true
+            });
+          } else if (item.type === 'image') {
+            session.sendRealtimeInput({
+              video: {
+                data: item.payload.image || item.payload,
+                mimeType: item.payload.mimeType || 'image/jpeg'
+              }
+            });
+          }
+        } catch (err) {
+          logVoice.error(`Error flushing queued live message (${item.type}):`, err);
+        }
+      }
+    };
+
+    const scheduleSessionReconnect = (reason: string) => {
+      if (clientWs.readyState !== WebSocket.OPEN) return;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        logVoice.warn(`Max Gemini Live reconnect attempts reached (${MAX_RECONNECT_ATTEMPTS}). User can speak or retry to trigger connection.`);
+        if (clientWs.readyState === WebSocket.OPEN) {
+          clientWs.send(JSON.stringify({ type: 'error', message: `Live audio session disconnected (${reason}).` }));
+        }
+        return;
+      }
+
+      reconnectAttempts++;
+      const delay = Math.min(800 * Math.pow(1.5, reconnectAttempts - 1), 4000);
+      logVoice.info(`Scheduling auto-reconnect to Gemini Live in ${delay}ms (Attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}, reason: ${reason})...`);
+      
+      if (clientWs.readyState === WebSocket.OPEN) {
+        clientWs.send(JSON.stringify({
+          type: 'reconnecting',
+          attempt: reconnectAttempts,
+          reason
+        }));
+      }
+
+      reconnectTimer = setTimeout(async () => {
+        if (clientWs.readyState === WebSocket.OPEN && !session && !isConnecting) {
+          try {
+            await initSession(lastSessionConfig);
+            reconnectAttempts = 0;
+          } catch (err: any) {
+            logVoice.error(`Auto-reconnect attempt failed: ${err?.message || err}`);
+            scheduleSessionReconnect(err?.message || 'Retry failure');
+          }
+        }
+      }, delay);
+    };
 
     // Register Multi-Agent Orchestrator Event Listener
     const removeOrchestratorListener = masterOrchestratorInstance.addEventListener((evt) => {
@@ -53,6 +131,8 @@ export function attachWebSocketServer(server: http.Server): WebSocketServer {
     });
 
     async function initSession(config: { voiceName?: string; systemInstruction?: string; model?: string; googleAccessToken?: string }) {
+      isConnecting = true;
+      lastSessionConfig = { ...lastSessionConfig, ...config };
       if (session) {
         try {
           await session.close();
@@ -74,7 +154,8 @@ export function attachWebSocketServer(server: http.Server): WebSocketServer {
         }
 
         const ai = getAi();
-        const voiceName = config.voiceName || 'Puck';
+        const activePersona = masterOrchestratorInstance.getActivePersona();
+        const voiceName = config.voiceName || activePersona.voiceName || 'Puck';
         let model = config.model || 'gemini-3.1-flash-live-preview';
         if (model.includes('2.0-flash-exp') || model.includes('2.0-flash-realtime') || !model) {
           model = 'gemini-3.1-flash-live-preview';
@@ -90,7 +171,14 @@ You have FULL, UNRESTRICTED, REAL-TIME capability to perform ANY ACTION and retr
 ${TELGISH_LANGUAGE_SYSTEM_INSTRUCTION}
 
 ${groundTruthContext}`;
-        const systemInstruction = `${config.systemInstruction || ''}\n${workspaceInstruction}`;
+
+        const dbMemories = memoryRepo.getAll();
+        const memoryFactStr = dbMemories.length > 0
+          ? dbMemories.map((m: any) => `- [${m.category.toUpperCase()}] ${m.key}: ${m.value}`).join('\n')
+          : '- Operator Identity: Gopi (BTech Engineer). Local-First Obsidian Vault /JARVIS-MEMORY/ active.';
+
+        const universalMemoryPrompt = `\n[AGENT LONG-TERM UNIVERSAL MEMORY & CONTEXT AWARENESS]\nKnown User Facts & Preferences:\n${memoryFactStr}\n`;
+        const systemInstruction = `${config.systemInstruction || ''}\n${workspaceInstruction}\n${universalMemoryPrompt}`;
 
         logVoice.info(`Connecting to Gemini Live with voice: ${voiceName}, model: ${model}`);
 
@@ -131,110 +219,81 @@ ${groundTruthContext}`;
                 }
 
                 // Handle tool calls from Gemini Live
-                const functionCalls: any[] = [];
-                if (message.toolCall?.functionCalls) {
-                  functionCalls.push(...message.toolCall.functionCalls);
-                }
-                if (parts) {
-                  for (const part of parts) {
-                    if ((part as any).functionCall) {
-                      functionCalls.push((part as any).functionCall);
-                    }
-                  }
-                }
+                const toolCalls = message.toolCall?.functionCalls;
+                if (toolCalls && toolCalls.length > 0) {
+                  for (const call of toolCalls) {
+                    logTool.info(`[Gemini Live Tool Call] ${call.name} (id: ${call.id})`);
+                    logVoice.info(`[Voice Tool] Executing: ${call.name}`);
 
-                if (functionCalls.length > 0) {
-                  // 1. Notify client immediately for started actions
-                  if (clientWs.readyState === WebSocket.OPEN) {
-                    for (const call of functionCalls) {
+                    let toolResult: any;
+                    try {
+                      toolResult = await executeWorkspaceTool(
+                        call.name,
+                        (call.args as Record<string, any>) || {},
+                        currentAccessToken
+                      );
+                    } catch (toolErr: any) {
+                      logTool.error(`Tool execution failed for ${call.name}: ${toolErr.message}`);
+                      toolResult = { success: false, error: toolErr.message };
+                    }
+
+                    // Record tool execution in Obsidian Daily Log
+                    obsidianDailyLogger.logToolExecution({
+                      toolName: call.name,
+                      args: (call.args as Record<string, any>) || {},
+                      success: !!toolResult.success,
+                      resultSummary: typeof toolResult.result === 'string' ? toolResult.result : JSON.stringify(toolResult.result || toolResult),
+                      id: call.id
+                    });
+
+                    // Forward execution telemetry to client
+                    if (clientWs.readyState === WebSocket.OPEN) {
                       clientWs.send(JSON.stringify({
                         type: 'workspace_action',
-                        status: 'started',
+                        status: toolResult.success ? 'completed' : 'error',
                         toolName: call.name,
                         args: call.args,
+                        result: toolResult,
                         id: call.id
                       }));
-                    }
-                  }
 
-                  // 2. Execute tool calls in parallel
-                  const functionResponses = await Promise.all(
-                    functionCalls.map(async (call) => {
-                      logTool.info(`Executing tool: ${call.name}`, call.args);
-                      try {
-                        const tokenToUse = currentAccessToken || getGlobalGoogleAccessToken() || process.env.GOOGLE_ACCESS_TOKEN || '';
-                        const toolResult = await executeWorkspaceTool(
-                          call.name,
-                          (call.args as Record<string, any>) || {},
-                          tokenToUse
-                        );
-
-                        // Record tool execution in Obsidian Daily Log
-                        obsidianDailyLogger.logToolExecution({
-                          toolName: call.name,
-                          args: (call.args as Record<string, any>) || {},
-                          success: !!toolResult.success,
-                          resultSummary: typeof toolResult.result === 'string' ? toolResult.result : JSON.stringify(toolResult.result || toolResult),
-                          id: call.id
-                        });
-
-                        if (clientWs.readyState === WebSocket.OPEN) {
-                          clientWs.send(JSON.stringify({
-                            type: 'workspace_action',
-                            status: toolResult.success ? 'completed' : 'error',
-                            toolName: call.name,
-                            args: call.args,
-                            result: toolResult,
-                            id: call.id
-                          }));
-
-                          if (toolResult.visionControl) {
-                            clientWs.send(JSON.stringify({
-                              type: 'vision_control',
-                              action: toolResult.visionControl.action,
-                              mode: toolResult.visionControl.mode
-                            }));
-                          }
-
-                          if (call.name === 'switch_persona' && call.args?.targetPersonaId) {
-                            const targetPersonaId = call.args.targetPersonaId;
-                            const swapResult = masterOrchestratorInstance.swapActivePersona(targetPersonaId);
-                            clientWs.send(JSON.stringify({
-                              type: 'switch_persona_tool_call',
-                              targetPersonaId,
-                              ...swapResult
-                            }));
-                          }
-                        }
-
-                        if (!toolResult.success) {
-                          logTool.error(`Tool '${call.name}' failed`, { args: call.args, error: toolResult.error || 'Execution returned false' });
-                        } else {
-                          logTool.info(`Tool '${call.name}' completed successfully`);
-                        }
-
-                        return {
-                          id: call.id,
-                          name: call.name,
-                          response: { output: toolResult }
-                        };
-                      } catch (execErr: any) {
-                        logTool.error(`Tool '${call.name}' threw error: ${execErr.message}`, { args: call.args, stack: execErr.stack });
-                        return {
-                          id: call.id,
-                          name: call.name,
-                          response: { output: { success: false, error: execErr.message || 'Execution error' } }
-                        };
+                      if (toolResult.visionControl) {
+                        clientWs.send(JSON.stringify({
+                          type: 'vision_control',
+                          action: toolResult.visionControl.action,
+                          mode: toolResult.visionControl.mode
+                        }));
                       }
-                    })
-                  );
 
-                  // 3. Send response back to Gemini Live
-                  if (session) {
-                    try {
-                      session.sendToolResponse({ functionResponses });
-                    } catch (sendErr) {
-                      logVoice.error('Error sending tool response to Gemini Live:', sendErr);
+                      if (call.name === 'switch_persona' && (call.args as any)?.targetPersonaId) {
+                        const targetPersonaId = String((call.args as any).targetPersonaId);
+                        const swapResult = masterOrchestratorInstance.swapActivePersona(targetPersonaId);
+                        const targetPersona = PERSONAS.find(p => p.id === targetPersonaId.toLowerCase());
+                        const targetProfile = targetPersona?.audioProfile || getPersonaAudioProfile(targetPersonaId);
+
+                        clientWs.send(JSON.stringify({
+                          type: 'switch_persona_tool_call',
+                          targetPersonaId,
+                          persona: targetPersona,
+                          audioProfile: targetProfile,
+                          ...swapResult
+                        }));
+                      }
+                    }
+
+                    // Send tool response back to Gemini Live
+                    if (session) {
+                      try {
+                        session.sendToolResponse({
+                          functionResponses: [{
+                            id: call.id,
+                            name: call.name,
+                            response: { output: toolResult }
+                          }]
+                        });
+                      } catch (err: any) {
+                        logVoice.error(`Error sending tool response for ${call.name}: ${err?.message || err}`);
+                      }
                     }
                   }
                 }
@@ -257,7 +316,7 @@ ${groundTruthContext}`;
 
                 // Handle Turn Complete
                 if (message.serverContent?.turnComplete) {
-                  const activePersona = masterOrchestratorInstance.getActivePersona();
+                  const currentActive = masterOrchestratorInstance.getActivePersona();
                   if (accumulatedUserSpeech.trim()) {
                     obsidianDailyLogger.logConversationTurn({
                       speaker: 'User',
@@ -268,10 +327,10 @@ ${groundTruthContext}`;
                   }
                   if (accumulatedModelSpeech.trim()) {
                     obsidianDailyLogger.logConversationTurn({
-                      speaker: activePersona.name,
+                      speaker: currentActive.name,
                       role: 'assistant',
                       text: accumulatedModelSpeech.trim(),
-                      personaId: activePersona.id
+                      personaId: currentActive.id
                     });
                     accumulatedModelSpeech = '';
                   }
@@ -282,25 +341,38 @@ ${groundTruthContext}`;
               }
             },
             onerror: (err: any) => {
-              logVoice.error(`Live session error: ${err?.message || err}`);
-              if (clientWs.readyState === WebSocket.OPEN) {
-                clientWs.send(JSON.stringify({ type: 'error', message: err?.message || 'Live session error' }));
-              }
+              const reason = err?.message || 'Live session internal error';
+              logVoice.error(`Live session error: ${reason}`);
+              session = null;
+              scheduleSessionReconnect(reason);
             },
             onclose: (e: any) => {
-              logVoice.info(`Gemini Live session closed: ${e?.reason || ''}`);
+              const reason = e?.reason || 'Gemini Live upstream connection closed';
+              logVoice.info(`Gemini Live session closed: ${reason}`);
+              session = null;
+              scheduleSessionReconnect(reason);
             }
           }
         });
 
-        logVoice.info('Connected successfully to Gemini Live API.');
+        isConnecting = false;
+        reconnectAttempts = 0;
+        logVoice.info(`Connected successfully to Gemini Live API with voice '${voiceName}'.`);
         if (clientWs.readyState === WebSocket.OPEN) {
-          clientWs.send(JSON.stringify({ type: 'connected' }));
+          clientWs.send(JSON.stringify({
+            type: 'connected',
+            voiceName,
+            audioProfile: getPersonaAudioProfile(activePersona.id)
+          }));
         }
+
+        // Flush queued messages that arrived during session handshake
+        flushPendingMessages();
       } catch (err: any) {
+        isConnecting = false;
         logVoice.error(`Gemini Live connection failed: ${err?.message || err}`);
         if (clientWs.readyState === WebSocket.OPEN) {
-          clientWs.send(JSON.stringify({ type: 'error', message: err?.message || 'Failed to connect to Live API' }));
+          scheduleSessionReconnect(err?.message || 'Initial handshake error');
         }
       }
     }
@@ -330,7 +402,7 @@ ${groundTruthContext}`;
         }
 
         if (msg.type === 'audio' && msg.audio) {
-          if (session) {
+          if (session && !isConnecting) {
             try {
               session.sendRealtimeInput({
                 audio: {
@@ -339,7 +411,18 @@ ${groundTruthContext}`;
                 }
               });
             } catch (err) {
-              logVoice.error('Error sending audio input:', err);
+              logVoice.error('Error sending audio input, scheduling reconnect:', err);
+              pendingLiveMessages.push({ type: 'audio', payload: msg.audio });
+              scheduleSessionReconnect('Audio stream send error');
+            }
+          } else {
+            if (pendingLiveMessages.filter(m => m.type === 'audio').length > 12) {
+              const firstAudioIdx = pendingLiveMessages.findIndex(m => m.type === 'audio');
+              if (firstAudioIdx >= 0) pendingLiveMessages.splice(firstAudioIdx, 1);
+            }
+            pendingLiveMessages.push({ type: 'audio', payload: msg.audio });
+            if (!session && !isConnecting) {
+              initSession(lastSessionConfig);
             }
           }
         }
@@ -350,7 +433,7 @@ ${groundTruthContext}`;
             role: 'user',
             text: msg.text
           });
-          if (session) {
+          if (session && !isConnecting) {
             try {
               session.sendClientContent({
                 turns: [{
@@ -360,13 +443,20 @@ ${groundTruthContext}`;
                 turnComplete: true
               });
             } catch (err) {
-              logVoice.error('Error sending text input:', err);
+              logVoice.error('Error sending text input, scheduling reconnect:', err);
+              pendingLiveMessages.push({ type: 'text', payload: msg.text });
+              scheduleSessionReconnect('Text stream send error');
+            }
+          } else {
+            pendingLiveMessages.push({ type: 'text', payload: msg.text });
+            if (!session && !isConnecting) {
+              initSession(lastSessionConfig);
             }
           }
         }
 
         if (msg.type === 'image' && msg.image) {
-          if (session) {
+          if (session && !isConnecting) {
             try {
               session.sendRealtimeInput({
                 video: {
@@ -375,28 +465,45 @@ ${groundTruthContext}`;
                 }
               });
             } catch (err) {
-              logVoice.error('Error sending image input:', err);
+              logVoice.error('Error sending image input, scheduling reconnect:', err);
+              pendingLiveMessages.push({
+                type: 'image',
+                payload: { image: msg.image, mimeType: msg.mimeType }
+              });
+              scheduleSessionReconnect('Image stream send error');
+            }
+          } else {
+            pendingLiveMessages.push({
+              type: 'image',
+              payload: { image: msg.image, mimeType: msg.mimeType }
+            });
+            if (!session && !isConnecting) {
+              initSession(lastSessionConfig);
             }
           }
         }
 
         if (msg.type === 'swap_persona' && msg.personaId) {
           const swapResult = masterOrchestratorInstance.swapActivePersona(msg.personaId);
-          if (session && swapResult.contextShiftDirective) {
-            try {
-              session.sendClientContent({
-                turns: [{
-                  role: 'user',
-                  parts: [{ text: swapResult.contextShiftDirective }]
-                }],
-                turnComplete: true
-              });
-            } catch (e) {
-              logVoice.warn('Failed to send context shift to Gemini Live session:', e);
-            }
+          const targetPersona = PERSONAS.find(p => p.id === msg.personaId.toLowerCase()) || PERSONAS[0];
+          const targetProfile = targetPersona.audioProfile || getPersonaAudioProfile(targetPersona.id);
+
+          // Re-initialize Live API session with target persona's voice and system instruction
+          await initSession({
+            voiceName: targetPersona.voiceName,
+            systemInstruction: `${targetPersona.systemInstruction}\n${VOICE_TRANSFER_SYSTEM_INSTRUCTION}\n${TELGISH_LANGUAGE_SYSTEM_INSTRUCTION}`,
+            googleAccessToken: currentAccessToken
+          });
+
+          if (swapResult.contextShiftDirective) {
+            pendingLiveMessages.push({ type: 'text', payload: swapResult.contextShiftDirective });
+            flushPendingMessages();
           }
+
           clientWs.send(JSON.stringify({
             type: 'persona_swapped',
+            persona: targetPersona,
+            audioProfile: targetProfile,
             ...swapResult
           }));
           return;

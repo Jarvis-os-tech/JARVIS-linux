@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { PERSONAS, VOICE_TRANSFER_SYSTEM_INSTRUCTION, TELGISH_LANGUAGE_SYSTEM_INSTRUCTION, detectVoiceTransfer } from '../data/personas';
+import { PERSONAS, VOICE_TRANSFER_SYSTEM_INSTRUCTION, TELGISH_LANGUAGE_SYSTEM_INSTRUCTION, detectVoiceTransfer, getPersonaAudioProfile } from '../data/personas';
 import { VoicePersona, ConnectionState, ConversationMessage, AgentConfig, WorkspaceActionItem } from '../types';
 import { Header } from './Header';
 import { VoiceVisualizer } from './VoiceVisualizer';
@@ -426,6 +426,8 @@ export function ClassicApp({ onSwitchToModern }: ClassicAppProps) {
 
         if (msg.type === 'connected') {
           setConnectionState('connected');
+          const initialProfile = selectedPersona.audioProfile || getPersonaAudioProfile(selectedPersona.id);
+          audioQueuePlayerRef.current?.setAudioProfile(initialProfile);
           startMicStream();
 
           // Trigger activation-triggered dynamic greeting
@@ -505,11 +507,14 @@ export function ClassicApp({ onSwitchToModern }: ClassicAppProps) {
         // Phase 4: Persona Swapped Event from Orchestrator
         if (msg.type === 'persona_swapped') {
           console.log('[Persona Swapped Event]', msg);
-          if (msg.newPersonaId) {
-            setActiveOrchestratorPersonaId(msg.newPersonaId);
-            const matching = PERSONAS.find(p => p.id === msg.newPersonaId);
+          const targetId = msg.newPersonaId || msg.targetPersonaId || msg.persona?.id;
+          if (targetId) {
+            setActiveOrchestratorPersonaId(targetId);
+            const matching = PERSONAS.find(p => p.id === targetId.toLowerCase());
             if (matching) {
               setSelectedPersona(matching);
+              const profile = msg.audioProfile || matching.audioProfile || getPersonaAudioProfile(matching.id);
+              audioQueuePlayerRef.current?.setAudioProfile(profile);
             }
           }
           if (msg.personas) {
@@ -611,6 +616,10 @@ export function ClassicApp({ onSwitchToModern }: ClassicAppProps) {
 
     // Stop and clear audio queue
     audioQueuePlayerRef.current?.stopAndClear();
+
+    // Set persona acoustic profile
+    const profile = targetPersona.audioProfile || getPersonaAudioProfile(targetPersona.id);
+    audioQueuePlayerRef.current?.setAudioProfile(profile);
 
     // If connected to Gemini Live, gracefully re-initialize session with target agent's voice and system instruction
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {

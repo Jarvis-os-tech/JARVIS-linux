@@ -3,6 +3,7 @@ import { promisify } from 'util';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { SoundServerStatus } from '../types';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -439,6 +440,99 @@ export async function setSystemVolume(options: {
     volume: updatedVolume,
     message: `System volume is at ${updatedVolume.volumePercent}%`
   };
+}
+
+export async function diagnoseSoundServer(): Promise<SoundServerStatus> {
+  const cpp = await callCppWorker('hardware_ctrl', ['diagnose_sound_server'], 2000);
+  if (cpp && typeof cpp.healthy === 'boolean') {
+    return {
+      healthy: cpp.healthy,
+      pipewireRunning: cpp.pipewire_running ?? false,
+      wireplumberRunning: cpp.wireplumber_running ?? false,
+      pulseRunning: cpp.pulse_running ?? false,
+      activeSink: cpp.active_sink || 'Default Speaker',
+      volumePercent: cpp.volume_percent ?? 50,
+      muted: cpp.muted ?? false,
+      driver: (cpp.active_backend as any) || 'pipewire',
+      diagnostics: `PipeWire: ${cpp.pipewire_running ? 'Active' : 'Degraded'}, WirePlumber: ${cpp.wireplumber_running ? 'Active' : 'Degraded'}, Pulse: ${cpp.pulse_running ? 'Active' : 'Degraded'}, Sink: ${cpp.active_sink || 'Default'}`
+    };
+  }
+
+  // Fallback diagnostic via direct shell checks
+  try {
+    const [pwRes, wpRes, pulseRes] = await Promise.all([
+      execAsync('systemctl --user is-active pipewire 2>/dev/null || echo "inactive"', { timeout: 1500 }),
+      execAsync('systemctl --user is-active wireplumber 2>/dev/null || echo "inactive"', { timeout: 1500 }),
+      execAsync('systemctl --user is-active pipewire-pulse 2>/dev/null || echo "inactive"', { timeout: 1500 })
+    ]);
+
+    const pwRunning = pwRes.stdout.trim() === 'active';
+    const wpRunning = wpRes.stdout.trim() === 'active';
+    const pulseRunning = pulseRes.stdout.trim() === 'active';
+    const vol = await getSystemVolume();
+
+    return {
+      healthy: (pwRunning || pulseRunning) && vol.volumePercent >= 0,
+      pipewireRunning: pwRunning,
+      wireplumberRunning: wpRunning,
+      pulseRunning: pulseRunning,
+      volumePercent: vol.volumePercent,
+      muted: vol.muted,
+      driver: pwRunning ? 'pipewire' : pulseRunning ? 'pulseaudio' : 'alsa',
+      diagnostics: `PipeWire: ${pwRunning ? 'Active' : 'Inactive'}, WirePlumber: ${wpRunning ? 'Active' : 'Inactive'}`
+    };
+  } catch (err: any) {
+    return {
+      healthy: false,
+      pipewireRunning: false,
+      wireplumberRunning: false,
+      pulseRunning: false,
+      volumePercent: 50,
+      muted: false,
+      driver: 'unknown',
+      diagnostics: `Error diagnosing sound server: ${err.message}`
+    };
+  }
+}
+
+export async function healSoundServer(): Promise<{ success: boolean; status: SoundServerStatus; message: string }> {
+  const cpp = await callCppWorker('hardware_ctrl', ['heal_sound_server'], 3500);
+  if (cpp && typeof cpp.healthy === 'boolean') {
+    const status: SoundServerStatus = {
+      healthy: cpp.healthy,
+      pipewireRunning: cpp.pipewire_running ?? false,
+      wireplumberRunning: cpp.wireplumber_running ?? false,
+      pulseRunning: cpp.pulse_running ?? false,
+      activeSink: cpp.active_sink || 'Default Speaker',
+      volumePercent: cpp.volume_percent ?? 50,
+      muted: cpp.muted ?? false,
+      driver: (cpp.active_backend as any) || 'pipewire',
+      diagnostics: `Audio services restarted cleanly. Active sink: ${cpp.active_sink || 'Default'}`
+    };
+    return {
+      success: cpp.healthy,
+      status,
+      message: `Sound server healed: PipeWire & WirePlumber running, active sink verified at ${status.volumePercent}% volume.`
+    };
+  }
+
+  // Fallback restart
+  try {
+    await execAsync('systemctl --user restart pipewire wireplumber pipewire-pulse 2>&1 || true', { timeout: 3000 });
+    await execAsync('amixer sset Master unmute 2>/dev/null || true', { timeout: 1000 });
+    const freshStatus = await diagnoseSoundServer();
+    return {
+      success: freshStatus.healthy,
+      status: freshStatus,
+      message: freshStatus.healthy ? 'Sound server daemons restarted successfully.' : 'Sound server restart attempted; status degraded.'
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      status: await diagnoseSoundServer(),
+      message: `Failed to heal sound server: ${err.message}`
+    };
+  }
 }
 
 // ─── 4. DISPLAY BRIGHTNESS CONTROL ───────────────────────────────────────────
@@ -1168,15 +1262,57 @@ export async function searchLocalFiles(options: {
 
 // ─── 17. READ & WRITE LOCAL FILE ────────────────────────────────────────────
 
+export function resolveSmartFilePath(rawPath: string): string {
+  if (!rawPath || typeof rawPath !== 'string') return path.resolve(rawPath || '.');
+  let clean = rawPath.trim();
+
+  // 1. Expand tilde
+  if (clean.startsWith('~')) {
+    clean = path.join(os.homedir(), clean.slice(1));
+  }
+
+  // 2. Direct check
+  const direct = path.resolve(clean);
+  if (fs.existsSync(direct)) return direct;
+
+  // 3. Search candidate locations (Workspace, JARVIS-MEMORY, ~/.jarvis/memory/vault)
+  const candidates = [
+    direct,
+    path.join(process.cwd(), clean),
+    path.join(process.cwd(), 'JARVIS-MEMORY', clean),
+    path.join(process.cwd(), 'JARVIS-MEMORY', 'vault', clean),
+    path.join(os.homedir(), '.jarvis', 'memory', 'vault', clean),
+    path.join(os.homedir(), '.jarvis', 'memory', clean),
+  ];
+
+  const base = path.basename(clean);
+  if (base.toLowerCase() === 'index.md') {
+    candidates.push(
+      path.join(process.cwd(), 'JARVIS-MEMORY', 'INDEX.md'),
+      path.join(process.cwd(), 'JARVIS-MEMORY', 'index.md'),
+      path.join(os.homedir(), '.jarvis', 'memory', 'vault', 'INDEX.md'),
+      path.join(os.homedir(), '.jarvis', 'memory', 'vault', 'index.md')
+    );
+  }
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return direct;
+}
+
 export async function readLocalFile(options: {
   filePath: string;
   maxLines?: number;
   offset?: number;
-}): Promise<{ success: boolean; content?: string; linesCount?: number; error?: string }> {
+}): Promise<{ success: boolean; content?: string; linesCount?: number; resolvedPath?: string; error?: string }> {
   try {
-    const resolved = path.resolve(options.filePath);
+    const resolved = resolveSmartFilePath(options.filePath);
     if (!fs.existsSync(resolved)) {
-      return { success: false, error: `File not found: ${options.filePath}` };
+      return { success: false, error: `File not found: ${options.filePath} (Resolved: ${resolved})` };
     }
     const stat = fs.statSync(resolved);
     if (stat.isDirectory()) {
@@ -1192,7 +1328,8 @@ export async function readLocalFile(options: {
     return {
       success: true,
       content: slice.join('\n'),
-      linesCount: lines.length
+      linesCount: lines.length,
+      resolvedPath: resolved
     };
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to read file' };
@@ -1203,9 +1340,13 @@ export async function writeLocalFile(options: {
   filePath: string;
   content: string;
   append?: boolean;
-}): Promise<{ success: boolean; bytesWritten?: number; message: string }> {
+}): Promise<{ success: boolean; bytesWritten?: number; resolvedPath?: string; message: string }> {
   try {
-    const resolved = path.resolve(options.filePath);
+    let clean = options.filePath.trim();
+    if (clean.startsWith('~')) {
+      clean = path.join(os.homedir(), clean.slice(1));
+    }
+    const resolved = path.resolve(clean);
     const dir = path.dirname(resolved);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
@@ -1220,6 +1361,7 @@ export async function writeLocalFile(options: {
     return {
       success: true,
       bytesWritten: Buffer.byteLength(options.content, 'utf8'),
+      resolvedPath: resolved,
       message: `Successfully ${options.append ? 'appended to' : 'wrote'} file "${options.filePath}".`
     };
   } catch (err: any) {
@@ -1360,18 +1502,53 @@ export async function desktopControlAction(options: {
   }
 
   const cpp = await callCppWorker('desktop_control', args, 5000);
-  if (cpp && cpp.success !== false) return { success: true, ...cpp };
+  if (cpp && cpp.status !== 'error' && !cpp.error && cpp.success !== false) {
+    return { success: true, ...cpp };
+  }
 
   // Robust Native Linux Fallbacks
-  if (options.action === 'close_app' || options.action === 'close_window') {
+  if (options.action === 'close_window') {
+    const target = options.target || 'active';
+    try {
+      if (target === 'active' || target === 'current' || target === 'focused' || !options.target) {
+        await execAsync('xdotool getactivewindow windowclose 2>/dev/null || xdotool key --clearmodifiers alt+F4 2>/dev/null');
+        return { success: true, action: 'close_window', target: 'active', method: 'xdotool_active' };
+      } else {
+        await execAsync(`xdotool search --name "${target}" windowclose 2>/dev/null || xdotool search --class "${target}" windowclose 2>/dev/null || pkill -15 -i -f "${target}" || killall -15 -r -i "${target}" 2>/dev/null`);
+        return { success: true, action: 'close_window', target, method: 'linux_window_close' };
+      }
+    } catch (err: any) {
+      return { success: false, error: `Could not close window "${target}": ${err.message}` };
+    }
+  }
+
+  if (options.action === 'close_app') {
     if (options.target) {
       try {
         const sig = options.signal === 'SIGKILL' ? '-9' : '-15';
-        await execAsync(`pkill ${sig} -f "${options.target}" || killall ${sig} "${options.target}" 2>/dev/null`);
+        await execAsync(`pkill ${sig} -i -f "${options.target}" || killall ${sig} -r -i "${options.target}" 2>/dev/null`);
         return { success: true, action: options.action, target: options.target, method: 'linux_process_signal' };
       } catch (err: any) {
         return { success: false, error: `Could not terminate application "${options.target}": ${err.message}` };
       }
+    }
+  }
+
+  if (options.action === 'focus_window' && options.target) {
+    try {
+      await execAsync(`xdotool search --name "${options.target}" windowactivate 2>/dev/null || xdotool search --class "${options.target}" windowactivate 2>/dev/null || gtk-launch "${options.target}" 2>/dev/null`);
+      return { success: true, action: 'focus_window', target: options.target, method: 'xdotool_focus' };
+    } catch (err: any) {
+      return { success: false, error: `Could not focus window "${options.target}": ${err.message}` };
+    }
+  }
+
+  if (options.action === 'hotkey' && options.combo) {
+    try {
+      await execAsync(`xdotool key --clearmodifiers ${options.combo} 2>/dev/null || wtype -k ${options.combo} 2>/dev/null`);
+      return { success: true, action: 'hotkey', combo: options.combo };
+    } catch (err: any) {
+      return { success: false, error: `Could not execute hotkey "${options.combo}": ${err.message}` };
     }
   }
 

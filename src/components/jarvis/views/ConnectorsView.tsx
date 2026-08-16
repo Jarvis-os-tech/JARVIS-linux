@@ -1,5 +1,26 @@
 import { useState, useEffect } from "react";
-import { Plug, CheckCircle, ExternalLink, RefreshCw, LogOut, Settings, ShieldCheck, Mail, Calendar, FileText, CheckSquare, HardDrive, Loader2 } from "lucide-react";
+import {
+  Plug,
+  CheckCircle,
+  ExternalLink,
+  RefreshCw,
+  LogOut,
+  Settings,
+  ShieldCheck,
+  Mail,
+  Calendar,
+  FileText,
+  CheckSquare,
+  HardDrive,
+  Loader2,
+  Key,
+  Info,
+  Copy,
+  Check,
+  Sparkles,
+  AlertCircle,
+  Terminal
+} from "lucide-react";
 import { useJarvis } from "../JarvisProvider";
 import { Toggle } from "../Toggle";
 import { cn } from "@/lib/utils";
@@ -35,14 +56,17 @@ interface ConnectorItem {
 }
 
 export function ConnectorsView() {
-  const { pushLog, pushNotification, googleAccessToken, setGoogleAccessToken, connectionState } = useJarvis();
+  const { pushLog, pushNotification, googleAccessToken, setGoogleAccessToken } = useJarvis();
   const [clientId, setClientId] = useState<string>(() => localStorage.getItem("g_client_id") || DEFAULT_CLIENT_ID);
   const [userEmail, setUserEmail] = useState<string>(() => localStorage.getItem("g_user_email") || "");
   const [userName, setUserName] = useState<string>(() => localStorage.getItem("g_user_name") || "");
   const [userPicture, setUserPicture] = useState<string>(() => localStorage.getItem("g_user_picture") || "");
   const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [configTab, setConfigTab] = useState<"oauth" | "direct" | "cli">("oauth");
+  const [manualTokenInput, setManualTokenInput] = useState("");
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [copiedCli, setCopiedCli] = useState(false);
 
   const isGoogleConnected = !!(googleAccessToken || localStorage.getItem("g_access_token"));
 
@@ -86,12 +110,15 @@ export function ConnectorsView() {
           setUserPicture(data.picture);
           localStorage.setItem("g_user_picture", data.picture);
         }
+        return data;
       }
     } catch {
       // Userinfo fetch failure is non-fatal
     }
+    return null;
   };
 
+  // 1. One-Click Google Sign-In via Google Identity Services (GSI)
   const handleConnectGoogle = () => {
     const trimmedId = clientId.trim();
     if (!trimmedId) {
@@ -104,7 +131,9 @@ export function ConnectorsView() {
 
     const gsi = (window as any).google?.accounts?.oauth2;
     if (!gsi) {
-      toast.error("Google Identity Services SDK is loading. Please wait a moment and try again.");
+      toast.error("Google Identity Services SDK is loading. Alternatively, paste your token in Direct Connect.");
+      setIsConfigOpen(true);
+      setConfigTab("direct");
       return;
     }
 
@@ -113,6 +142,12 @@ export function ConnectorsView() {
       const tokenClient = gsi.initTokenClient({
         client_id: trimmedId,
         scope: GOOGLE_SCOPES,
+        error_callback: (err: any) => {
+          setIsAuthenticating(false);
+          console.warn("Google OAuth error:", err);
+          toast.error(err?.message || "Google sign-in popup was closed or origin is not authorized.");
+          setIsConfigOpen(true);
+        },
         callback: async (response: any) => {
           setIsAuthenticating(false);
           if (response.access_token) {
@@ -124,22 +159,79 @@ export function ConnectorsView() {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ token }),
             }).catch(() => {});
-            await fetchGoogleUserInfo(token);
+            
+            const userInfo = await fetchGoogleUserInfo(token);
 
-            pushLog("Google Workspace account connected successfully for all agent personas.");
-            pushNotification("🌐", "Google Workspace access granted to all agents.");
-            toast.success("Google Workspace authorized for all agents!");
+            pushLog(`Google Workspace connected for ${userInfo?.email || "Operator"}.`);
+            pushNotification("🌐", `Google Workspace authorized for ${userInfo?.email || "all agents"}.`);
+            toast.success(`Google Account connected (${userInfo?.email || "Active"})!`);
+            setIsConfigOpen(false);
             pollRealStatuses();
           } else if (response.error) {
-            toast.error(`Google Authentication Error: ${response.error}`);
+            toast.error(`Google Authentication: ${response.error_description || response.error}`);
+            setIsConfigOpen(true);
           }
         },
       });
 
-      tokenClient.requestAccessToken();
+      tokenClient.requestAccessToken({ prompt: "consent" });
     } catch (err: any) {
       setIsAuthenticating(false);
       toast.error(err.message || "Failed to initialize Google OAuth");
+      setIsConfigOpen(true);
+    }
+  };
+
+  // 2. Direct Manual Token Connect (Instant Link Fallback)
+  const handleManualTokenConnect = async () => {
+    const raw = manualTokenInput.trim();
+    if (!raw) {
+      toast.error("Please paste a valid Google OAuth Access Token (starts with ya29...)");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+        headers: { Authorization: `Bearer ${raw}` },
+      });
+
+      if (!res.ok) {
+        throw new Error(`Token rejected by Google (HTTP ${res.status}). Please verify token validity or re-issue via gcloud.`);
+      }
+
+      const data = await res.json();
+      setGoogleAccessToken(raw);
+      localStorage.setItem("g_access_token", raw);
+      if (data.email) {
+        setUserEmail(data.email);
+        localStorage.setItem("g_user_email", data.email);
+      }
+      if (data.name) {
+        setUserName(data.name);
+        localStorage.setItem("g_user_name", data.name);
+      }
+      if (data.picture) {
+        setUserPicture(data.picture);
+        localStorage.setItem("g_user_picture", data.picture);
+      }
+
+      await fetch("/api/workspace/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: raw }),
+      });
+
+      pushLog(`Google Account (${data.email || 'connected'}) linked successfully across all agents.`);
+      pushNotification("🌐", `Google Workspace linked for ${data.email || 'user'}.`);
+      toast.success(`Google Account connected (${data.email || 'Active'})!`);
+      setManualTokenInput("");
+      setIsConfigOpen(false);
+      pollRealStatuses();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to connect with token");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -192,6 +284,20 @@ export function ConnectorsView() {
     }
   };
 
+  // Auto-detect server-cached token or environment variable on mount
+  useEffect(() => {
+    fetch("/api/workspace/token/status")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.token && !googleAccessToken && !localStorage.getItem("g_access_token")) {
+          setGoogleAccessToken(data.token);
+          localStorage.setItem("g_access_token", data.token);
+          fetchGoogleUserInfo(data.token);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     pollRealStatuses();
   }, [googleAccessToken]);
@@ -218,6 +324,13 @@ export function ConnectorsView() {
     );
   };
 
+  const copyCliCommand = () => {
+    navigator.clipboard.writeText("gcloud auth print-access-token");
+    setCopiedCli(true);
+    toast.success("Command copied to clipboard!");
+    setTimeout(() => setCopiedCli(false), 2000);
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Header Bar */}
@@ -230,7 +343,7 @@ export function ConnectorsView() {
             </span>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Model Context Protocol (MCP) and autonomous tool plugins integrated into the JARVIS co-pilot.
+            Google Workspace, local actuators, and Model Context Protocol (MCP) integrations for J.A.R.V.I.S.
           </p>
         </div>
 
@@ -239,8 +352,8 @@ export function ConnectorsView() {
           {isGoogleConnected ? (
             <div className="flex items-center gap-1.5">
               <button
-                onClick={handleConnectGoogle}
-                title="Refresh Google authorization"
+                onClick={() => setIsConfigOpen(true)}
+                title="Google Account Settings"
                 className="key flex items-center gap-2 rounded-xl px-3.5 py-2 text-[12px] font-bold text-emerald-400 border border-emerald-500/30 bg-emerald-500/10 cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.15)]"
               >
                 {userPicture ? (
@@ -262,46 +375,60 @@ export function ConnectorsView() {
               </button>
             </div>
           ) : (
-            <button
-              onClick={handleConnectGoogle}
-              disabled={isAuthenticating}
-              className={cn(
-                "flex items-center gap-2 rounded-xl px-4 py-2 text-[12px] font-bold transition-all cursor-pointer shadow-lg",
-                isAuthenticating
-                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse cursor-wait"
-                  : "bg-white text-zinc-900 hover:bg-zinc-100 border border-white/40 shadow-white/10"
-              )}
-            >
-              {isAuthenticating ? (
-                <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
-              ) : (
-                <svg className="w-4 h-4" viewBox="0 0 24 24">
-                  <path
-                    fill="#4285F4"
-                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                  />
-                </svg>
-              )}
-              <span>{isAuthenticating ? "Connecting Google..." : "Connect to Google"}</span>
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={handleConnectGoogle}
+                disabled={isAuthenticating}
+                className={cn(
+                  "flex items-center gap-2 rounded-xl px-4 py-2 text-[12px] font-bold transition-all cursor-pointer shadow-lg",
+                  isAuthenticating
+                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse cursor-wait"
+                    : "bg-white text-zinc-900 hover:bg-zinc-100 border border-white/40 shadow-white/10"
+                )}
+              >
+                {isAuthenticating ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                ) : (
+                  <svg className="w-4 h-4" viewBox="0 0 24 24">
+                    <path
+                      fill="#4285F4"
+                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                    />
+                  </svg>
+                )}
+                <span>{isAuthenticating ? "Connecting Google..." : "Connect to Google"}</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsConfigOpen(true);
+                  setConfigTab("direct");
+                }}
+                title="Paste Access Token Directly"
+                className="key flex items-center gap-1.5 rounded-xl px-3 py-2 text-[12px] font-bold text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/10 cursor-pointer"
+              >
+                <Key className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Token Auth</span>
+              </button>
+            </div>
           )}
 
           {/* Client ID settings toggle */}
           <button
             onClick={() => setIsConfigOpen(!isConfigOpen)}
-            title="Configure Google OAuth Client ID"
+            title="Configure Google Workspace Authentication"
             className="key grid h-9 w-9 place-items-center rounded-xl text-muted-foreground hover:text-cyan-hud cursor-pointer"
           >
             <Settings className="h-4 w-4" />
@@ -309,35 +436,157 @@ export function ConnectorsView() {
         </div>
       </header>
 
-      {/* Google OAuth Client ID Configuration Popout */}
+      {/* Google Authentication & Connector Configuration Center */}
       {isConfigOpen && (
-        <div className="animate-rise-in mb-4 neu rounded-2xl p-4 flex flex-col gap-3 border border-cyan-500/20">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-foreground flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-cyan-400" />
-              Google OAuth 2.0 Client ID Configuration
-            </span>
-            <span className="text-[10px] text-muted-foreground">Authorized JavaScript origins: window.location.origin</span>
-          </div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="791977848384-...apps.googleusercontent.com"
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              className="flex-1 neu-inset rounded-xl px-3.5 py-2 text-xs font-mono text-foreground outline-none border border-white/10 focus:border-cyan-400"
-            />
+        <div className="animate-rise-in mb-4 neu rounded-2xl p-5 flex flex-col gap-4 border border-cyan-500/30 bg-zinc-950/80 backdrop-blur-xl shadow-2xl">
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-white/10 pb-3">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-cyan-400" />
+              <h2 className="text-sm font-bold text-foreground">Google Workspace Authentication Hub</h2>
+            </div>
             <button
-              onClick={() => {
-                localStorage.setItem("g_client_id", clientId.trim());
-                toast.success("Client ID saved");
-                setIsConfigOpen(false);
-              }}
-              className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl text-xs font-bold cursor-pointer"
+              onClick={() => setIsConfigOpen(false)}
+              className="text-xs text-muted-foreground hover:text-white px-2 py-1 rounded-md"
             >
-              Save Client ID
+              ✕ Close
             </button>
           </div>
+
+          {/* Tabs */}
+          <div className="flex items-center gap-2 border-b border-white/10 pb-2">
+            <button
+              onClick={() => setConfigTab("oauth")}
+              className={cn(
+                "px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5",
+                configTab === "oauth"
+                  ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+              1-Click OAuth Sign-In
+            </button>
+            <button
+              onClick={() => setConfigTab("direct")}
+              className={cn(
+                "px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5",
+                configTab === "direct"
+                  ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Key className="w-3.5 h-3.5 text-cyan-400" />
+              Direct Token Connect (Instant)
+            </button>
+            <button
+              onClick={() => setConfigTab("cli")}
+              className={cn(
+                "px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5",
+                configTab === "cli"
+                  ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Terminal className="w-3.5 h-3.5 text-cyan-400" />
+              CLI &amp; Environment
+            </button>
+          </div>
+
+          {/* Tab 1: OAuth Configuration */}
+          {configTab === "oauth" && (
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>Google Cloud OAuth 2.0 Client ID</span>
+                <span className="font-mono text-[10px] text-cyan-400">
+                  Origin: {typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}
+                </span>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="791977848384-...apps.googleusercontent.com"
+                  value={clientId}
+                  onChange={(e) => setClientId(e.target.value)}
+                  className="flex-1 neu-inset rounded-xl px-3.5 py-2 text-xs font-mono text-foreground outline-none border border-white/10 focus:border-cyan-400"
+                />
+                <button
+                  onClick={() => {
+                    localStorage.setItem("g_client_id", clientId.trim());
+                    toast.success("Client ID saved");
+                  }}
+                  className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  Save ID
+                </button>
+                <button
+                  onClick={handleConnectGoogle}
+                  disabled={isAuthenticating}
+                  className="px-5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-md"
+                >
+                  {isAuthenticating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ExternalLink className="w-3.5 h-3.5" />}
+                  Sign In with Google
+                </button>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Ensure <code className="text-cyan-300 font-mono">{typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}</code> is added under <strong>Authorized JavaScript origins</strong> in your Google Cloud Console OAuth 2.0 Web Client credentials.
+              </p>
+            </div>
+          )}
+
+          {/* Tab 2: Direct Token Connect */}
+          {configTab === "direct" && (
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>Paste Google OAuth Access Token (Bearer Token)</span>
+                <span className="text-[10px] text-emerald-400">Instant validation &amp; zero-popup setup</span>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  placeholder="ya29.a0Ac..."
+                  value={manualTokenInput}
+                  onChange={(e) => setManualTokenInput(e.target.value)}
+                  className="flex-1 neu-inset rounded-xl px-3.5 py-2 text-xs font-mono text-foreground outline-none border border-white/10 focus:border-cyan-400"
+                />
+                <button
+                  onClick={handleManualTokenConnect}
+                  disabled={loading || !manualTokenInput.trim()}
+                  className="px-5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-md"
+                >
+                  {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Key className="w-3.5 h-3.5" />}
+                  Connect Token
+                </button>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                Tokens from Google OAuth Playground or <code className="text-cyan-300 font-mono">gcloud auth print-access-token</code> will instantly unlock Gmail, Google Calendar, Docs, Sheets, Drive, and Tasks for all 5 personas.
+              </p>
+            </div>
+          )}
+
+          {/* Tab 3: CLI / Environment */}
+          {configTab === "cli" && (
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>Generate Token via Google Cloud CLI</span>
+                <button
+                  onClick={copyCliCommand}
+                  className="flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 font-mono"
+                >
+                  {copiedCli ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedCli ? "Copied" : "Copy Command"}
+                </button>
+              </div>
+              <div className="neu-inset rounded-xl p-3 font-mono text-xs text-cyan-300 flex items-center justify-between">
+                <span>gcloud auth print-access-token</span>
+              </div>
+              <div className="text-[11px] text-zinc-400 leading-relaxed flex flex-col gap-1">
+                <span>1. Run the command above in your terminal.</span>
+                <span>2. Copy the resulting token (<code className="text-cyan-300 font-mono">ya29...</code>).</span>
+                <span>3. Switch to <strong>Direct Token Connect</strong> tab and paste it, or add <code className="text-cyan-300 font-mono">GOOGLE_ACCESS_TOKEN="..."</code> to your <code className="text-cyan-300 font-mono">.env</code> file.</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -444,39 +693,54 @@ export function ConnectorsView() {
                 {isGoogleCard && (
                   <div className="pt-1">
                     {!isGoogleConnected ? (
-                      <button
-                        onClick={handleConnectGoogle}
-                        disabled={isAuthenticating}
-                        className="w-full py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
-                          <path
-                            fill="#FFFFFF"
-                            d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                          />
-                          <path
-                            fill="#FFFFFF"
-                            d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                          />
-                          <path
-                            fill="#FFFFFF"
-                            d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                          />
-                          <path
-                            fill="#FFFFFF"
-                            d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                          />
-                        </svg>
-                        <span>Authorize Google Account</span>
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleConnectGoogle}
+                          disabled={isAuthenticating}
+                          className="flex-1 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                        >
+                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
+                            <path
+                              fill="#FFFFFF"
+                              d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                            />
+                            <path
+                              fill="#FFFFFF"
+                              d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                            />
+                            <path
+                              fill="#FFFFFF"
+                              d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                            />
+                            <path
+                              fill="#FFFFFF"
+                              d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                            />
+                          </svg>
+                          <span>Authorize Google</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setIsConfigOpen(true);
+                            setConfigTab("direct");
+                          }}
+                          title="Direct Token Entry"
+                          className="px-3 py-2 neu-inset text-cyan-300 text-xs font-bold rounded-xl hover:bg-cyan-500/10 cursor-pointer"
+                        >
+                          <Key className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     ) : (
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={handleConnectGoogle}
+                          onClick={() => {
+                            setIsConfigOpen(true);
+                            setConfigTab("oauth");
+                          }}
                           className="flex-1 py-1.5 neu-inset text-emerald-300 text-[11px] font-bold rounded-lg hover:bg-emerald-500/10 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                         >
                           <RefreshCw className="w-3 h-3 text-emerald-400" />
-                          <span>Refresh Token</span>
+                          <span>Manage / Refresh</span>
                         </button>
                         <button
                           onClick={handleDisconnectGoogle}

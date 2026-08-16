@@ -7,9 +7,11 @@
 
 import { loadPersonaPrompt } from './prompt_loader';
 import { executeUnifiedAiChat } from './ai_engine';
-import { executeSystemCommand } from './system_controller';
+import { executeSystemCommand, diagnoseSoundServer, healSoundServer } from './system_controller';
 import { obsidianDailyLogger } from './obsidian_logger';
 import { getGlobalGoogleAccessToken } from './workspace_tools';
+import { getPersonaAudioProfile } from '../data/personas';
+import { PersonaAudioProfile } from '../types';
 
 export interface PersonaMetadata {
   id: string;
@@ -20,6 +22,7 @@ export interface PersonaMetadata {
   voiceName: string;
   accentColor: string;
   domain: string;
+  audioProfile?: PersonaAudioProfile;
   status: 'active_voice' | 'muted_relay_running' | 'idle' | 'alerting';
   lastActivityTime: string;
   activeTask?: string;
@@ -104,6 +107,7 @@ class MultiAgentOrchestrator {
     for (const p of baseList) {
       this.personas.set(p.id, {
         ...p,
+        audioProfile: getPersonaAudioProfile(p.id),
         status: p.id === this.activePersonaId ? 'active_voice' : 'idle',
         lastActivityTime: new Date().toISOString()
       });
@@ -146,9 +150,11 @@ class MultiAgentOrchestrator {
     newPersona: PersonaMetadata;
     contextShiftDirective: string;
     systemInstruction: string;
+    audioProfile: PersonaAudioProfile;
   } {
     const normalized = targetPersonaId.toLowerCase();
     const target = this.personas.get(normalized);
+    const audioProfile = getPersonaAudioProfile(normalized);
 
     if (!target) {
       return {
@@ -156,7 +162,8 @@ class MultiAgentOrchestrator {
         previousPersona: this.getActivePersona(),
         newPersona: this.getActivePersona(),
         contextShiftDirective: '',
-        systemInstruction: loadPersonaPrompt(this.activePersonaId)
+        systemInstruction: loadPersonaPrompt(this.activePersonaId),
+        audioProfile: getPersonaAudioProfile(this.activePersonaId)
       };
     }
 
@@ -166,6 +173,7 @@ class MultiAgentOrchestrator {
 
     target.status = 'active_voice';
     target.lastActivityTime = new Date().toISOString();
+    target.audioProfile = audioProfile;
     this.activePersonaId = target.id;
 
     const specificPrompt = loadPersonaPrompt(target.id);
@@ -177,7 +185,8 @@ class MultiAgentOrchestrator {
     this.emitEvent('persona_swapped', {
       previousPersonaId: prev.id,
       newPersonaId: target.id,
-      persona: target
+      persona: target,
+      audioProfile
     });
 
     obsidianDailyLogger.logConversationTurn({
@@ -187,14 +196,15 @@ class MultiAgentOrchestrator {
       personaId: target.id
     });
 
-    console.log(`[Orchestrator] Persona hot-swapped from ${prev.name} to ${target.name}`);
+    console.log(`[Orchestrator] Persona hot-swapped from ${prev.name} to ${target.name} (voice: ${target.voiceName})`);
 
     return {
       success: true,
       previousPersona: prev,
       newPersona: target,
       contextShiftDirective,
-      systemInstruction: specificPrompt
+      systemInstruction: specificPrompt,
+      audioProfile
     };
   }
 
@@ -329,11 +339,12 @@ class MultiAgentOrchestrator {
     const ultron = this.personas.get('ultron');
     if (!ultron) return;
 
-    // Quick silent security & performance inspection: check failed units, listening sockets, memory pressure & load
-    const [failedUnitsRes, listeningSocketsRes, memInfoRes] = await Promise.all([
+    // Quick silent security & performance inspection: check failed units, listening sockets, memory pressure, sound server health
+    const [failedUnitsRes, listeningSocketsRes, memInfoRes, soundDiag] = await Promise.all([
       executeSystemCommand({ command: 'systemctl --user --failed --no-pager --no-legend 2>/dev/null || true' }),
       executeSystemCommand({ command: 'ss -tulpn 2>/dev/null | grep LISTEN | head -n 10 || true' }),
-      executeSystemCommand({ command: 'awk \'/MemAvailable/ {print int($2/1024)}\' /proc/meminfo 2>/dev/null || echo "1024"' })
+      executeSystemCommand({ command: 'awk \'/MemAvailable/ {print int($2/1024)}\' /proc/meminfo 2>/dev/null || echo "1024"' }),
+      diagnoseSoundServer()
     ]);
 
     const failedUnits = failedUnitsRes.stdout?.trim();
@@ -341,7 +352,13 @@ class MultiAgentOrchestrator {
     const hasFailures = failedUnits && failedUnits.length > 0;
     const isMemoryCritical = !isNaN(memAvailableMb) && memAvailableMb < 400; // less than 400MB free
 
-    if (hasFailures) {
+    if (!soundDiag.healthy) {
+      const healResult = await healSoundServer();
+      this.processMutedRelayOutput(
+        `{ULTRON_SECURITY_ALERT: Intermittent PipeWire/ALSA sound server failure detected (${soundDiag.diagnostics}). Autonomous recovery initiated: ${healResult.message}}`,
+        'ultron'
+      );
+    } else if (hasFailures) {
       this.processMutedRelayOutput(
         `{ULTRON_SECURITY_ALERT: Detected degraded user services: ${failedUnits.split('\n')[0]}}`,
         'ultron'
@@ -352,7 +369,7 @@ class MultiAgentOrchestrator {
         'ultron'
       );
     } else {
-      console.log(`[Ultron Sentinel] Host security & performance optimal: 0 failed units, ${memAvailableMb}MB available.`);
+      console.log(`[Ultron Sentinel] Host security, sound server & performance optimal: PipeWire/ALSA OK, 0 failed units, ${memAvailableMb}MB available.`);
     }
   }
 

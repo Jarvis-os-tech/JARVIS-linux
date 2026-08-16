@@ -3,6 +3,7 @@ build/
 dist/
 coverage/
 target/
+**/target/
 .codebase-memory/
 workers_cpp/bin/
 .DS_Store
@@ -19,3 +20,5 @@ JARVIS-MEMORY/**
 !JARVIS-MEMORY/README.md
 !JARVIS-MEMORY/.obsidian/
 !JARVIS-MEMORY/.obsidian/.gitkeep
+JARVIS-memory
+jarvis-memory

@@ -6,6 +6,11 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build:workers": "make -C workers_cpp",
+    "memory:init": "cargo run --manifest-path ./memory_engine/Cargo.toml -- init",
+    "memory:inspect": "cargo run --manifest-path ./memory_engine/Cargo.toml -- inspect",
+    "memory:test": "cargo run --manifest-path ./memory_engine/Cargo.toml -- test",
+    "memory:worker": "./workers_cpp/bin/memory_tester",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"

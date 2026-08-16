@@ -93,6 +93,18 @@ export class JarvisDatabase {
         updated_at INTEGER NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS schema_info (
+        version INTEGER PRIMARY KEY,
+        engine_version TEXT NOT NULL,
+        initialized_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        tables_count INTEGER NOT NULL,
+        status TEXT NOT NULL
+      );
+
+      INSERT OR REPLACE INTO schema_info (version, engine_version, initialized_at, updated_at, tables_count, status)
+      VALUES (1, '0.1.0', CAST(strftime('%s', 'now') AS INTEGER), CAST(strftime('%s', 'now') AS INTEGER), 13, 'healthy');
+
       CREATE TABLE IF NOT EXISTS workspace_actions (
         id TEXT PRIMARY KEY,
         tool_name TEXT NOT NULL,

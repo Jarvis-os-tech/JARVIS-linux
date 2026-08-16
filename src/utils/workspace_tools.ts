@@ -4,6 +4,8 @@ import {
   getBatteryStatus,
   getSystemVolume,
   setSystemVolume,
+  diagnoseSoundServer,
+  healSoundServer,
   getScreenBrightness,
   setScreenBrightness,
   getThermalSensors,
@@ -39,7 +41,7 @@ import {
 let globalGoogleAccessToken: string = process.env.GOOGLE_ACCESS_TOKEN || '';
 
 export function setGlobalGoogleAccessToken(token: string): void {
-  if (token && typeof token === 'string' && token.trim()) {
+  if (typeof token === 'string') {
     globalGoogleAccessToken = token.trim();
   }
 }
@@ -199,6 +201,34 @@ export const WORKSPACE_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
         taskId: { type: 'STRING', description: 'The unique ID of the task to delete.' }
       },
       required: ['taskId']
+    }
+  },
+  {
+    name: 'update_task',
+    description: 'Update, rename, edit, or modify an existing Google Task. Can change the title/name, notes/description, due date, or status. You can provide either the taskId or the current task title to search and update.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        taskId: { type: 'STRING', description: 'The unique ID of the Google Task to update (optional if oldTitle is provided).' },
+        oldTitle: { type: 'STRING', description: 'The current or existing title of the task to find and rename/update.' },
+        title: { type: 'STRING', description: 'The new title or renamed name for the Google Task.' },
+        notes: { type: 'STRING', description: 'Updated notes, description, or instructions for the task.' },
+        due: { type: 'STRING', description: 'Updated due date in RFC 3339 format or YYYY-MM-DD.' },
+        status: { type: 'STRING', description: 'Updated status: "needsAction" or "completed".' }
+      }
+    }
+  },
+  {
+    name: 'rename_task',
+    description: 'Rename an existing task in Google Tasks. Automatically finds the task by its previous title or ID and updates its title to the new name.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        oldTitle: { type: 'STRING', description: 'The existing/previous title of the task (e.g. "Open CLA Integration").' },
+        newTitle: { type: 'STRING', description: 'The new title for the task (e.g. "Open CLAW Integration").' },
+        taskId: { type: 'STRING', description: 'The unique ID of the task if already known (optional).' }
+      },
+      required: ['newTitle']
     }
   },
 
@@ -470,6 +500,22 @@ export const WORKSPACE_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
     }
   },
   {
+    name: 'diagnose_sound_server',
+    description: 'Diagnose host audio sound server (PipeWire, WirePlumber, PulseAudio, ALSA) health, active sinks/sources, volume, and drivers.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {}
+    }
+  },
+  {
+    name: 'heal_sound_server',
+    description: 'Perform self-healing recovery on degraded host sound servers: restarts PipeWire & WirePlumber user daemons, unmutes master ALSA mixers, and restores active audio sinks.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {}
+    }
+  },
+  {
     name: 'get_network_status',
     description: 'Get real-time network and connectivity status: WiFi SSID, signal quality, local IP address, gateway ping latency, and DNS resolution speed.',
     parameters: {
@@ -501,6 +547,14 @@ export const WORKSPACE_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
         maxResults: { type: 'INTEGER', description: 'Maximum number of results to return (default 20).' }
       },
       required: ['pattern']
+    }
+  },
+  {
+    name: 'get_vault_index',
+    description: 'Retrieve the structured Obsidian Memory Vault Map of Content (MOC), domain subfolders, and note index.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {}
     }
   },
   {
@@ -799,6 +853,24 @@ export async function executeWorkspaceTool(
         };
       }
 
+      case 'diagnose_sound_server': {
+        const diag = await diagnoseSoundServer();
+        return {
+          success: diag.healthy,
+          result: diag,
+          summary: `Sound server ${diag.healthy ? 'Healthy' : 'Degraded'} (${diag.driver}): PipeWire=${diag.pipewireRunning}, WirePlumber=${diag.wireplumberRunning}, Volume=${diag.volumePercent}%, Sink=${diag.activeSink}`
+        };
+      }
+
+      case 'heal_sound_server': {
+        const healRes = await healSoundServer();
+        return {
+          success: healRes.success,
+          result: healRes.status,
+          summary: healRes.message
+        };
+      }
+
       case 'set_screen_brightness': {
         const result = await setScreenBrightness({
           percent: args.percent !== undefined ? Number(args.percent) : undefined,
@@ -988,6 +1060,16 @@ export async function executeWorkspaceTool(
           success: result.success,
           result,
           summary: result.message
+        };
+      }
+
+      case 'get_vault_index': {
+        const { obsidianSyncBridge } = await import('../utils/obsidian_sync');
+        const indexData = obsidianSyncBridge.getVaultIndex();
+        return {
+          success: true,
+          result: indexData,
+          summary: `Retrieved Obsidian Vault index with ${indexData.domains.length} domains and ${indexData.stats.totalFiles} notes.`
         };
       }
 
@@ -1626,6 +1708,64 @@ export async function executeWorkspaceTool(
           success: true,
           result: { taskId, status: 'deleted' },
           summary: `Deleted task ${taskId}`
+        };
+      }
+
+      // -------------------------------------------------------------
+      // TASKS: update_task & rename_task
+      // -------------------------------------------------------------
+      case 'update_task':
+      case 'rename_task': {
+        const { taskId, oldTitle, title, newTitle, notes, due, status } = args;
+        const targetNewTitle = newTitle || title;
+
+        const listRes = await fetch('https://tasks.googleapis.com/tasks/v1/users/@me/lists', { headers });
+        const listData = await listRes.json();
+        checkGoogleError(listData);
+        const listId = listData.items?.[0]?.id || '@default';
+
+        let targetTaskId = taskId;
+
+        // If taskId is not provided or oldTitle is provided, find task by fuzzy/exact matching title
+        if (!targetTaskId || oldTitle) {
+          const searchRes = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks?maxResults=100&showHidden=true`, { headers });
+          const searchData = await searchRes.json();
+          checkGoogleError(searchData);
+          const tasks = searchData.items || [];
+          const query = (oldTitle || targetTaskId || '').toLowerCase().trim();
+
+          let found = tasks.find((t: any) => t.id === targetTaskId);
+          if (!found && query) {
+            found = tasks.find((t: any) => t.title?.toLowerCase() === query) ||
+                    tasks.find((t: any) => t.title?.toLowerCase().includes(query) || query.includes(t.title?.toLowerCase()));
+          }
+
+          if (found) {
+            targetTaskId = found.id;
+          } else if (!targetTaskId) {
+            throw new Error(`Could not find task matching "${oldTitle || 'query'}". Available tasks: ${tasks.map((t: any) => `"${t.title}"`).join(', ')}`);
+          }
+        }
+
+        const patchPayload: any = {};
+        if (targetNewTitle) patchPayload.title = targetNewTitle;
+        if (notes !== undefined) patchPayload.notes = notes;
+        if (due) patchPayload.due = new Date(due).toISOString();
+        if (status) patchPayload.status = status;
+
+        const res = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${targetTaskId}`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify(patchPayload)
+        });
+        const data = await res.json();
+        checkGoogleError(data);
+
+        return {
+          success: true,
+          result: data,
+          linkUrl: 'https://tasks.google.com',
+          summary: `Updated Google Task "${data.title || targetTaskId}" successfully.`
         };
       }
 

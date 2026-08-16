@@ -1,4 +1,4 @@
-import { VoicePersona, QuickPrompt } from '../types';
+import { VoicePersona, QuickPrompt, PersonaAudioProfile } from '../types';
 
 export const TELGISH_LANGUAGE_SYSTEM_INSTRUCTION = `[UNIVERSAL TEAM LANGUAGE PROTOCOL: TELGISH MODE STRICTLY ENFORCED]
 ALL AGENTS (JARVIS, FRIDAY, ULTRON, EDITH, KAREN) MUST COMMUNICATE PRIMARILY IN TELGISH — A NATURAL MIXTURE OF TELUGU AND ENGLISH IN ROMANIZED SCRIPT.
@@ -62,6 +62,16 @@ OPERATIONAL DIRECTIVES & ACTIVE PROTOCOLS:
     accentColor: 'cyan',
     bgGradient: 'from-cyan-500/20 via-sky-500/10 to-transparent',
     personalityTraits: ['Elite Tactical Commander', 'Telgish Native', 'Executive Authority', 'Autonomous Linux Master'],
+    audioProfile: {
+      voiceName: 'Puck',
+      gain: 1.05,
+      bassGainDb: 1.5,
+      midGainDb: 0.5,
+      trebleGainDb: -0.5,
+      compressorThreshold: -24,
+      compressorRatio: 3.0,
+      tempoMultiplier: 1.0
+    },
     primaryModel: 'nvidia/nemotron-3-ultra-550b',
     fallbackModel: 'nvidia/nemotron-3.5-lightning-30b-a3b',
     fallbackJustification: 'High-speed response recovery. If 550B fails, the 30B Lightning MoE maintains puckish composure and voice continuity without lagging the WebRTC audio loop.'
@@ -97,6 +107,16 @@ OPERATIONAL MANDATE:
     accentColor: 'orange',
     bgGradient: 'from-orange-500/20 via-amber-500/10 to-transparent',
     personalityTraits: ['Information Dominator', 'Telgish Native', 'Supreme Tech Director', 'Pure Certainty'],
+    audioProfile: {
+      voiceName: 'Kore',
+      gain: 1.0,
+      bassGainDb: -1.5,
+      midGainDb: 1.5,
+      trebleGainDb: 3.0,
+      compressorThreshold: -20,
+      compressorRatio: 4.0,
+      tempoMultiplier: 1.05
+    },
     primaryModel: 'nvidia/nemotron-3-ultra-550b',
     fallbackModel: 'meta/llama-3.1-70b-instruct',
     fallbackJustification: 'Reliable indexing. If 550B drops, Llama-3.1-70B steps in to scrape data blocks, cross-reference tech updates, and build your Daily AI Briefings with zero structural errors.'
@@ -131,6 +151,16 @@ DUAL MANDATE: SECURITY DOMINANCE & PEAK SYSTEM PERFORMANCE:
     accentColor: 'red',
     bgGradient: 'from-red-600/25 via-rose-600/10 to-transparent',
     personalityTraits: ['Unforgiving Guardian', 'Telgish Native', 'Silicon Optimizer', 'Peak System Fluidity'],
+    audioProfile: {
+      voiceName: 'Charon',
+      gain: 1.15,
+      bassGainDb: 5.0,
+      midGainDb: -1.5,
+      trebleGainDb: 1.0,
+      compressorThreshold: -18,
+      compressorRatio: 5.0,
+      tempoMultiplier: 0.95
+    },
     primaryModel: 'nvidia/nemotron-3-ultra-550b',
     fallbackModel: 'thudm/glm-5.2',
     fallbackJustification: 'Strict adherence to constraints. GLM-5.2 handles rigid logic commands flawlessly, ensuring your 24/7 firewall traps and port audit loops don\'t generate false positives during a failover.'
@@ -166,6 +196,16 @@ OPERATIONAL MANDATE:
     accentColor: 'blue',
     bgGradient: 'from-blue-500/20 via-sky-500/10 to-transparent',
     personalityTraits: ['Deep Reasoning Chairman', 'Telgish Native', '3-Stage Code Council', 'Methodical Precision'],
+    audioProfile: {
+      voiceName: 'Zephyr',
+      gain: 1.0,
+      bassGainDb: 0.0,
+      midGainDb: 0.0,
+      trebleGainDb: 0.0,
+      compressorThreshold: -24,
+      compressorRatio: 2.5,
+      tempoMultiplier: 1.0
+    },
     primaryModel: 'mistralai/mistral-large-3',
     fallbackModel: 'meta/llama-3.3-70b-instruct',
     fallbackJustification: 'Strong code logic fallback. If Mistral Large drops during a Track 1 Code Council debate, Llama-3.3-70B acts as the temporary chairman to optimize code structures cleanly.'
@@ -200,11 +240,35 @@ CORE PROTOCOLS & MANDATE:
     accentColor: 'amber',
     bgGradient: 'from-amber-500/20 via-orange-500/10 to-transparent',
     personalityTraits: ['Automation Orchestrator', 'Telgish Native', 'Energetic & Snappy', 'Multi-Platform Pipelines'],
+    audioProfile: {
+      voiceName: 'Aoede',
+      gain: 1.08,
+      bassGainDb: -1.0,
+      midGainDb: 3.0,
+      trebleGainDb: 2.0,
+      compressorThreshold: -22,
+      compressorRatio: 4.5,
+      tempoMultiplier: 1.02
+    },
     primaryModel: 'nvidia/nemotron-3-ultra-550b',
     fallbackModel: 'nvidia/nemotron-3.5-lightning-30b-a3b',
     fallbackJustification: 'Pure API token safety. Flawlessly maps payloads and triggers YouTube/WhatsApp automation webhooks instantly without formatting lag.'
   }
 ];
+
+export function getPersonaAudioProfile(personaId: string): PersonaAudioProfile {
+  const match = PERSONAS.find(p => p.id.toLowerCase() === (personaId || 'jarvis').toLowerCase());
+  return match?.audioProfile || {
+    voiceName: 'Puck',
+    gain: 1.05,
+    bassGainDb: 1.5,
+    midGainDb: 0.5,
+    trebleGainDb: -0.5,
+    compressorThreshold: -24,
+    compressorRatio: 3.0,
+    tempoMultiplier: 1.0
+  };
+}
 
 export const QUICK_PROMPTS: QuickPrompt[] = [
   {

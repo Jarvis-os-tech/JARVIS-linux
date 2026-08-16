@@ -26,6 +26,12 @@ import {
   Terminal,
   Share2,
   RotateCcw,
+  Zap,
+  Code2,
+  FileCode,
+  CopyCheck,
+  Cpu,
+  Info,
 } from "lucide-react";
 import { useJarvis } from "../JarvisProvider";
 import { cn } from "@/lib/utils";
@@ -33,17 +39,17 @@ import { toast } from "sonner";
 import { saveAgentMemory, MemoryFact } from "@/utils/agent_memory";
 
 const DEFAULT_CATEGORIES = [
-  { id: "all", label: "All Nodes" },
-  { id: "work_context", label: "Work Context" },
-  { id: "preference", label: "Preferences" },
-  { id: "personal_fact", label: "Personal Facts" },
-  { id: "topic", label: "Topics & Intel" },
-  { id: "custom", label: "Custom Entities" },
+  { id: "all", label: "All Nodes", icon: Database },
+  { id: "work_context", label: "Work Context", icon: Layers },
+  { id: "preference", label: "Preferences", icon: Sliders },
+  { id: "personal_fact", label: "Personal Facts", icon: User },
+  { id: "topic", label: "Topics & Intel", icon: Globe },
+  { id: "custom", label: "Custom Entities", icon: Sparkles },
 ] as const;
 
-const AGENT_MAP: Record<
+export const AGENT_MAP: Record<
   string,
-  { name: string; title: string; color: string; border: string; bg: string; icon: any }
+  { name: string; title: string; color: string; border: string; bg: string; icon: any; role: string }
 > = {
   ultron: {
     name: "ULTRON",
@@ -52,6 +58,7 @@ const AGENT_MAP: Record<
     border: "border-rose-500/40",
     bg: "rgba(244,63,94,0.12)",
     icon: Shield,
+    role: "Security & Isolation",
   },
   friday: {
     name: "FRIDAY",
@@ -60,6 +67,7 @@ const AGENT_MAP: Record<
     border: "border-amber-500/40",
     bg: "rgba(245,158,11,0.12)",
     icon: Globe,
+    role: "Research & Intelligence",
   },
   jarvis: {
     name: "JARVIS",
@@ -68,6 +76,7 @@ const AGENT_MAP: Record<
     border: "border-cyan-500/40",
     bg: "rgba(6,182,212,0.12)",
     icon: Bot,
+    role: "Tactical OS Core",
   },
   edith: {
     name: "EDITH",
@@ -76,6 +85,7 @@ const AGENT_MAP: Record<
     border: "border-violet-500/40",
     bg: "rgba(139,92,246,0.12)",
     icon: Eye,
+    role: "POSIX Recon & Actuators",
   },
   karen: {
     name: "KAREN",
@@ -84,6 +94,7 @@ const AGENT_MAP: Record<
     border: "border-emerald-500/40",
     bg: "rgba(16,185,129,0.12)",
     icon: Layers,
+    role: "Continuous Automation",
   },
   user: {
     name: "OPERATOR",
@@ -92,7 +103,16 @@ const AGENT_MAP: Record<
     border: "border-sky-500/40",
     bg: "rgba(56,189,248,0.12)",
     icon: User,
+    role: "Operator Directives",
   },
+};
+
+const CATEGORY_STYLES: Record<string, { label: string; badgeCls: string }> = {
+  work_context: { label: "Work Context", badgeCls: "text-blue-400 border-blue-500/30 bg-blue-500/10" },
+  preference: { label: "Preference", badgeCls: "text-rose-400 border-rose-500/30 bg-rose-500/10" },
+  personal_fact: { label: "Personal Fact", badgeCls: "text-purple-400 border-purple-500/30 bg-purple-500/10" },
+  topic: { label: "Topic & Intel", badgeCls: "text-amber-400 border-amber-500/30 bg-amber-500/10" },
+  custom: { label: "Custom Entity", badgeCls: "text-cyan-400 border-cyan-500/30 bg-cyan-500/10" },
 };
 
 export function MemoryView() {
@@ -116,22 +136,41 @@ export function MemoryView() {
   const [editCategory, setEditCategory] = useState<MemoryFact["category"]>("work_context");
   const [editAgentId, setEditAgentId] = useState<string>("ultron");
   const [copied, setCopied] = useState(false);
+  const [copiedId, setCopiedId] = useState(false);
 
   // Derive memory items enriched with Agent metadata
   const memoryItems = useMemo(() => {
     return agentMemoryState.facts.map((f, i) => {
-      // Auto-detect agent if not explicitly defined
       let resolvedAgentId = f.agentId || "user";
       if (!f.agentId) {
         const lowerKey = (f.key || "").toLowerCase();
         const lowerVal = (f.value || "").toLowerCase();
-        if (lowerKey.includes("ultron") || lowerVal.includes("firewall") || lowerVal.includes("security") || lowerVal.includes("ports")) {
+        if (
+          lowerKey.includes("ultron") ||
+          lowerVal.includes("firewall") ||
+          lowerVal.includes("security") ||
+          lowerVal.includes("ports")
+        ) {
           resolvedAgentId = "ultron";
-        } else if (lowerKey.includes("friday") || lowerVal.includes("briefing") || lowerVal.includes("research") || lowerVal.includes("priorities")) {
+        } else if (
+          lowerKey.includes("friday") ||
+          lowerVal.includes("briefing") ||
+          lowerVal.includes("research") ||
+          lowerVal.includes("priorities")
+        ) {
           resolvedAgentId = "friday";
-        } else if (lowerKey.includes("edith") || lowerVal.includes("actuator") || lowerVal.includes("recon") || lowerVal.includes("posix")) {
+        } else if (
+          lowerKey.includes("edith") ||
+          lowerVal.includes("actuator") ||
+          lowerVal.includes("recon") ||
+          lowerVal.includes("posix")
+        ) {
           resolvedAgentId = "edith";
-        } else if (lowerKey.includes("jarvis") || lowerVal.includes("multilingual") || lowerVal.includes("tactical")) {
+        } else if (
+          lowerKey.includes("jarvis") ||
+          lowerVal.includes("multilingual") ||
+          lowerVal.includes("tactical")
+        ) {
           resolvedAgentId = "jarvis";
         }
       }
@@ -156,7 +195,8 @@ export function MemoryView() {
   const filtered = useMemo(() => {
     return memoryItems.filter((m) => {
       const matchesCategory = tag === "all" || m.tag === tag;
-      const matchesAgent = agentFilter === "all" || m.agentId.toLowerCase() === agentFilter.toLowerCase();
+      const matchesAgent =
+        agentFilter === "all" || m.agentId.toLowerCase() === agentFilter.toLowerCase();
       const matchesQuery =
         !q ||
         m.title.toLowerCase().includes(q.toLowerCase()) ||
@@ -275,19 +315,50 @@ export function MemoryView() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleCopyId = (id: string) => {
+    navigator.clipboard.writeText(id);
+    setCopiedId(true);
+    toast.success("Memory Entity ID copied");
+    setTimeout(() => setCopiedId(false), 2000);
+  };
+
   const handleInjectContext = (fact: typeof memoryItems[0]) => {
     pushLog(`Injected memory node to active context: [${fact.category}] ${fact.key}`);
     pushNotification("⚡", `Context Injected: ${fact.key}`);
     toast.success(`Context injected to active session: "${fact.key}"`);
   };
 
+  const handleDuplicate = (fact: typeof memoryItems[0]) => {
+    const dupItem: MemoryFact = {
+      id: `fact-${Date.now()}`,
+      category: fact.category,
+      key: `${fact.key} (Copy)`,
+      value: fact.value,
+      updatedAt: new Date().toISOString(),
+      source: "user_added",
+      agentId: fact.agentId,
+      agentName: fact.agentName,
+    };
+    const nextState = {
+      ...agentMemoryState,
+      facts: [dupItem, ...agentMemoryState.facts],
+      lastUpdated: new Date().toISOString(),
+    };
+    setAgentMemoryState(nextState);
+    saveAgentMemory(nextState);
+    setSelectedFactId(dupItem.id);
+    toast.success("Memory node duplicated");
+  };
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3.5 animate-fade-in">
+    <div className="flex min-h-0 flex-1 flex-col gap-3 animate-fade-in">
       {/* Top Header Controls */}
-      <header className="flex flex-wrap items-end justify-between gap-3 shrink-0">
+      <header className="flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="font-display etched text-2xl font-bold tracking-wide">Knowledge Hub &amp; Memory</h1>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="font-display etched text-2xl font-bold tracking-wide text-foreground">
+              Knowledge Hub &amp; Memory
+            </h1>
             <span className="neu-inset px-2.5 py-0.5 rounded-full text-[10.5px] font-bold text-emerald-hud border border-emerald-500/20 flex items-center gap-1">
               <CheckCircle2 className="w-3 h-3 text-emerald-400" />
               {agentMemoryState.facts.length} Active Nodes
@@ -296,7 +367,7 @@ export function MemoryView() {
               <Database className="w-3 h-3 text-cyan-400" /> SQLite Persistent Graph
             </span>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-0.5 text-xs text-muted-foreground">
             Zero-loss long-term knowledge repository dynamically linked to stored agent telemetry &amp; live session context.
           </p>
         </div>
@@ -317,7 +388,7 @@ export function MemoryView() {
 
       {/* Add Memory Modal/Form */}
       {isAddOpen && (
-        <div className="animate-rise-in neu rounded-2xl p-4 flex flex-col gap-3 border border-cyan-500/30 shadow-[0_0_20px_rgba(6,182,212,0.1)]">
+        <div className="animate-rise-in neu rounded-2xl p-4 flex flex-col gap-3 border border-cyan-500/30 shadow-[0_0_20px_rgba(6,182,212,0.1)] shrink-0">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-cyan-400" /> Index New Fact to Long-Term Memory Graph
@@ -451,243 +522,299 @@ export function MemoryView() {
 
       {/* Category Pills */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 shrink-0">
-        {DEFAULT_CATEGORIES.map((c) => (
-          <button
-            key={c.id}
-            onClick={() => setTag(c.id)}
-            className={cn(
-              "rounded-full px-3 py-1 text-[10.5px] font-bold transition-all cursor-pointer shrink-0",
-              tag === c.id
-                ? "neu-inset text-cyan-hud border border-cyan-500/40"
-                : "key text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {c.label}
-          </button>
-        ))}
+        {DEFAULT_CATEGORIES.map((c) => {
+          const CatIcon = c.icon;
+          return (
+            <button
+              key={c.id}
+              onClick={() => setTag(c.id)}
+              className={cn(
+                "rounded-full px-3 py-1 text-[10.5px] font-bold transition-all cursor-pointer shrink-0 flex items-center gap-1.5",
+                tag === c.id
+                  ? "neu-inset text-cyan-hud border border-cyan-500/40 shadow-sm"
+                  : "key text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <CatIcon className="w-3 h-3" />
+              <span>{c.label}</span>
+            </button>
+          );
+        })}
       </div>
 
-      {/* 2-Column Responsive Layout (Interactive Card Rail + Main Dynamic Detail Stage) */}
+      {/* 2-Column Responsive Layout (Left: Mission Rail Style Component Cards | Right: Detail View Panel) */}
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-12 gap-3.5 overflow-hidden">
-        {/* Left Column: Vertical List of Interactive Memory Cards */}
-        <aside className="lg:col-span-4 xl:col-span-4 flex flex-col min-h-0 overflow-hidden">
-          <div className="flex items-center justify-between mb-2 px-1 shrink-0">
-            <span className="text-[10px] font-bold tracking-[0.18em] text-muted-foreground uppercase flex items-center gap-1">
-              <Brain className="w-3.5 h-3.5 text-cyan-400" />
-              Stored Cards ({filtered.length})
-            </span>
-            <span className="text-[10px] text-muted-foreground font-mono">
-              Tap card to inspect
-            </span>
+        {/* Left Column: Vertical List of Clickable Component Cards (Mission Rail Style) */}
+        <aside className="lg:col-span-5 xl:col-span-4 bezel flex min-h-0 flex-col overflow-hidden rounded-2xl">
+          {/* Mission Rail Style Header */}
+          <div className="flex items-center justify-between border-b border-[oklch(0_0_0/35%)] px-4 py-3 shrink-0">
+            <div className="flex items-center gap-2.5">
+              <span className="neu-sm grid h-9 w-9 place-items-center rounded-xl text-cyan-hud">
+                <Brain className="w-4 h-4 text-cyan-400" />
+              </span>
+              <div>
+                <span className="etched block text-[12px] font-bold tracking-[0.16em] text-foreground">
+                  MEMORY NODES
+                </span>
+                <span className="text-[10px] font-mono text-muted-foreground">
+                  {filtered.length} of {memoryItems.length} entities
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setQ("");
+                setTag("all");
+                setAgentFilter("all");
+              }}
+              className="key rounded-lg px-2.5 py-1 text-[11px] font-bold text-cyan-hud cursor-pointer"
+            >
+              Reset
+            </button>
           </div>
 
-          <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-1 pb-4">
-            {filtered.map((m) => {
-              const isSelected = activeFact?.id === m.id;
-              const AgentIcon = m.agentInfo.icon;
+          {/* Vertical Scrollable Container filling available vertical space */}
+          <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-3.5">
+            <p className="text-[10px] font-bold tracking-[0.2em] text-muted-foreground uppercase">
+              INDEXED CARDS ({filtered.length})
+            </p>
 
-              return (
-                <article
-                  key={m.id}
-                  onClick={() => {
-                    setSelectedFactId(m.id);
-                    setIsEditing(false);
-                  }}
-                  style={
-                    isSelected
-                      ? {
-                          borderColor: `color-mix(in oklab, ${m.color} 60%, transparent)`,
-                          boxShadow: `0 0 16px color-mix(in oklab, ${m.color} 20%, transparent)`,
-                          background: `color-mix(in oklab, ${m.color} 6%, transparent)`,
-                        }
-                      : undefined
-                  }
-                  className={cn(
-                    "neu gloss animate-rise-in rounded-2xl p-3.5 text-left transition-all cursor-pointer relative group flex flex-col justify-between border border-white/5",
-                    isSelected
-                      ? "neu-inset border"
-                      : "hover:border-white/20 hover:-translate-y-0.5 hover:bg-white/[0.02]"
-                  )}
-                >
-                  <div>
-                    {/* Agent Header & Actions */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span
-                          className="neu-inset grid h-7 w-7 shrink-0 place-items-center rounded-lg text-sm border border-white/5"
-                          style={{ color: m.color }}
-                        >
-                          <AgentIcon className="h-3.5 w-3.5" />
-                        </span>
-                        <div className="min-w-0">
-                          <span
-                            className="text-[9.5px] font-mono font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded neu-inset inline-block"
-                            style={{ color: m.color }}
-                          >
-                            {m.agentInfo.name}
-                          </span>
-                          <h3 className="text-[12.5px] font-bold tracking-wide text-foreground truncate mt-0.5">
-                            {m.title}
-                          </h3>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedFactId(m.id);
-                            startEditing(m);
-                          }}
-                          className="p-1 text-muted-foreground hover:text-cyan-400 rounded-md hover:bg-white/5 cursor-pointer"
-                          title="Edit Memory Fact"
-                        >
-                          <Edit3 className="w-3 h-3" />
-                        </button>
-                        <button
-                          onClick={(e) => handleDeleteMemory(m.id, e)}
-                          className="p-1 text-muted-foreground hover:text-rose-400 rounded-md hover:bg-white/5 cursor-pointer"
-                          title="Delete Fact"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                        <ChevronRight
-                          className={cn(
-                            "w-3.5 h-3.5 text-muted-foreground transition-transform",
-                            isSelected && "text-cyan-400 translate-x-0.5"
-                          )}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Excerpt */}
-                    <div className="mt-2.5 neu-inset rounded-xl p-2.5 bg-black/30 border border-white/5">
-                      <p className="text-[11.5px] leading-relaxed text-muted-foreground font-sans line-clamp-2 break-words">
-                        {m.desc}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Card Footer Metadata */}
-                  <div className="mt-2.5 flex items-center justify-between text-[9.5px] text-muted-foreground font-mono pt-1 border-t border-white/5">
-                    <span className="flex items-center gap-1">
-                      <Clock className="w-2.5 h-2.5 text-muted-foreground" />
-                      {new Date(m.updatedAt).toLocaleDateString(undefined, {
-                        month: "short",
-                        day: "numeric",
-                      })}
-                    </span>
-                    <span className="capitalize text-muted-foreground/80">{m.tag.replace("_", " ")}</span>
-                    <span className="text-muted-foreground/60">{m.desc.length} chars</span>
-                  </div>
-                </article>
-              );
-            })}
-
-            {filtered.length === 0 && (
-              <div className="neu rounded-2xl py-12 px-4 text-center">
-                <Brain className="w-8 h-8 mx-auto text-muted-foreground/40 mb-2" />
-                <p className="text-xs font-semibold text-muted-foreground">
-                  No memory cards match this filter.
+            {filtered.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 text-center neu-inset rounded-xl p-4 my-auto">
+                <Brain className="w-8 h-8 text-muted-foreground/40 mb-2" />
+                <p className="text-xs font-semibold text-muted-foreground">No memory nodes found</p>
+                <p className="text-[10px] text-muted-foreground/70 mt-1">
+                  Adjust filters or add a new fact to the knowledge graph
                 </p>
                 <button
-                  onClick={() => {
-                    setQ("");
-                    setTag("all");
-                    setAgentFilter("all");
-                  }}
-                  className="mt-3 key px-3 py-1.5 rounded-xl text-[11px] font-bold text-cyan-hud cursor-pointer"
+                  onClick={() => setIsAddOpen(true)}
+                  className="mt-3 key px-3 py-1 rounded-lg text-xs font-bold text-cyan-hud cursor-pointer"
                 >
-                  Reset Filters
+                  Create Node
                 </button>
               </div>
+            ) : (
+              filtered.map((m) => {
+                const isSelected = activeFact?.id === m.id;
+                const AgentIcon = m.agentInfo.icon;
+                const catStyle = CATEGORY_STYLES[m.tag] || {
+                  label: m.tag,
+                  badgeCls: "text-zinc-400 border-zinc-500/20 bg-zinc-500/10",
+                };
+
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => {
+                      setSelectedFactId(m.id);
+                      setIsEditing(false);
+                    }}
+                    style={
+                      isSelected
+                        ? {
+                            borderColor: `color-mix(in oklab, ${m.color} 70%, transparent)`,
+                            boxShadow: `0 0 16px color-mix(in oklab, ${m.color} 25%, transparent)`,
+                            background: `color-mix(in oklab, ${m.color} 8%, transparent)`,
+                          }
+                        : undefined
+                    }
+                    className={cn(
+                      "neu group flex gap-3 rounded-xl p-3 text-left transition-all hover:-translate-y-0.5 cursor-pointer relative overflow-hidden border border-white/5",
+                      isSelected && "neu-inset border"
+                    )}
+                  >
+                    {/* Left Accent Icon Badge */}
+                    <span
+                      className="neu-inset grid h-9 w-9 shrink-0 place-items-center rounded-lg text-sm border border-white/5 shadow-inner"
+                      style={{ color: m.color }}
+                    >
+                      <AgentIcon className="h-4 w-4" />
+                    </span>
+
+                    {/* Card Content Block */}
+                    <span className="min-w-0 flex-1">
+                      {/* Top Badges */}
+                      <span className="flex items-center gap-1.5 flex-wrap">
+                        <span
+                          className="text-[9px] font-mono font-extrabold uppercase tracking-wider px-1.5 py-0.2 rounded neu-inset inline-block"
+                          style={{ color: m.color }}
+                        >
+                          {m.agentInfo.name}
+                        </span>
+                        <span
+                          className={cn(
+                            "text-[9px] font-semibold px-1.5 py-0.2 rounded-full border",
+                            catStyle.badgeCls
+                          )}
+                        >
+                          {catStyle.label}
+                        </span>
+                        {m.source === "auto_extracted" && (
+                          <span className="text-[8.5px] font-mono text-purple-400 bg-purple-500/10 border border-purple-500/20 px-1 rounded">
+                            AUTO
+                          </span>
+                        )}
+                      </span>
+
+                      {/* Title */}
+                      <span className="mt-1 block truncate text-[13px] font-bold text-foreground">
+                        {m.title}
+                      </span>
+
+                      {/* Excerpt */}
+                      <span className="mt-0.5 line-clamp-2 block text-[11px] leading-snug text-muted-foreground font-sans break-words">
+                        {m.desc}
+                      </span>
+
+                      {/* Bottom Status / Meta Line */}
+                      <span className="mt-2 flex items-center justify-between text-[10px] font-mono text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-2.5 h-2.5 text-muted-foreground/70" />
+                          {new Date(m.updatedAt).toLocaleDateString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                          })}
+                        </span>
+                        <span className="text-muted-foreground/70">{m.desc.length} chars</span>
+                      </span>
+
+                      {/* Mission Rail Style Progress / HUD Accent Bar */}
+                      <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-[oklch(0.13_0.01_256)] shadow-[inset_0_1px_2px_oklch(0_0_0/70%)]">
+                        <i
+                          className="block h-full rounded-full transition-all duration-700"
+                          style={{
+                            width: `${Math.min(100, Math.max(20, (m.desc.length / 180) * 100))}%`,
+                            background: `linear-gradient(90deg, ${m.color}, var(--cyan-hud))`,
+                            boxShadow: isSelected ? `0 0 8px ${m.color}` : undefined,
+                          }}
+                        />
+                      </span>
+                    </span>
+                  </button>
+                );
+              })
             )}
+          </div>
+
+          {/* Bottom Quick Action */}
+          <div className="p-3 border-t border-[oklch(0_0_0/35%)] shrink-0">
+            <button
+              onClick={() => setIsAddOpen(true)}
+              className="key w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold text-cyan-hud glow-ring cursor-pointer"
+            >
+              <Plus className="h-3.5 w-3.5" /> New Memory Node
+            </button>
           </div>
         </aside>
 
-        {/* Right / Central Dynamic Detail Area: Displays Complete Unmasked Content */}
-        <section className="lg:col-span-8 xl:col-span-8 flex flex-col min-h-0 overflow-hidden">
-          <div className="flex items-center justify-between mb-2 px-1 shrink-0">
-            <span className="text-[10px] font-bold tracking-[0.18em] text-muted-foreground uppercase flex items-center gap-1">
-              <Terminal className="w-3.5 h-3.5 text-cyan-400" />
-              Main Detailed Memory Inspector
-            </span>
+        {/* Right Column: Dynamic Detail View Panel */}
+        <section className="lg:col-span-7 xl:col-span-8 bezel flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl p-4 sm:p-5 shadow-2xl">
+          {/* Detail View Header Title Bar */}
+          <div className="flex items-center justify-between pb-3 border-b border-[oklch(0_0_0/35%)] shrink-0">
+            <div className="flex items-center gap-2">
+              <span className="neu-sm grid h-8 w-8 place-items-center rounded-xl text-cyan-hud">
+                <Terminal className="w-4 h-4 text-cyan-400" />
+              </span>
+              <div>
+                <span className="etched block text-[12px] font-bold tracking-[0.16em] text-foreground uppercase">
+                  MEMORY DETAIL VIEW
+                </span>
+                <span className="text-[10px] font-mono text-muted-foreground">
+                  Complete entity telemetry &amp; live prompt context
+                </span>
+              </div>
+            </div>
+
             {activeFact && (
-              <span className="text-[10px] font-mono text-cyan-400 flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Live Injected to Session
+              <span className="neu-inset px-2.5 py-1 rounded-full text-[10px] font-mono text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Live Injected in Session
               </span>
             )}
           </div>
 
-          <div className="neu gloss min-h-0 flex-1 flex flex-col rounded-2xl p-5 overflow-y-auto border border-white/10 shadow-2xl">
+          {/* Main Detail View Content (Scrollable) */}
+          <div className="min-h-0 flex-1 flex flex-col overflow-y-auto py-3.5 space-y-4">
             {activeFact ? (
               <div className="flex flex-col gap-4 flex-1">
                 {/* Agent Header Banner */}
                 <div
-                  className="rounded-2xl p-3.5 flex items-center justify-between gap-3 border transition-colors"
+                  className="rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border transition-colors shadow-lg"
                   style={{
                     backgroundColor: activeFact.agentInfo.bg,
-                    borderColor: `color-mix(in oklab, ${activeFact.color} 35%, transparent)`,
+                    borderColor: `color-mix(in oklab, ${activeFact.color} 40%, transparent)`,
                   }}
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <span
-                      className="neu-inset grid h-10 w-10 shrink-0 place-items-center rounded-xl text-lg shadow-md"
+                      className="neu-inset grid h-11 w-11 shrink-0 place-items-center rounded-xl text-lg shadow-md border border-white/10"
                       style={{ color: activeFact.color }}
                     >
                       {React.createElement(activeFact.agentInfo.icon, { className: "h-5 w-5" })}
                     </span>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span
                           className="text-xs font-mono font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full neu-inset shadow-inner"
                           style={{ color: activeFact.color }}
                         >
                           {activeFact.agentInfo.name}
                         </span>
-                        <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">
+                        <span className="text-[10.5px] text-muted-foreground font-mono uppercase tracking-wider">
                           {activeFact.agentInfo.title}
                         </span>
                       </div>
-                      <h2 className="text-base font-bold tracking-wide text-foreground mt-1 break-words">
+                      <h2 className="text-base sm:text-lg font-bold tracking-wide text-foreground mt-1 break-words">
                         {activeFact.title}
                       </h2>
                     </div>
                   </div>
 
                   {/* Toolbar Actions */}
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
                     <button
                       onClick={() => handleCopyRaw(activeFact.desc)}
                       title="Copy Full Raw Payload"
-                      className="key p-2 rounded-xl text-muted-foreground hover:text-cyan-400 cursor-pointer flex items-center gap-1 text-xs"
+                      className="key px-3 py-1.5 rounded-xl text-muted-foreground hover:text-cyan-400 cursor-pointer flex items-center gap-1.5 text-xs font-bold"
                     >
-                      {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                      <span className="hidden sm:inline">{copied ? "Copied" : "Copy"}</span>
+                      {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copied ? "Copied" : "Copy"}</span>
                     </button>
                     {!isEditing && (
                       <button
                         onClick={() => startEditing(activeFact)}
                         title="Edit Node In-Place"
-                        className="key p-2 rounded-xl text-muted-foreground hover:text-cyan-400 cursor-pointer flex items-center gap-1 text-xs"
+                        className="key px-3 py-1.5 rounded-xl text-muted-foreground hover:text-cyan-400 cursor-pointer flex items-center gap-1.5 text-xs font-bold"
                       >
-                        <Edit3 className="w-4 h-4" />
-                        <span className="hidden sm:inline">Edit</span>
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>Edit</span>
                       </button>
                     )}
+                    <button
+                      onClick={() => handleDuplicate(activeFact)}
+                      title="Duplicate Node"
+                      className="key p-2 rounded-xl text-muted-foreground hover:text-amber-400 cursor-pointer"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                    </button>
                     <button
                       onClick={() => handleDeleteMemory(activeFact.id)}
                       title="Delete Node"
                       className="key p-2 rounded-xl text-muted-foreground hover:text-rose-400 cursor-pointer"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
 
-                {/* Edit Form or Complete Raw Content Display */}
+                {/* Edit Mode vs Read Mode */}
                 {isEditing ? (
-                  <div className="flex flex-col gap-3 animate-fade-in flex-1">
+                  <div className="neu-inset rounded-2xl p-4 flex flex-col gap-3.5 animate-fade-in flex-1 border border-cyan-500/30">
+                    <div className="flex items-center justify-between pb-2 border-b border-white/5">
+                      <span className="text-xs font-bold text-cyan-400 flex items-center gap-1.5">
+                        <Edit3 className="w-4 h-4" /> Editing Memory Node: {activeFact.title}
+                      </span>
+                    </div>
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="text-[10.5px] font-bold text-muted-foreground tracking-wider uppercase block mb-1">
@@ -697,7 +824,7 @@ export function MemoryView() {
                           type="text"
                           value={editKey}
                           onChange={(e) => setEditKey(e.target.value)}
-                          className="w-full neu-inset rounded-xl px-3.5 py-2.5 text-xs text-foreground outline-none border border-white/10 focus:border-cyan-400"
+                          className="w-full neu-inset rounded-xl px-3.5 py-2 text-xs text-foreground outline-none border border-white/10 focus:border-cyan-400"
                         />
                       </div>
 
@@ -749,7 +876,7 @@ export function MemoryView() {
                       />
                     </div>
 
-                    <div className="flex items-center justify-end gap-2 pt-2">
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/5">
                       <button
                         onClick={cancelEditing}
                         className="px-3.5 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
@@ -766,73 +893,146 @@ export function MemoryView() {
                   </div>
                 ) : (
                   <div className="flex flex-col gap-4 flex-1">
-                    {/* Full Raw Content Display */}
+                    {/* Section 1: Complete Raw Text Content (Unmasked) */}
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-[10.5px] font-bold text-muted-foreground tracking-wider uppercase flex items-center gap-1">
+                        <span className="text-[11px] font-bold text-muted-foreground tracking-wider uppercase flex items-center gap-1.5">
                           <FileText className="w-3.5 h-3.5 text-cyan-400" />
-                          Complete Raw Content (Unmasked &amp; Zero Truncation)
+                          Text Content Payload (Unmasked &amp; Zero Truncation)
                         </span>
-                        <span className="text-[10px] font-mono text-muted-foreground">
-                          {activeFact.desc.length} characters · {new Blob([activeFact.desc]).size} bytes
-                        </span>
+                        <div className="flex items-center gap-2 text-[10px] font-mono text-muted-foreground">
+                          <span>{activeFact.desc.split(/\s+/).filter(Boolean).length} words</span>
+                          <span>·</span>
+                          <span>{activeFact.desc.length} chars</span>
+                          <span>·</span>
+                          <span>{new Blob([activeFact.desc]).size} bytes</span>
+                        </div>
                       </div>
-                      <div className="neu-inset rounded-xl p-4 bg-black/40 border border-white/5 selection:bg-cyan-500/30">
+                      <div className="neu-inset rounded-xl p-4 bg-black/40 border border-white/5 relative group">
                         <p className="text-[13px] leading-relaxed font-mono text-cyan-200/90 break-words whitespace-pre-wrap select-all">
                           {activeFact.desc}
                         </p>
                       </div>
                     </div>
 
-                    {/* System Prompt Injected Format */}
+                    {/* Section 2: Live Injected System Prompt Syntax */}
                     <div>
-                      <span className="text-[10.5px] font-bold text-muted-foreground tracking-wider uppercase block mb-1.5 flex items-center gap-1">
+                      <span className="text-[11px] font-bold text-muted-foreground tracking-wider uppercase block mb-1.5 flex items-center gap-1.5">
                         <Radio className="w-3.5 h-3.5 text-emerald-400" />
-                        Live Injected System Prompt Syntax
+                        Live Serialized LLM Instruction Syntax
                       </span>
-                      <div className="neu-inset rounded-xl p-3 bg-black/25 text-[11px] font-mono text-muted-foreground border border-white/5">
-                        <code>- [{activeFact.tag.toUpperCase()}] ({activeFact.agentInfo.name}) {activeFact.key}: {activeFact.value}</code>
+                      <div className="neu-inset rounded-xl p-3 bg-black/30 text-[11.5px] font-mono text-muted-foreground border border-white/5 flex items-center justify-between">
+                        <code className="text-cyan-300/80 break-words">
+                          - [{activeFact.tag.toUpperCase()}] ({activeFact.agentInfo.name}) {activeFact.key}: {activeFact.value}
+                        </code>
                       </div>
                     </div>
 
-                    {/* Metadata & Actions */}
-                    <div className="mt-auto space-y-3 pt-3 border-t border-white/10">
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[10.5px] font-mono">
-                        <div className="neu-inset rounded-lg p-2.5">
+                    {/* Section 3: Associated Tags */}
+                    <div>
+                      <span className="text-[11px] font-bold text-muted-foreground tracking-wider uppercase block mb-2 flex items-center gap-1.5">
+                        <Tag className="w-3.5 h-3.5 text-amber-400" />
+                        Associated Tags &amp; Classification Entities
+                      </span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="neu-inset px-2.5 py-1 rounded-lg text-xs font-mono font-bold text-cyan-400 border border-cyan-500/20 flex items-center gap-1">
+                          #{activeFact.tag}
+                        </span>
+                        <span
+                          className="neu-inset px-2.5 py-1 rounded-lg text-xs font-mono font-bold border flex items-center gap-1"
+                          style={{
+                            color: activeFact.color,
+                            borderColor: `color-mix(in oklab, ${activeFact.color} 30%, transparent)`,
+                          }}
+                        >
+                          @{activeFact.agentInfo.name.toLowerCase()}
+                        </span>
+                        <span className="neu-inset px-2.5 py-1 rounded-lg text-xs font-mono text-muted-foreground border border-white/5">
+                          source:{activeFact.source}
+                        </span>
+                        <span className="neu-inset px-2.5 py-1 rounded-lg text-xs font-mono text-muted-foreground border border-white/5">
+                          role:{activeFact.agentInfo.role}
+                        </span>
+                        <span className="neu-inset px-2.5 py-1 rounded-lg text-xs font-mono text-emerald-400 border border-emerald-500/20">
+                          status:injected_active
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Section 4: Full Metadata Grid */}
+                    <div className="mt-auto pt-3 border-t border-white/10 space-y-3">
+                      <span className="text-[11px] font-bold text-muted-foreground tracking-wider uppercase block flex items-center gap-1.5">
+                        <Info className="w-3.5 h-3.5 text-cyan-400" />
+                        Entity Metadata &amp; Hardware Telemetry
+                      </span>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-[10.5px] font-mono">
+                        <div className="neu-inset rounded-xl p-2.5">
+                          <span className="text-muted-foreground block text-[9px]">ENTITY ID</span>
+                          <button
+                            onClick={() => handleCopyId(activeFact.id)}
+                            className="text-foreground font-bold flex items-center gap-1 mt-0.5 hover:text-cyan-400 truncate cursor-pointer"
+                            title="Click to copy ID"
+                          >
+                            <span className="truncate">{activeFact.id}</span>
+                            {copiedId ? (
+                              <Check className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
+                            ) : (
+                              <Copy className="w-2.5 h-2.5 text-muted-foreground shrink-0" />
+                            )}
+                          </button>
+                        </div>
+                        <div className="neu-inset rounded-xl p-2.5">
                           <span className="text-muted-foreground block text-[9px]">SOURCE AGENT</span>
                           <span className="text-foreground font-bold flex items-center gap-1 mt-0.5">
                             <span className="w-2 h-2 rounded-full" style={{ backgroundColor: activeFact.color }} />
                             {activeFact.agentInfo.name}
                           </span>
                         </div>
-                        <div className="neu-inset rounded-lg p-2.5">
-                          <span className="text-muted-foreground block text-[9px]">CATEGORY CLASSIFICATION</span>
-                          <span className="text-foreground font-bold capitalize mt-0.5 block">
+                        <div className="neu-inset rounded-xl p-2.5">
+                          <span className="text-muted-foreground block text-[9px]">CATEGORY</span>
+                          <span className="text-foreground font-bold capitalize mt-0.5 block truncate">
                             {activeFact.tag.replace("_", " ")}
                           </span>
                         </div>
-                        <div className="neu-inset rounded-lg p-2.5">
+                        <div className="neu-inset rounded-xl p-2.5">
+                          <span className="text-muted-foreground block text-[9px]">INGESTION ORIGIN</span>
+                          <span className="text-foreground font-bold capitalize mt-0.5 block truncate">
+                            {activeFact.source.replace("_", " ")}
+                          </span>
+                        </div>
+                        <div className="neu-inset rounded-xl p-2.5">
                           <span className="text-muted-foreground block text-[9px]">LAST SYNCHRONIZED</span>
-                          <span className="text-foreground font-bold mt-0.5 block">
-                            {new Date(activeFact.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          <span className="text-foreground font-bold mt-0.5 block truncate">
+                            {new Date(activeFact.updatedAt).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              second: "2-digit",
+                            })}
+                          </span>
+                        </div>
+                        <div className="neu-inset rounded-xl p-2.5">
+                          <span className="text-muted-foreground block text-[9px]">MEMORY REPOSITORIES</span>
+                          <span className="text-cyan-400 font-bold mt-0.5 block truncate">
+                            SQLite + In-Memory RAM
                           </span>
                         </div>
                       </div>
 
-                      <div className="flex gap-2">
+                      {/* Detail Bottom Action Dock */}
+                      <div className="flex gap-2 pt-1">
                         <button
                           onClick={() => handleInjectContext(activeFact)}
-                          className="flex-1 key flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-bold text-cyan-hud hover:text-foreground cursor-pointer shadow-md"
+                          className="flex-1 key flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold text-cyan-hud hover:text-foreground cursor-pointer shadow-md glow-ring"
                         >
                           <Radio className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>Inject Into Active Session</span>
+                          <span>Inject Into Active Session Context</span>
                         </button>
                         <button
                           onClick={() => startEditing(activeFact)}
                           className="key flex items-center justify-center gap-1.5 rounded-xl px-5 py-2.5 text-xs font-bold text-muted-foreground hover:text-foreground cursor-pointer"
                         >
                           <Edit3 className="w-3.5 h-3.5" />
-                          <span>Edit</span>
+                          <span>Edit Node</span>
                         </button>
                       </div>
                     </div>
@@ -840,11 +1040,11 @@ export function MemoryView() {
                 )}
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-center py-16 px-4">
+              <div className="flex flex-col items-center justify-center h-full text-center py-16 px-4 my-auto">
                 <Brain className="w-12 h-12 text-muted-foreground/30 mb-3" />
                 <h3 className="text-sm font-bold text-foreground">No Memory Card Selected</h3>
                 <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-                  Click any memory card from the left panel to inspect its full raw text payload, edit content in-place, or inject into live conversational reasoning.
+                  Click any memory card from the left column to inspect its full raw text payload, metadata, tags, and live prompt injection.
                 </p>
                 <button
                   onClick={() => setIsAddOpen(true)}

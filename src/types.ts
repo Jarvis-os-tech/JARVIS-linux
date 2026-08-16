@@ -1,5 +1,29 @@
 export type PrebuiltVoiceName = 'Puck' | 'Charon' | 'Kore' | 'Fenrir' | 'Zephyr' | 'Aoede';
 
+export interface PersonaAudioProfile {
+  voiceName: PrebuiltVoiceName;
+  gain: number;               // Master gain multiplier (e.g. 1.0 - 1.2)
+  bassGainDb: number;         // Low shelf filter boost/cut in dB at 150Hz
+  midGainDb: number;          // Peaking filter boost/cut in dB at 1.5kHz
+  trebleGainDb: number;       // High shelf filter boost/cut in dB at 6kHz
+  compressorThreshold: number;// Dynamic range threshold in dB (-50 to 0)
+  compressorRatio: number;    // Dynamic compression ratio (1.0 to 20.0)
+  tempoMultiplier?: number;   // Fine tempo pace characteristic
+}
+
+export interface SoundServerStatus {
+  healthy: boolean;
+  pipewireRunning: boolean;
+  wireplumberRunning: boolean;
+  pulseRunning: boolean;
+  activeSink?: string;
+  activeSource?: string;
+  volumePercent: number;
+  muted: boolean;
+  driver: 'pipewire' | 'pulseaudio' | 'alsa' | 'unknown';
+  diagnostics?: string;
+}
+
 export interface VoicePersona {
   id: string;
   name: string;
@@ -12,6 +36,7 @@ export interface VoicePersona {
   accentColor: string;
   bgGradient: string;
   personalityTraits: string[];
+  audioProfile?: PersonaAudioProfile;
   primaryModel?: string;
   fallbackModel?: string;
   fallbackJustification?: string;

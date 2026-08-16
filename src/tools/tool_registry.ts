@@ -168,6 +168,22 @@ export class ToolRegistry {
       },
     });
 
+    this.register({
+      name: 'inspect_memory',
+      description: 'Run sub-millisecond memory engine diagnosis, SQLite schema inspection, and health status check.',
+      tier: 'tier1_native_cpp',
+      parameters: {
+        type: 'OBJECT',
+        properties: {
+          mode: { type: 'STRING', description: 'Inspection mode: "test", "inspect", or "ping"' },
+        },
+      },
+      handler: async (args) => {
+        const flag = args.mode === 'inspect' ? '--inspect' : args.mode === 'ping' ? '--ping' : '--test';
+        return executeSystemWorkerDirect('memory_tester', [flag]);
+      },
+    });
+
     // Tier 2: Linux Actuators & Shell
     this.register({
       name: 'execute_linux_command',
@@ -198,6 +214,39 @@ export class ToolRegistry {
       },
       handler: async (args) => {
         return executeLinuxActuator('gtk_launch', [args.appName]);
+      },
+    });
+
+    this.register({
+      name: 'get_vault_index',
+      description: 'Retrieve the structured Obsidian Memory Vault Map of Content (MOC), domain subfolders, and indexed note counts.',
+      tier: 'tier2_system_shell',
+      parameters: {
+        type: 'OBJECT',
+        properties: {},
+      },
+      handler: async () => {
+        const { obsidianSyncBridge } = await import('../utils/obsidian_sync');
+        return obsidianSyncBridge.getVaultIndex();
+      },
+    });
+
+    this.register({
+      name: 'read_local_file',
+      description: 'Read the contents of a local file on the host filesystem with smart path and tilde resolution.',
+      tier: 'tier2_system_shell',
+      parameters: {
+        type: 'OBJECT',
+        properties: {
+          filePath: { type: 'STRING', description: 'Absolute or relative path to read' },
+          maxLines: { type: 'INTEGER', description: 'Max lines to read' },
+          offset: { type: 'INTEGER', description: 'Line offset' },
+        },
+        required: ['filePath'],
+      },
+      handler: async (args) => {
+        const { readLocalFile } = await import('../utils/system_controller');
+        return readLocalFile(args);
       },
     });
   }

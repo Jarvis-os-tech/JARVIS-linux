@@ -73,6 +73,26 @@ export function createApiRouter(): Router {
     }
   });
 
+  router.get('/vault/index', (_req: Request, res: Response) => {
+    try {
+      const { obsidianSyncBridge } = require('../utils/obsidian_sync');
+      const indexData = obsidianSyncBridge.getVaultIndex();
+      res.json(indexData);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/memory/vault/index', (_req: Request, res: Response) => {
+    try {
+      const { obsidianSyncBridge } = require('../utils/obsidian_sync');
+      const indexData = obsidianSyncBridge.getVaultIndex();
+      res.json(indexData);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   router.get('/memory/search', (req: Request, res: Response) => {
     try {
       const query = String(req.query.q || '');
@@ -307,6 +327,14 @@ export function createApiRouter(): Router {
           return res.json(await sendDesktopNotification({ title, message, urgency, icon }));
         case 'take_screenshot':
           return res.json(await takeScreenshot(outputPath));
+        case 'close_window':
+          return res.json(await desktopControlAction({ action: 'close_window', target: target || appNameOrCommand }));
+        case 'focus_window':
+          return res.json(await desktopControlAction({ action: 'focus_window', target: target || appNameOrCommand }));
+        case 'close_app':
+          return res.json(await desktopControlAction({ action: 'close_app', target: target || appNameOrCommand, signal }));
+        case 'desktop_control':
+          return res.json(await desktopControlAction(req.body));
         case 'read_file':
           return res.json(await readLocalFile({ filePath, maxLines, offset }));
         case 'write_file':
@@ -336,11 +364,15 @@ export function createApiRouter(): Router {
   router.post('/workspace/token', (req: Request, res: Response) => {
     try {
       const { token } = req.body;
-      if (token && typeof token === 'string' && token.trim()) {
-        setGlobalGoogleAccessToken(token.trim());
-        return res.json({ success: true, message: 'Google access token cached globally across all agents' });
-      }
-      return res.status(400).json({ success: false, error: 'Token string is required' });
+      const cleanToken = typeof token === 'string' ? token.trim() : '';
+      setGlobalGoogleAccessToken(cleanToken);
+      return res.json({
+        success: true,
+        connected: !!cleanToken,
+        message: cleanToken
+          ? 'Google access token cached globally across all agents'
+          : 'Google access token cleared globally'
+      });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -351,7 +383,8 @@ export function createApiRouter(): Router {
       const token = getGlobalGoogleAccessToken() || process.env.GOOGLE_ACCESS_TOKEN || '';
       res.json({
         connected: !!token,
-        hasToken: !!token
+        hasToken: !!token,
+        token: token || ''
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });

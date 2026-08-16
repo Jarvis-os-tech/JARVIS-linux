@@ -23,9 +23,24 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
   const [activeTab, setActiveTab] = useState<'system' | 'drive' | 'calendar' | 'gmail' | 'docs' | 'sheets' | 'tasks' | 'activity'>('system');
   const [accessToken, setAccessToken] = useState<string>(localStorage.getItem('g_access_token') || '');
   const [clientId] = useState<string>('791977848384-q4ljrlj38kepp2crruo4i6vq3j1813ot.apps.googleusercontent.com');
+  const [directTokenInput, setDirectTokenInput] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Sync token from server if available on mount
+  useEffect(() => {
+    fetch('/api/workspace/token/status')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.token && !accessToken) {
+          setAccessToken(data.token);
+          localStorage.setItem('g_access_token', data.token);
+          if (onTokenUpdate) onTokenUpdate(data.token);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // System & Computer Use state
   const [hwVolume, setHwVolume] = useState<{ volumePercent: number; muted: boolean }>({ volumePercent: 75, muted: false });
@@ -267,7 +282,7 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
     localStorage.setItem('g_client_id', trimmedId);
 
     if (!(window as any).google?.accounts?.oauth2) {
-      setError('Google Identity Services SDK is still loading. Please refresh the page and try again.');
+      setError('Google Identity Services SDK is still loading. Alternatively, paste your token directly below.');
       return;
     }
 
@@ -283,8 +298,14 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
           'https://www.googleapis.com/auth/gmail.readonly',
           'https://www.googleapis.com/auth/documents',
           'https://www.googleapis.com/auth/spreadsheets',
-          'https://www.googleapis.com/auth/tasks'
+          'https://www.googleapis.com/auth/tasks',
+          'https://www.googleapis.com/auth/userinfo.email',
+          'https://www.googleapis.com/auth/userinfo.profile'
         ].join(' '),
+        error_callback: (err: any) => {
+          console.warn('Google OAuth error:', err);
+          setError(err?.message || 'Google sign-in popup was closed or origin is not authorized. You can paste an access token directly below.');
+        },
         callback: (response: any) => {
           if (response.access_token) {
             setAccessToken(response.access_token);
@@ -292,15 +313,56 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
             if (onTokenUpdate) {
               onTokenUpdate(response.access_token);
             }
+            fetch('/api/workspace/token', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token: response.access_token })
+            }).catch(() => {});
             fetchWorkspaceData(response.access_token, activeTab);
+            setSuccessMsg('Google Workspace authorized successfully for all agents!');
           } else if (response.error) {
-            setError(`Authentication Error: ${response.error}`);
+            setError(`Authentication Error: ${response.error_description || response.error}`);
           }
         },
       });
-      client.requestAccessToken();
+      client.requestAccessToken({ prompt: 'consent' });
     } catch (err: any) {
       setError(err.message || 'Failed to initialize Google OAuth');
+    }
+  };
+
+  const handleDirectTokenConnect = async () => {
+    const raw = directTokenInput.trim();
+    if (!raw) {
+      setError('Please paste a valid Google OAuth Access Token.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${raw}` }
+      });
+      if (!res.ok) {
+        throw new Error(`Token rejected by Google (HTTP ${res.status}). Verify your token or generate a new one.`);
+      }
+      setAccessToken(raw);
+      localStorage.setItem('g_access_token', raw);
+      if (onTokenUpdate) {
+        onTokenUpdate(raw);
+      }
+      fetch('/api/workspace/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: raw })
+      }).catch(() => {});
+      setSuccessMsg('Google Workspace authorized successfully via access token!');
+      setDirectTokenInput('');
+      fetchWorkspaceData(raw, activeTab);
+    } catch (e: any) {
+      setError(e.message || 'Failed to connect with token');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1689,13 +1751,38 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
               </div>
             )}
 
-            <button
-              onClick={handleAuth}
-              className="w-full mt-2 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:opacity-95 text-white font-medium text-xs rounded-xl shadow-lg shadow-blue-600/25 transition-all flex items-center justify-center gap-2"
-            >
-              <Key className="w-4 h-4" />
-              Authorize Google Workspace
-            </button>
+            <div className="w-full space-y-2">
+              <button
+                onClick={handleAuth}
+                className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:opacity-95 text-white font-medium text-xs rounded-xl shadow-lg shadow-blue-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Key className="w-4 h-4" />
+                Authorize with Google (1-Click)
+              </button>
+
+              <div className="flex items-center my-2 text-zinc-600 text-[10px] uppercase font-bold tracking-wider">
+                <span className="flex-1 border-t border-zinc-800" />
+                <span className="px-2">or direct token</span>
+                <span className="flex-1 border-t border-zinc-800" />
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  placeholder="Paste OAuth Token (ya29...)"
+                  value={directTokenInput}
+                  onChange={(e) => setDirectTokenInput(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-zinc-200 outline-none focus:border-cyan-500"
+                />
+                <button
+                  onClick={handleDirectTokenConnect}
+                  disabled={loading || !directTokenInput.trim()}
+                  className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-cyan-400 font-bold text-xs rounded-xl border border-cyan-500/30 disabled:opacity-40 cursor-pointer"
+                >
+                  Connect
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

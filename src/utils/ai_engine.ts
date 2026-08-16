@@ -6,6 +6,7 @@
 import { WORKSPACE_FUNCTION_DECLARATIONS, executeWorkspaceTool } from './workspace_tools';
 import { getSystemInfoSummaryForLLM } from './system_controller';
 import { TELGISH_LANGUAGE_SYSTEM_INSTRUCTION } from '../data/personas';
+import { loadAgentMemory, formatMemoryForSystemInstruction } from './agent_memory';
 import { GoogleGenAI } from '@google/genai';
 
 export type AiProvider = 'auto' | 'groq' | 'nvidia' | 'gemini';
@@ -238,10 +239,13 @@ export async function executeGeminiChat(
     httpOptions: { headers: { 'User-Agent': 'jarvis-v0' } }
   });
 
+  const universalMemoryPrompt = formatMemoryForSystemInstruction(loadAgentMemory());
+  const fullSystemInstruction = `${systemInstruction}\n\n${universalMemoryPrompt}`.trim();
+
   const chat = ai.chats.create({
     model,
     config: {
-      systemInstruction,
+      systemInstruction: fullSystemInstruction,
       tools: [{ functionDeclarations: WORKSPACE_FUNCTION_DECLARATIONS as any }]
     }
   });
@@ -289,7 +293,8 @@ ${TELGISH_LANGUAGE_SYSTEM_INSTRUCTION}
 
 ${groundTruthContext}`;
 
-  const combinedSystemPrompt = `${options.systemInstruction || ''}\n${workspaceInstruction}`.trim();
+  const universalMemoryPrompt = formatMemoryForSystemInstruction(loadAgentMemory());
+  const combinedSystemPrompt = `${options.systemInstruction || ''}\n${workspaceInstruction}\n\n${universalMemoryPrompt}`.trim();
   const personaPolicy = options.personaId ? PERSONA_MODEL_MATRIX[options.personaId] : undefined;
 
   const openAiTools = getOpenAiFormatTools();
