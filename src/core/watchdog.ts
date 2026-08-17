@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import child_process from 'child_process';
 import { logWatchdog } from './logger';
 import { eventBus } from './event_bus';
 import { jarvisDb } from '../db/db';
@@ -13,6 +14,7 @@ export interface WatchdogHealthReport {
   totalMemMb: number;
   activeEphemeralResources: number;
   issues: string[];
+  cpuTempCelsius: number | null;
 }
 
 export class SystemWatchdog {
@@ -87,6 +89,41 @@ export class SystemWatchdog {
       issues.push('workers_cpp/bin directory missing');
     }
 
+    // 4. Sound Server Check (Supports PipeWire, WirePlumber, PulseAudio, and ALSA)
+    try {
+      if (process.platform === 'linux') {
+        child_process.execSync(
+          'wpctl status >/dev/null 2>&1 || pw-cli info 0 >/dev/null 2>&1 || systemctl --user is-active --quiet pipewire.service || pactl info >/dev/null 2>&1',
+          { timeout: 3000 }
+        );
+      }
+    } catch (err: any) {
+      logWatchdog.warn('Sound server check failed, attempting to heal...');
+      try {
+        child_process.execSync('systemctl --user restart pipewire.service 2>&1', { timeout: 5000 });
+        logWatchdog.info('Sound server healed successfully.');
+      } catch (healErr: any) {
+        issues.push(`Sound server heal failed: ${healErr?.message || healErr}`);
+      }
+    }
+
+    // 5. CPU Temperature Check
+    let cpuTempCelsius: number | null = null;
+    try {
+      const tempStr = fs.readFileSync('/sys/class/thermal/thermal_zone0/temp', 'utf8');
+      const tempMilliDegrees = parseInt(tempStr.trim(), 10);
+      if (!isNaN(tempMilliDegrees)) {
+        cpuTempCelsius = tempMilliDegrees / 1000;
+        if (cpuTempCelsius > 90) {
+          issues.push(`Critical CPU temperature: ${cpuTempCelsius.toFixed(1)}°C`);
+        } else if (cpuTempCelsius > 80) {
+          issues.push(`Warning CPU temperature: ${cpuTempCelsius.toFixed(1)}°C`);
+        }
+      }
+    } catch {
+      // fallback
+    }
+
     const ephemeralStatus = lifecycleManager.getStatus();
     const status: WatchdogHealthReport['status'] =
       issues.length === 0 ? 'healthy' : issues.some((i) => i.includes('failure') || i.includes('Low available')) ? 'critical' : 'degraded';
@@ -99,6 +136,7 @@ export class SystemWatchdog {
       totalMemMb,
       activeEphemeralResources: ephemeralStatus.activeCount,
       issues,
+      cpuTempCelsius,
     };
 
     this.lastReport = report;
@@ -111,6 +149,8 @@ export class SystemWatchdog {
         source: 'WATCHDOG',
       });
     }
+
+    eventBus.emit('watchdog:probe', report);
 
     return report;
   }

@@ -37,6 +37,8 @@ import {
   clipboardControl,
   getEnvironmentInfo
 } from './system_controller';
+import { googleAuthService } from '../services/google_auth_service';
+import { agentReachService } from '../services/agent_reach_service';
 
 let globalGoogleAccessToken: string = process.env.GOOGLE_ACCESS_TOKEN || '';
 
@@ -47,6 +49,12 @@ export function setGlobalGoogleAccessToken(token: string): void {
 }
 
 export function getGlobalGoogleAccessToken(): string {
+  if (!globalGoogleAccessToken) {
+    const loaded = googleAuthService.loadPersistedAuth();
+    if (loaded?.accessToken) {
+      globalGoogleAccessToken = loaded.accessToken;
+    }
+  }
   return globalGoogleAccessToken;
 }
 
@@ -55,7 +63,7 @@ export interface FunctionDeclaration {
   description: string;
   parameters: {
     type: string;
-    properties: Record<string, { type: string; description: string; enum?: string[] }>;
+    properties: Record<string, { type: string; description: string; enum?: string[]; items?: { type: string } }>;
     required?: string[];
   };
 }
@@ -794,6 +802,332 @@ export const WORKSPACE_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
       },
       required: ['targetPersonaId']
     }
+  },
+  // --- AGENT REACH: INTERNET CAPABILITY & ZERO-HALLUCINATION WEB INTELLIGENCE ---
+  {
+    name: 'web_research',
+    description: 'Perform deep autonomous internet research across 15+ verified channels with Rule of N>=2 fact triangulation, SQLite caching, and cited Markdown reports saved to Obsidian.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        query: { type: 'STRING', description: 'The topic, question, or technology to research on the live internet.' },
+        mode: { type: 'STRING', description: 'Research mode: "fast" (<1.5s voice mode) or "deep" (multi-platform comprehensive).' },
+        ttlCategory: { type: 'STRING', description: 'Cache TTL category: "news", "repos", "packages", "docs", "rfc", "academic", "general".' },
+        forceRefresh: { type: 'BOOLEAN', description: 'Force fresh search bypassing cache.' }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'verify_claim',
+    description: 'Fact-check and verify a specific factual claim, version assertion, or statement against independent primary sources with confidence score and verbatim citations.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        claim: { type: 'STRING', description: 'The factual claim to verify.' },
+        context: { type: 'STRING', description: 'Optional extra context or domain keywords.' }
+      },
+      required: ['claim']
+    }
+  },
+  {
+    name: 'fast_fact_check',
+    description: 'Ultra-fast sub-1.5s fact-check for live voice questions with early termination.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        query: { type: 'STRING', description: 'The question or fact to check.' }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'web_research_reach',
+    description: 'Perform a grounded, multi-source internet research query across verified web channels (Exa semantic search + Jina clean full-page reader) to obtain real-time facts and prevent hallucination.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        query: { type: 'STRING', description: 'The topic, research question, or search query to look up on the live internet.' }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'fetch_verified_webpage',
+    description: 'Fetch and read the complete, clean text content of any website or URL with zero ads, scripts, or hallucinations via Jina Reader.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        url: { type: 'STRING', description: 'The complete HTTP/HTTPS URL of the web page to read.' }
+      },
+      required: ['url']
+    }
+  },
+  {
+    name: 'search_internet_grounded',
+    description: 'Search the live web for verified search results and factual references with titles, links, and snippets.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        query: { type: 'STRING', description: 'Search term or query.' },
+        numResults: { type: 'INTEGER', description: 'Number of results to return (default 5).' }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'extract_youtube_transcript',
+    description: 'Extract ground-truth subtitles and transcripts from any YouTube video URL without hallucinating.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        videoUrl: { type: 'STRING', description: 'YouTube video URL or video ID.' }
+      },
+      required: ['videoUrl']
+    }
+  },
+  {
+    name: 'search_github_repositories',
+    description: 'Search live GitHub repositories, source code, and issues using official GitHub CLI intelligence.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        query: { type: 'STRING', description: 'Repository name, topic, or search query.' },
+        limit: { type: 'INTEGER', description: 'Max repositories to return (default 5).' }
+      },
+      required: ['query']
+    }
+  },
+  // --- LINKEDIN PROFESSIONAL AUTOMATION & INTELLIGENCE ---
+  {
+    name: 'linkedin_get_my_profile',
+    description: 'Fetch the authenticated user\'s LinkedIn profile, name, headline, email, and URN.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {}
+    }
+  },
+  {
+    name: 'linkedin_create_post',
+    description: 'Publish a new post or article update to the user\'s LinkedIn feed with custom visibility.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        text: { type: 'STRING', description: 'The text content to publish to LinkedIn.' },
+        visibility: { type: 'STRING', description: 'Post visibility: "PUBLIC" (default) or "CONNECTIONS".', enum: ['PUBLIC', 'CONNECTIONS'] }
+      },
+      required: ['text']
+    }
+  },
+  {
+    name: 'linkedin_fetch_person',
+    description: 'Fetch and extract comprehensive professional details from any LinkedIn user profile (experience, education, headline, about).',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        profileUrlOrUsername: { type: 'STRING', description: 'LinkedIn profile URL (e.g. "https://www.linkedin.com/in/williamhgates") or username.' }
+      },
+      required: ['profileUrlOrUsername']
+    }
+  },
+  {
+    name: 'linkedin_fetch_company',
+    description: 'Fetch and extract company details from LinkedIn: overview, industry, website, size, and headquarters.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        companyUrlOrName: { type: 'STRING', description: 'LinkedIn company URL or vanity name (e.g. "google", "microsoft", "openai").' }
+      },
+      required: ['companyUrlOrName']
+    }
+  },
+  {
+    name: 'linkedin_search_people',
+    description: 'Search professionals, recruiters, and talent on LinkedIn by keyword, position, and location.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        term: { type: 'STRING', description: 'Search term or keyword.' },
+        position: { type: 'STRING', description: 'Filter by job position / title.' },
+        location: { type: 'STRING', description: 'Filter by location (e.g. "San Francisco", "India", "Remote").' },
+        limit: { type: 'INTEGER', description: 'Maximum results to return (default 5).' }
+      }
+    }
+  },
+  {
+    name: 'linkedin_search_jobs',
+    description: 'Search open job listings and roles on LinkedIn by keyword and location.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        keywords: { type: 'STRING', description: 'Job title or tech stack (e.g. "Rust Engineer", "AI Researcher").' },
+        location: { type: 'STRING', description: 'Job location (e.g. "Remote", "London", "New York").' },
+        limit: { type: 'INTEGER', description: 'Number of jobs to return (default 5).' }
+      }
+    }
+  },
+  {
+    name: 'linkedin_send_message',
+    description: 'Send a direct message to a LinkedIn contact.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        personUrl: { type: 'STRING', description: 'LinkedIn profile URL of the recipient.' },
+        message: { type: 'STRING', description: 'Message text to send.' }
+      },
+      required: ['personUrl', 'message']
+    }
+  },
+  {
+    name: 'linkedin_send_connection',
+    description: 'Send a LinkedIn connection invitation request with an optional personalized note.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        personUrl: { type: 'STRING', description: 'LinkedIn profile URL of the target contact.' },
+        note: { type: 'STRING', description: 'Optional personalized note for the invitation.' }
+      },
+      required: ['personUrl']
+    }
+  },
+  // --- GITHUB CLOUD & DEVELOPER AUTOMATION ---
+  {
+    name: 'github_get_my_profile',
+    description: 'Fetch the authenticated GitHub user\'s profile, login, name, email, public repos, and bio.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {}
+    }
+  },
+  {
+    name: 'github_list_my_repos',
+    description: 'List the authenticated user\'s public and private GitHub repositories.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        limit: { type: 'INTEGER', description: 'Number of repositories to return (default 10).' },
+        sort: { type: 'STRING', description: 'Sort order: "updated", "created", or "pushed".' }
+      }
+    }
+  },
+  {
+    name: 'github_create_issue',
+    description: 'Create a new issue on a GitHub repository.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        owner: { type: 'STRING', description: 'Repository owner (username or organization).' },
+        repo: { type: 'STRING', description: 'Repository name.' },
+        title: { type: 'STRING', description: 'Issue title.' },
+        body: { type: 'STRING', description: 'Issue description or body markdown.' },
+        labels: { type: 'ARRAY', description: 'Optional list of label names.', items: { type: 'STRING' } }
+      },
+      required: ['owner', 'repo', 'title']
+    }
+  },
+  {
+    name: 'github_create_gist',
+    description: 'Create a new public or secret GitHub Gist with code snippets.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        description: { type: 'STRING', description: 'Gist description.' },
+        filename: { type: 'STRING', description: 'Name of the primary file.' },
+        content: { type: 'STRING', description: 'File content.' },
+        isPublic: { type: 'BOOLEAN', description: 'Whether the gist is public (default false).' }
+      },
+      required: ['filename', 'content']
+    }
+  },
+  {
+    name: 'github_get_repo_details',
+    description: 'Fetch detailed information about any GitHub repository (stars, forks, open issues, language, description).',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        owner: { type: 'STRING', description: 'Repository owner.' },
+        repo: { type: 'STRING', description: 'Repository name.' }
+      },
+      required: ['owner', 'repo']
+    }
+  },
+  // --- J.A.R.V.I.S. UNIVERSAL MEMORY ENGINE (Rust Axum Engine) ---
+  {
+    name: 'jarvis_remember',
+    description: 'Store and persist a high-importance fact, architectural decision, user preference, or pattern in JARVIS universal memory (secret-scanned, written to SQLite WAL + Obsidian Vault + L0 buffer).',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        content: { type: 'STRING', description: 'The exact fact, decision, preference, or knowledge text to remember.' },
+        title: { type: 'STRING', description: 'Optional short summary title for the memory note.' },
+        kind: { type: 'STRING', description: 'Kind of memory: "fact", "decision", "preference", "pattern", "system".', enum: ['fact', 'decision', 'preference', 'pattern', 'system'] },
+        tier: { type: 'STRING', description: 'Memory tier: "persistent", "working", "ephemeral". Default is "working".', enum: ['persistent', 'working', 'ephemeral'] },
+        importance: { type: 'NUMBER', description: 'Importance score from 0.1 to 1.0 (default 0.7).' }
+      },
+      required: ['content']
+    }
+  },
+  {
+    name: 'jarvis_recall',
+    description: 'Recall and search across past memories, decisions, facts, and conversation history using 4-signal hybrid search (BM25 + Cosine Vector + Graph + Recency) with sub-50ms latency.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        query: { type: 'STRING', description: 'The search query or topic to recall from memory.' },
+        top_k: { type: 'INTEGER', description: 'Max number of memory nodes to return (default 5).' },
+        profile: { type: 'STRING', description: 'Search profile: "balanced", "precision", "recall", "recent".', enum: ['balanced', 'precision', 'recall', 'recent'] }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'jarvis_vault_status',
+    description: 'Retrieve real-time telemetry and status of the JARVIS Memory Engine: total node count, connected edges, unsealed buffers, SQLite WAL metrics, and Obsidian vault index.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {}
+    }
+  },
+  {
+    name: 'jarvis_tree_drilldown',
+    description: 'Drill down into hierarchical summary tree notes (L2 -> L1 -> L0) to retrieve full itemized source facts for an aggregated topic.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        root_id: { type: 'STRING', description: 'Root summary node ID to inspect (e.g. tree-L1-xxxx).' }
+      },
+      required: ['root_id']
+    }
+  },
+  {
+    name: 'jarvis_flush_memory',
+    description: 'Explicitly flush and consolidate pending unsealed memory buffers into structured markdown summary notes.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        stale_threshold_secs: { type: 'INTEGER', description: 'Flush buffers idle for this many seconds (default 0 for immediate flush).' }
+      }
+    }
+  },
+  // --- MULTI-AGENT DELEGATION & COLLABORATION ---
+  {
+    name: 'delegate_agent_task',
+    description: 'Delegate a specialized mission to a dedicated specialist sub-agent (friday, ultron, edith, karen) with full scoped memory retrieval, execution logging in /JARVIS-MEMORY/execution/, and CEO relay.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        targetManagerId: {
+          type: 'STRING',
+          description: 'Target specialist agent ID: "friday" (Research/AI/Web), "ultron" (Security/Performance/Kernel), "edith" (Architecture/Deep Code), "karen" (Automation/Cross-Platform/APIs).',
+          enum: ['friday', 'ultron', 'edith', 'karen']
+        },
+        taskDescription: {
+          type: 'STRING',
+          description: 'The specific task, research question, security audit, or technical problem to delegate.'
+        }
+      },
+      required: ['targetManagerId', 'taskDescription']
+    }
   }
 ];
 
@@ -1322,13 +1656,305 @@ export async function executeWorkspaceTool(
           summary: 'All live vision streams stopped, sir.'
         };
       }
+
+      // --- AGENT REACH: ZERO-HALLUCINATION INTERNET INTELLIGENCE ---
+      case 'web_research': {
+        const { researchEngine } = await import('../research/engine');
+        const report = await researchEngine.research({
+          query: args.query,
+          mode: args.mode || 'deep',
+          ttlCategory: args.ttlCategory || 'general',
+          forceRefresh: args.forceRefresh,
+        });
+        return {
+          success: true,
+          result: report,
+          summary: `Deep research complete: ${report.sources.length} sources analyzed with ${report.overallGroundingScore}% grounding score for "${args.query}".`
+        };
+      }
+
+      case 'verify_claim': {
+        const { researchEngine } = await import('../research/engine');
+        const report = await researchEngine.verifyClaim(args.claim, args.context);
+        return {
+          success: true,
+          result: report,
+          summary: `Fact check verdict: ${report.verdict} (Confidence: ${report.confidenceScore}%) for "${args.claim}".`
+        };
+      }
+
+      case 'fast_fact_check': {
+        const { researchEngine } = await import('../research/engine');
+        const res = await researchEngine.fastFactCheck(args.query);
+        return {
+          success: true,
+          result: res,
+          summary: `Fact: ${res.answer} (Confidence: ${res.confidence}%, Latency: ${res.latencyMs}ms)`
+        };
+      }
+
+      case 'web_research_reach': {
+        const research = await agentReachService.performGroundedResearch(args.query);
+        return {
+          success: true,
+          result: research,
+          summary: `Internet research complete: ${research.sources.length} verified sources synthesized for "${args.query}".`
+        };
+      }
+
+      case 'fetch_verified_webpage': {
+        const page = await agentReachService.fetchWebPage(args.url);
+        return {
+          success: true,
+          result: page,
+          summary: `Fetched webpage "${page.title}" (${page.content.length} characters of clean ground-truth text).`
+        };
+      }
+
+      case 'search_internet_grounded': {
+        const results = await agentReachService.searchWeb(args.query, args.numResults ? Number(args.numResults) : 5);
+        return {
+          success: true,
+          result: results,
+          summary: `Grounded web search returned ${results.length} verified results for "${args.query}".`
+        };
+      }
+
+      case 'extract_youtube_transcript': {
+        const yt = await agentReachService.fetchYouTubeTranscript(args.videoUrl);
+        return {
+          success: true,
+          result: yt,
+          summary: `Extracted spoken transcript for YouTube video "${yt.title}" (${yt.transcript.length} characters).`
+        };
+      }
+
+      case 'search_github_repositories': {
+        const repos = await agentReachService.searchGitHub(args.query, args.limit ? Number(args.limit) : 5);
+        return {
+          success: true,
+          result: repos,
+          summary: `Found ${repos.length} live GitHub repositories matching "${args.query}".`
+        };
+      }
+
+      // --- LINKEDIN TOOLS EXECUTION ---
+      case 'linkedin_get_my_profile': {
+        const { linkedinService } = await import('../services/linkedin_service');
+        const profile = await linkedinService.getMyProfile();
+        return {
+          success: true,
+          result: profile,
+          summary: `Fetched LinkedIn profile for ${profile.name} (${profile.headline || 'Active User'}).`
+        };
+      }
+
+      case 'linkedin_create_post': {
+        const { linkedinService } = await import('../services/linkedin_service');
+        const res = await linkedinService.createPost(args.text, args.visibility);
+        return {
+          success: true,
+          result: res,
+          summary: res.message || 'LinkedIn post published successfully.'
+        };
+      }
+
+      case 'linkedin_fetch_person': {
+        const { linkedinService } = await import('../services/linkedin_service');
+        const profile = await linkedinService.fetchPersonProfile(args.profileUrlOrUsername);
+        return {
+          success: true,
+          result: profile,
+          summary: `Retrieved LinkedIn profile for ${profile.name} (Source: ${profile.source}).`
+        };
+      }
+
+      case 'linkedin_fetch_company': {
+        const { linkedinService } = await import('../services/linkedin_service');
+        const company = await linkedinService.fetchCompany(args.companyUrlOrName);
+        return {
+          success: true,
+          result: company,
+          summary: `Retrieved LinkedIn company details for ${company.name} (${company.industry || 'Enterprise'}).`
+        };
+      }
+
+      case 'linkedin_search_people': {
+        const { linkedinService } = await import('../services/linkedin_service');
+        const people = await linkedinService.searchPeople(args);
+        return {
+          success: true,
+          result: people,
+          summary: `Found ${people.length} professionals on LinkedIn matching query.`
+        };
+      }
+
+      case 'linkedin_search_jobs': {
+        const { linkedinService } = await import('../services/linkedin_service');
+        const jobs = await linkedinService.searchJobs(args);
+        return {
+          success: true,
+          result: jobs,
+          summary: `Found ${jobs.length} open jobs on LinkedIn.`
+        };
+      }
+
+      case 'linkedin_send_message': {
+        const { linkedinService } = await import('../services/linkedin_service');
+        const res = await linkedinService.sendMessage(args.personUrl, args.message);
+        return {
+          success: true,
+          result: res,
+          summary: res.message
+        };
+      }
+
+      case 'linkedin_send_connection': {
+        const { linkedinService } = await import('../services/linkedin_service');
+        const res = await linkedinService.sendConnection(args.personUrl, args.note);
+        return {
+          success: true,
+          result: res,
+          summary: res.message
+        };
+      }
+
+      // --- GITHUB TOOLS EXECUTION ---
+      case 'github_get_my_profile': {
+        const { githubService } = await import('../services/github_service');
+        const profile = await githubService.getMyProfile();
+        return {
+          success: true,
+          result: profile,
+          summary: `Fetched GitHub profile for @${profile.login} (${profile.name || 'User'}).`
+        };
+      }
+
+      case 'github_list_my_repos': {
+        const { githubService } = await import('../services/github_service');
+        const repos = await githubService.listMyRepos(args.limit, args.sort);
+        return {
+          success: true,
+          result: repos,
+          summary: `Found ${repos.length} GitHub repositories.`
+        };
+      }
+
+      case 'github_create_issue': {
+        const { githubService } = await import('../services/github_service');
+        const res = await githubService.createIssue(args.owner, args.repo, args.title, args.body, args.labels);
+        return {
+          success: true,
+          result: res,
+          summary: `Created issue #${res.number} on ${args.owner}/${args.repo}: ${res.title}`
+        };
+      }
+
+      case 'github_create_gist': {
+        const { githubService } = await import('../services/github_service');
+        const res = await githubService.createGist(args.description, args.filename, args.content, args.isPublic);
+        return {
+          success: true,
+          result: res,
+          summary: `Created GitHub Gist: ${res.htmlUrl}`
+        };
+      }
+
+      case 'github_get_repo_details': {
+        const { githubService } = await import('../services/github_service');
+        const repo = await githubService.getRepoDetails(args.owner, args.repo);
+        return {
+          success: true,
+          result: repo,
+          summary: `Fetched details for ${repo.full_name || `${args.owner}/${args.repo}`} (⭐ ${repo.stargazers_count || 0} stars).`
+        };
+      }
+
+      // --- J.A.R.V.I.S. UNIVERSAL MEMORY ENGINE (Rust Axum Engine) ---
+      case 'jarvis_remember': {
+        const { memoryClient } = await import('../memory/client');
+        const { memoryContextBuilder } = await import('../memory/context_builder');
+        const res = await memoryClient.createNode({
+          content: args.content,
+          title: args.title,
+          kind: args.kind,
+          tier: args.tier,
+          importance: args.importance,
+          tags: args.tags,
+        });
+        memoryContextBuilder.invalidateCache();
+        return {
+          success: res.success,
+          result: res.node || res,
+          summary: res.message || 'Fact committed and indexed in Universal Memory.'
+        };
+      }
+
+      case 'jarvis_recall': {
+        const { memoryClient } = await import('../memory/client');
+        const searchRes = await memoryClient.search({
+          query: args.query,
+          top_k: args.top_k,
+          profile: args.profile,
+        });
+        const count = searchRes.results?.length || 0;
+        return {
+          success: true,
+          result: searchRes,
+          summary: `Recalled ${count} memory nodes in ${searchRes.execution_ms}ms matching "${args.query}".`
+        };
+      }
+
+      case 'jarvis_vault_status': {
+        const { memoryClient } = await import('../memory/client');
+        const stats = await memoryClient.getStatus();
+        return {
+          success: true,
+          result: stats,
+          summary: `Memory Engine Status: ${stats.status} (${stats.node_count} nodes, ${stats.edge_count} edges, ${stats.unsealed_buffer_count} unsealed buffers).`
+        };
+      }
+
+      case 'jarvis_tree_drilldown': {
+        const { memoryClient } = await import('../memory/client');
+        const drilldown = await memoryClient.getTreeDrilldown(args.root_id);
+        return {
+          success: !!drilldown,
+          result: drilldown,
+          summary: drilldown ? `Retrieved tree drill-down for "${drilldown.title}" (${drilldown.children?.length || 0} leaf items).` : `No tree found for ${args.root_id}.`
+        };
+      }
+
+      case 'jarvis_flush_memory': {
+        const { memoryClient } = await import('../memory/client');
+        const { memoryContextBuilder } = await import('../memory/context_builder');
+        const flushRes = await memoryClient.flush(args.stale_threshold_secs ?? 0);
+        memoryContextBuilder.invalidateCache();
+        return {
+          success: true,
+          result: flushRes,
+          summary: `Flushed ${flushRes.flushed_buffers} buffer(s) into ${flushRes.sealed_summaries.length} sealed L1 summary note(s).`
+        };
+      }
+
+      // --- MULTI-AGENT DELEGATION & COLLABORATION ---
+      case 'delegate_agent_task': {
+        const { multiAgentOrchestrator } = await import('../utils/multi_agent_orchestrator');
+        const res = await multiAgentOrchestrator.delegateTask(args.taskDescription, args.targetManagerId, accessToken);
+        return {
+          success: res.success,
+          result: res,
+          summary: res.relayedEvent?.relayedSummary || `Delegated task to ${args.targetManagerId}.`
+        };
+      }
     }
 
     // =============================================================
     // GOOGLE WORKSPACE TOOLS (Google OAuth Access Token Required)
     // =============================================================
-    const effectiveToken =
+    let effectiveToken =
       (accessToken && typeof accessToken === 'string' && accessToken.trim()) ||
+      (await googleAuthService.getValidToken()) ||
       globalGoogleAccessToken ||
       process.env.GOOGLE_ACCESS_TOKEN ||
       '';
@@ -1349,7 +1975,7 @@ export async function executeWorkspaceTool(
       'Content-Type': 'application/json'
     };
 
-    const checkGoogleError = (data: any) => {
+    const checkGoogleError = async (data: any) => {
       if (data?.error) {
         const code = data.error.code;
         const msg = typeof data.error === 'string' ? data.error : data.error.message || 'Google API request failed';
@@ -1359,6 +1985,13 @@ export async function executeWorkspaceTool(
           msg.toLowerCase().includes('oauth') ||
           msg.toLowerCase().includes('invalid credentials')
         ) {
+          // Attempt automatic token refresh
+          const renewedToken = await googleAuthService.refreshAccessToken();
+          if (renewedToken) {
+            effectiveToken = renewedToken;
+            headers.Authorization = `Bearer ${renewedToken}`;
+            throw new Error('Google OAuth token expired but was automatically refreshed. Please repeat your command.');
+          }
           throw new Error('Google OAuth access token is expired or unauthorized. Please re-authorize by clicking "Connect to Google" in the Connectors view.');
         }
         throw new Error(msg);

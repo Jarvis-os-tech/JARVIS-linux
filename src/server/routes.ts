@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { executeWorkspaceTool, setGlobalGoogleAccessToken, getGlobalGoogleAccessToken } from '../utils/workspace_tools';
+import { googleAuthService } from '../services/google_auth_service';
 import { executeUnifiedAiChat, AiProvider } from '../utils/ai_engine';
 import { analyzeUtterance } from '../utils/nlu_engine';
 import { masterOrchestratorInstance } from '../utils/multi_agent_orchestrator';
@@ -361,16 +362,25 @@ export function createApiRouter(): Router {
   });
 
   // --- Workspace Tools & Token Management ---
-  router.post('/workspace/token', (req: Request, res: Response) => {
+  router.post('/workspace/token', async (req: Request, res: Response) => {
     try {
-      const { token } = req.body;
+      const { token, refreshToken, expiresAt } = req.body;
       const cleanToken = typeof token === 'string' ? token.trim() : '';
-      setGlobalGoogleAccessToken(cleanToken);
+      if (cleanToken) {
+        await googleAuthService.saveAuth({
+          accessToken: cleanToken,
+          refreshToken: typeof refreshToken === 'string' ? refreshToken.trim() : undefined,
+          expiresAt: typeof expiresAt === 'number' ? expiresAt : undefined,
+        });
+      } else {
+        googleAuthService.disconnect();
+      }
       return res.json({
         success: true,
         connected: !!cleanToken,
+        status: googleAuthService.getStatus(),
         message: cleanToken
-          ? 'Google access token cached globally across all agents'
+          ? 'Google access token persisted globally across all agents'
           : 'Google access token cleared globally'
       });
     } catch (err: any) {
@@ -380,26 +390,893 @@ export function createApiRouter(): Router {
 
   router.get('/workspace/token/status', (_req: Request, res: Response) => {
     try {
-      const token = getGlobalGoogleAccessToken() || process.env.GOOGLE_ACCESS_TOKEN || '';
-      res.json({
-        connected: !!token,
-        hasToken: !!token,
-        token: token || ''
-      });
+      const status = googleAuthService.getStatus();
+      res.json(status);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- Direct Google OAuth Code Exchange & Refresh Endpoints ---
+  router.post('/auth/google/code', async (req: Request, res: Response) => {
+    try {
+      const { code, redirectUri } = req.body;
+      if (!code) {
+        return res.status(400).json({ success: false, error: 'Authorization code is required' });
+      }
+      const uri = redirectUri || 'postmessage';
+      const authData = await googleAuthService.exchangeAuthCode(code, uri);
+      res.json({
+        success: true,
+        connected: true,
+        email: authData.email,
+        name: authData.name,
+        picture: authData.picture,
+        hasRefreshToken: !!authData.refreshToken,
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/auth/google/refresh', async (_req: Request, res: Response) => {
+    try {
+      const newToken = await googleAuthService.refreshAccessToken();
+      if (!newToken) {
+        return res.status(400).json({ success: false, error: 'Token refresh failed. Re-authorization required.' });
+      }
+      res.json({ success: true, token: newToken, status: googleAuthService.getStatus() });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/auth/google/disconnect', (_req: Request, res: Response) => {
+    try {
+      googleAuthService.disconnect();
+      res.json({ success: true, connected: false });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
   router.post('/workspace/execute', async (req: Request, res: Response) => {
     try {
       const { toolName, args, googleAccessToken } = req.body;
-      const token = googleAccessToken || (req.headers.authorization ? req.headers.authorization.replace('Bearer ', '') : '') || getGlobalGoogleAccessToken();
-      if (token) setGlobalGoogleAccessToken(token);
-      const result = await executeWorkspaceTool(toolName, args || {}, token);
+      const token = googleAccessToken || (req.headers.authorization ? req.headers.authorization.replace('Bearer ', '') : '') || (await googleAuthService.getValidToken()) || getGlobalGoogleAccessToken();
+      const result = await executeWorkspaceTool(toolName, args || {}, token || undefined);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message || 'Tool execution failed' });
+    }
+  });
+
+  // --- Agent Reach Verified Internet Intelligence Endpoints ---
+  router.post('/reach/search', async (req: Request, res: Response) => {
+    try {
+      const { query, numResults } = req.body;
+      if (!query) return res.status(400).json({ success: false, error: 'Query parameter is required' });
+      const { agentReachService } = await import('../services/agent_reach_service');
+      const results = await agentReachService.searchWeb(query, numResults ? Number(numResults) : 5);
+      res.json({ success: true, results });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/reach/fetch', async (req: Request, res: Response) => {
+    try {
+      const { url } = req.body;
+      if (!url) return res.status(400).json({ success: false, error: 'URL parameter is required' });
+      const { agentReachService } = await import('../services/agent_reach_service');
+      const page = await agentReachService.fetchWebPage(url);
+      res.json({ success: true, page });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/reach/youtube', async (req: Request, res: Response) => {
+    try {
+      const { videoUrl } = req.body;
+      if (!videoUrl) return res.status(400).json({ success: false, error: 'videoUrl is required' });
+      const { agentReachService } = await import('../services/agent_reach_service');
+      const yt = await agentReachService.fetchYouTubeTranscript(videoUrl);
+      res.json({ success: true, ...yt });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/reach/research', async (req: Request, res: Response) => {
+    try {
+      const { query, mode, ttlCategory, targetPlatforms, forceRefresh, minTriangulationSources, saveToObsidian } = req.body;
+      if (!query) return res.status(400).json({ success: false, error: 'Query parameter is required' });
+      const { researchEngine } = await import('../research/engine');
+      const research = await researchEngine.research({
+        query,
+        mode: mode || 'deep',
+        ttlCategory,
+        targetPlatforms,
+        forceRefresh: Boolean(forceRefresh),
+        minTriangulationSources,
+        saveToObsidian: saveToObsidian !== false,
+      });
+      res.json({ success: true, research });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/reach/verify', async (req: Request, res: Response) => {
+    try {
+      const { claim, context } = req.body;
+      if (!claim) return res.status(400).json({ success: false, error: 'claim parameter is required' });
+      const { researchEngine } = await import('../research/engine');
+      const verification = await researchEngine.verifyClaim(claim, context);
+      res.json({ success: true, verification });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/reach/fast-check', async (req: Request, res: Response) => {
+    try {
+      const { query } = req.body;
+      if (!query) return res.status(400).json({ success: false, error: 'query parameter is required' });
+      const { researchEngine } = await import('../research/engine');
+      const result = await researchEngine.fastFactCheck(query);
+      res.json({ success: true, result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/reach/cache/stats', async (_req: Request, res: Response) => {
+    try {
+      const { researchCache } = await import('../research/cache');
+      res.json({ success: true, stats: researchCache.getStats() });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/reach/cache/clear', async (_req: Request, res: Response) => {
+    try {
+      const { researchCache } = await import('../research/cache');
+      researchCache.clear();
+      res.json({ success: true, message: 'Research cache cleared successfully' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/research/reports', async (_req: Request, res: Response) => {
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+      const researchDir = path.join(process.cwd(), 'JARVIS-MEMORY', 'Research');
+      if (!fs.existsSync(researchDir)) {
+        return res.json({ success: true, count: 0, reports: [] });
+      }
+      const files = fs.readdirSync(researchDir).filter((f) => f.endsWith('.md'));
+      const reports = files.map((f) => {
+        const fullPath = path.join(researchDir, f);
+        const stats = fs.statSync(fullPath);
+        return {
+          filename: f,
+          path: fullPath,
+          sizeBytes: stats.size,
+          updatedAt: stats.mtime.toISOString(),
+        };
+      });
+      res.json({ success: true, count: reports.length, reports });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // --- J.A.R.V.I.S. Universal Memory Subsystem Endpoints ---
+  router.post('/memory/remember', async (req: Request, res: Response) => {
+    try {
+      const { content, title, kind, tier, importance, tags } = req.body;
+      if (!content) return res.status(400).json({ success: false, error: 'content is required' });
+      const { memoryClient } = await import('../memory/client');
+      const { memoryContextBuilder } = await import('../memory/context_builder');
+      const result = await memoryClient.createNode({ content, title, kind, tier, importance, tags });
+      memoryContextBuilder.invalidateCache();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/memory/recall', async (req: Request, res: Response) => {
+    try {
+      const { query, top_k, profile, scope, min_score } = req.body;
+      if (!query) return res.status(400).json({ success: false, error: 'query is required' });
+      const { memoryClient } = await import('../memory/client');
+      const result = await memoryClient.search({ query, top_k, profile, scope, min_score });
+      res.json({ success: true, ...result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/memory/status', async (_req: Request, res: Response) => {
+    try {
+      const { memoryClient } = await import('../memory/client');
+      const status = await memoryClient.getStatus();
+      res.json({ success: true, ...status });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/memory/flush', async (req: Request, res: Response) => {
+    try {
+      const { stale_threshold_secs } = req.body;
+      const { memoryClient } = await import('../memory/client');
+      const { memoryContextBuilder } = await import('../memory/context_builder');
+      const result = await memoryClient.flush(stale_threshold_secs ?? 0);
+      memoryContextBuilder.invalidateCache();
+      res.json({ success: true, ...result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/memory/tree/drilldown', async (req: Request, res: Response) => {
+    try {
+      const { root_id } = req.body;
+      if (!root_id) return res.status(400).json({ success: false, error: 'root_id is required' });
+      const { memoryClient } = await import('../memory/client');
+      const result = await memoryClient.getTreeDrilldown(root_id);
+      res.json({ success: !!result, drilldown: result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/memory/context', async (req: Request, res: Response) => {
+    try {
+      const query = req.query.query as string | undefined;
+      const { memoryContextBuilder } = await import('../memory/context_builder');
+      const snapshot = await memoryContextBuilder.getFrozenPromptSnapshot();
+      const dynamic = query ? await memoryContextBuilder.buildDynamicMemoryContext(query) : '';
+      res.json({ success: true, frozenSnapshot: snapshot, dynamicContext: dynamic });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/agents/delegate', async (req: Request, res: Response) => {
+    try {
+      const { targetManagerId, taskDescription } = req.body;
+      if (!targetManagerId || !taskDescription) {
+        return res.status(400).json({ success: false, error: 'targetManagerId and taskDescription are required' });
+      }
+      const { multiAgentOrchestrator } = await import('../utils/multi_agent_orchestrator');
+      const result = await multiAgentOrchestrator.delegateTask(taskDescription, targetManagerId);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // --- LinkedIn Integration Endpoints ---
+  router.get('/linkedin/status', async (_req: Request, res: Response) => {
+    try {
+      const { linkedinService } = await import('../services/linkedin_service');
+      res.json({ success: true, ...linkedinService.getStatus() });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/linkedin/auth/url', async (req: Request, res: Response) => {
+    try {
+      const { linkedinService } = await import('../services/linkedin_service');
+      const redirectUri = (req.query.redirectUri as string) || `${req.protocol}://${req.get('host')}/api/linkedin/callback`;
+      const clientId = req.query.clientId as string | undefined;
+      const url = linkedinService.getAuthorizationUrl(redirectUri, clientId);
+      res.json({ success: true, url, redirectUri });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/linkedin/auth/code', async (req: Request, res: Response) => {
+    try {
+      const { code, redirectUri, clientId, clientSecret } = req.body;
+      if (!code) return res.status(400).json({ success: false, error: 'code is required' });
+      const uri = redirectUri || `${req.protocol}://${req.get('host')}/api/linkedin/callback`;
+      const { linkedinService } = await import('../services/linkedin_service');
+      const saved = await linkedinService.exchangeAuthCode(code, uri, clientId, clientSecret);
+      res.json({ success: true, message: 'LinkedIn authenticated successfully', status: linkedinService.getStatus(), auth: saved });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/linkedin/callback', async (req: Request, res: Response) => {
+    const code = req.query.code as string;
+    const error = (req.query.error_description || req.query.error) as string;
+    const { linkedinService } = await import('../services/linkedin_service');
+
+    if (error || !code) {
+      const html = `<!DOCTYPE html><html><body style="background:#090a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(255,255,255,0.05);border-radius:16px;"><h2>❌ LinkedIn Auth Failed</h2><p style="color:#f87171;">${error || 'Missing code parameter'}</p></div><script>if(window.opener){window.opener.postMessage({type:'LINKEDIN_AUTH_FAILED',error:'${error||'Failed'}'},'*');setTimeout(()=>window.close(),1500);}</script></body></html>`;
+      return res.status(400).send(html);
+    }
+
+    try {
+      const redirectUri = `${req.protocol}://${req.get('host')}/api/linkedin/callback`;
+      const saved = await linkedinService.exchangeAuthCode(code, redirectUri);
+      const html = `<!DOCTYPE html><html><head><title>LinkedIn Connected | J.A.R.V.I.S.</title></head><body style="background:#090a0f;color:#fff;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(18,20,29,0.9);border:1px solid rgba(10,102,194,0.3);border-radius:16px;max-width:380px;"><div style="font-size:36px;margin-bottom:12px;">💼</div><h2 style="color:#388bfd;margin:0 0 8px 0;">LinkedIn Connected</h2><p style="font-size:13px;color:#9ca3af;margin:0 0 16px 0;">Authenticated as <b>${saved.name || saved.email || 'User'}</b>. Closing popup...</p></div><script>if(window.opener){window.opener.postMessage({type:'LINKEDIN_AUTH_SUCCESS',status:${JSON.stringify(linkedinService.getStatus())}},'*');setTimeout(()=>window.close(),1000);}</script></body></html>`;
+      res.send(html);
+    } catch (err: any) {
+      const html = `<!DOCTYPE html><html><body style="background:#090a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(255,255,255,0.05);border-radius:16px;"><h2>❌ LinkedIn Auth Failed</h2><p style="color:#f87171;">${err.message}</p></div><script>if(window.opener){window.opener.postMessage({type:'LINKEDIN_AUTH_FAILED',error:'${err.message}'},'*');setTimeout(()=>window.close(),2000);}</script></body></html>`;
+      res.status(500).send(html);
+    }
+  });
+
+  router.post('/linkedin/auth/token', async (req: Request, res: Response) => {
+    try {
+      const { accessToken, linkedApiToken, identificationToken, name, headline, userUrn } = req.body;
+      const { linkedinService } = await import('../services/linkedin_service');
+      const saved = await linkedinService.saveAuth({
+        accessToken,
+        linkedApiToken,
+        identificationToken,
+        name,
+        headline,
+        userUrn,
+      });
+      res.json({ success: true, message: 'LinkedIn credentials saved successfully', status: linkedinService.getStatus(), auth: saved });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/linkedin/auth/disconnect', async (_req: Request, res: Response) => {
+    try {
+      const { linkedinService } = await import('../services/linkedin_service');
+      linkedinService.disconnect();
+      res.json({ success: true, message: 'LinkedIn credentials disconnected' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/linkedin/profile', async (_req: Request, res: Response) => {
+    try {
+      const { linkedinService } = await import('../services/linkedin_service');
+      const profile = await linkedinService.getMyProfile();
+      res.json({ success: true, profile });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/linkedin/post', async (req: Request, res: Response) => {
+    try {
+      const { text, visibility } = req.body;
+      if (!text) return res.status(400).json({ success: false, error: 'text is required' });
+      const { linkedinService } = await import('../services/linkedin_service');
+      const result = await linkedinService.createPost(text, visibility);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/linkedin/person', async (req: Request, res: Response) => {
+    try {
+      const { profileUrlOrUsername, sections } = req.body;
+      if (!profileUrlOrUsername) return res.status(400).json({ success: false, error: 'profileUrlOrUsername is required' });
+      const { linkedinService } = await import('../services/linkedin_service');
+      const profile = await linkedinService.fetchPersonProfile(profileUrlOrUsername, sections);
+      res.json({ success: true, profile });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/linkedin/company', async (req: Request, res: Response) => {
+    try {
+      const { companyUrlOrName } = req.body;
+      if (!companyUrlOrName) return res.status(400).json({ success: false, error: 'companyUrlOrName is required' });
+      const { linkedinService } = await import('../services/linkedin_service');
+      const company = await linkedinService.fetchCompany(companyUrlOrName);
+      res.json({ success: true, company });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/linkedin/search/people', async (req: Request, res: Response) => {
+    try {
+      const { term, position, location, limit } = req.body;
+      const { linkedinService } = await import('../services/linkedin_service');
+      const people = await linkedinService.searchPeople({ term, position, location, limit });
+      res.json({ success: true, count: people.length, people });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/linkedin/search/jobs', async (req: Request, res: Response) => {
+    try {
+      const { keywords, location, limit } = req.body;
+      const { linkedinService } = await import('../services/linkedin_service');
+      const jobs = await linkedinService.searchJobs({ keywords, location, limit });
+      res.json({ success: true, count: jobs.length, jobs });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/linkedin/message', async (req: Request, res: Response) => {
+    try {
+      const { personUrl, message } = req.body;
+      if (!personUrl || !message) return res.status(400).json({ success: false, error: 'personUrl and message are required' });
+      const { linkedinService } = await import('../services/linkedin_service');
+      const result = await linkedinService.sendMessage(personUrl, message);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/linkedin/connect', async (req: Request, res: Response) => {
+    try {
+      const { personUrl, note } = req.body;
+      if (!personUrl) return res.status(400).json({ success: false, error: 'personUrl is required' });
+      const { linkedinService } = await import('../services/linkedin_service');
+      const result = await linkedinService.sendConnection(personUrl, note);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // --- GitHub Integration Endpoints ---
+  router.get('/github/status', async (_req: Request, res: Response) => {
+    try {
+      const { githubService } = await import('../services/github_service');
+      res.json({ success: true, ...githubService.getStatus() });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/github/auth/url', async (req: Request, res: Response) => {
+    try {
+      const { githubService } = await import('../services/github_service');
+      const redirectUri = req.query.redirectUri as string | undefined;
+      const clientId = req.query.clientId as string | undefined;
+      const url = githubService.getAuthorizationUrl(redirectUri, clientId);
+      res.json({ success: true, url, redirectUri: redirectUri || 'registered_app_default' });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/github/auth/code', async (req: Request, res: Response) => {
+    try {
+      const { code, redirectUri, clientId, clientSecret } = req.body;
+      if (!code) return res.status(400).json({ success: false, error: 'code is required' });
+      const uri = redirectUri || `${req.protocol}://${req.get('host')}/api/github/callback`;
+      const { githubService } = await import('../services/github_service');
+      const saved = await githubService.exchangeAuthCode(code, uri, clientId, clientSecret);
+      res.json({ success: true, message: 'GitHub authenticated successfully', status: githubService.getStatus(), auth: saved });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/github/callback', async (req: Request, res: Response) => {
+    const code = req.query.code as string;
+    const error = (req.query.error_description || req.query.error) as string;
+    const { githubService } = await import('../services/github_service');
+
+    if (error || !code) {
+      const html = `<!DOCTYPE html><html><body style="background:#090a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(255,255,255,0.05);border-radius:16px;"><h2>❌ GitHub Auth Failed</h2><p style="color:#f87171;">${error || 'Missing code parameter'}</p></div><script>if(window.opener){window.opener.postMessage({type:'GITHUB_AUTH_FAILED',error:'${error||'Failed'}'},'*');setTimeout(()=>window.close(),1500);}</script></body></html>`;
+      return res.status(400).send(html);
+    }
+
+    try {
+      const redirectUri = `${req.protocol}://${req.get('host')}/api/github/callback`;
+      const saved = await githubService.exchangeAuthCode(code, redirectUri);
+      const html = `<!DOCTYPE html><html><head><title>GitHub Connected | J.A.R.V.I.S.</title></head><body style="background:#090a0f;color:#fff;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(18,20,29,0.9);border:1px solid rgba(240,80,50,0.3);border-radius:16px;max-width:380px;"><div style="font-size:36px;margin-bottom:12px;">🐙</div><h2 style="color:#ff7a64;margin:0 0 8px 0;">GitHub Connected</h2><p style="font-size:13px;color:#9ca3af;margin:0 0 16px 0;">Authenticated as <b>@${saved.login || 'User'}</b>. Closing popup...</p></div><script>if(window.opener){window.opener.postMessage({type:'GITHUB_AUTH_SUCCESS',status:${JSON.stringify(githubService.getStatus())}},'*');setTimeout(()=>window.close(),1000);}</script></body></html>`;
+      res.send(html);
+    } catch (err: any) {
+      const html = `<!DOCTYPE html><html><body style="background:#090a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(255,255,255,0.05);border-radius:16px;"><h2>❌ GitHub Auth Failed</h2><p style="color:#f87171;">${err.message}</p></div><script>if(window.opener){window.opener.postMessage({type:'GITHUB_AUTH_FAILED',error:'${err.message}'},'*');setTimeout(()=>window.close(),2000);}</script></body></html>`;
+      res.status(500).send(html);
+    }
+  });
+
+  router.post('/github/auth/token', async (req: Request, res: Response) => {
+    try {
+      const { accessToken, login, name, email, avatarUrl } = req.body;
+      if (!accessToken) return res.status(400).json({ success: false, error: 'accessToken is required' });
+      const { githubService } = await import('../services/github_service');
+      const saved = await githubService.saveAuth({ accessToken, login, name, email, avatarUrl });
+      res.json({ success: true, message: 'GitHub credentials saved successfully', status: githubService.getStatus(), auth: saved });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/github/auth/disconnect', async (_req: Request, res: Response) => {
+    try {
+      const { githubService } = await import('../services/github_service');
+      githubService.disconnect();
+      res.json({ success: true, message: 'GitHub credentials disconnected' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/github/profile', async (_req: Request, res: Response) => {
+    try {
+      const { githubService } = await import('../services/github_service');
+      const profile = await githubService.getMyProfile();
+      res.json({ success: true, profile });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/github/repos', async (req: Request, res: Response) => {
+    try {
+      const limit = req.query.limit ? Number(req.query.limit) : 10;
+      const sort = (req.query.sort as 'updated' | 'created' | 'pushed') || 'updated';
+      const { githubService } = await import('../services/github_service');
+      const repos = await githubService.listMyRepos(limit, sort);
+      res.json({ success: true, count: repos.length, repos });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/github/issue', async (req: Request, res: Response) => {
+    try {
+      const { owner, repo, title, body, labels } = req.body;
+      if (!owner || !repo || !title) {
+        return res.status(400).json({ success: false, error: 'owner, repo, and title are required' });
+      }
+      const { githubService } = await import('../services/github_service');
+      const issue = await githubService.createIssue(owner, repo, title, body, labels);
+      res.json({ success: true, issue });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/github/gist', async (req: Request, res: Response) => {
+    try {
+      const { description, filename, content, isPublic } = req.body;
+      if (!filename || !content) {
+        return res.status(400).json({ success: false, error: 'filename and content are required' });
+      }
+      const { githubService } = await import('../services/github_service');
+      const gist = await githubService.createGist(description || '', filename, content, isPublic);
+      res.json({ success: true, gist });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/github/repo', async (req: Request, res: Response) => {
+    try {
+      const { owner, repo } = req.query;
+      if (!owner || !repo) {
+        return res.status(400).json({ success: false, error: 'owner and repo query params are required' });
+      }
+      const { githubService } = await import('../services/github_service');
+      const repoData = await githubService.getRepoDetails(String(owner), String(repo));
+      res.json({ success: true, repo: repoData });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // --- Universal Multi-Cloud Connectors Callback Router ---
+  const handleUniversalCallback = async (req: Request, res: Response) => {
+    const code = req.query.code as string;
+    const error = (req.query.error_description || req.query.error) as string;
+    const state = ((req.query.state as string) || '').toLowerCase();
+    const explicitProvider = ((req.query.provider as string) || '').toLowerCase();
+
+    // 1. Direct browser status visit (No code or error parameter provided)
+    if (!code && !error) {
+      const { linkedinService } = await import('../services/linkedin_service');
+      const { githubService } = await import('../services/github_service');
+      const gStatus = googleAuthService.getStatus();
+      const liStatus = linkedinService.getStatus();
+      const ghStatus = githubService.getStatus();
+
+      const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>J.A.R.V.I.S. Connectors OAuth Gateway</title>
+  <style>
+    :root {
+      --bg: #090a0f;
+      --card-bg: rgba(18, 20, 29, 0.85);
+      --border: rgba(255, 255, 255, 0.08);
+      --cyan: #00f0ff;
+      --emerald: #10b981;
+      --text: #f3f4f6;
+      --muted: #9ca3af;
+    }
+    body {
+      margin: 0;
+      padding: 32px 16px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: radial-gradient(circle at top center, #131726 0%, var(--bg) 70%);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      box-sizing: border-box;
+    }
+    .container {
+      width: 100%;
+      max-width: 600px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 32px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(20px);
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+    .title {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      background: linear-gradient(135deg, #00f0ff, #3b82f6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin: 0 0 8px 0;
+    }
+    .subtitle {
+      font-size: 13px;
+      color: var(--muted);
+      margin: 0;
+    }
+    .provider-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    .badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
+    }
+    .badge-online {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .badge-offline {
+      background: rgba(156, 163, 175, 0.1);
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .urls-box {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(0, 240, 255, 0.2);
+      border-radius: 12px;
+      padding: 16px;
+      font-size: 12px;
+      margin-bottom: 20px;
+    }
+    .urls-box code {
+      display: block;
+      color: var(--cyan);
+      font-family: monospace;
+      font-size: 11.5px;
+      margin-top: 4px;
+      word-break: break-all;
+    }
+    .btn {
+      display: block;
+      text-align: center;
+      background: linear-gradient(135deg, #00f0ff, #0284c7);
+      color: #000;
+      font-weight: 700;
+      font-size: 13px;
+      text-decoration: none;
+      padding: 12px;
+      border-radius: 12px;
+      transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.9; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div style="font-size:32px;margin-bottom:8px;">⚡</div>
+      <h1 class="title">J.A.R.V.I.S. Multi-Cloud OAuth Gateway</h1>
+      <p class="subtitle">Universal Callback Endpoint for Third-Party Integrations</p>
+    </div>
+
+    <div class="provider-grid">
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span style="font-size:20px;">🌐</span>
+          <div>
+            <div style="font-size:13px;font-weight:700;">Google Workspace</div>
+            <div style="font-size:11px;color:var(--muted);">${gStatus.email || 'Gmail, Calendar, Drive'}</div>
+          </div>
+        </div>
+        <span class="badge ${gStatus.connected ? 'badge-online' : 'badge-offline'}">
+          ${gStatus.connected ? 'Connected' : 'Offline'}
+        </span>
+      </div>
+
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span style="font-size:20px;">💼</span>
+          <div>
+            <div style="font-size:13px;font-weight:700;">LinkedIn Cloud</div>
+            <div style="font-size:11px;color:var(--muted);">${liStatus.name || 'Profile, Social Feed, Search'}</div>
+          </div>
+        </div>
+        <span class="badge ${liStatus.connected ? 'badge-online' : 'badge-offline'}">
+          ${liStatus.connected ? 'Connected' : 'Offline'}
+        </span>
+      </div>
+
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span style="font-size:20px;">🐙</span>
+          <div>
+            <div style="font-size:13px;font-weight:700;">GitHub Intelligence</div>
+            <div style="font-size:11px;color:var(--muted);">${ghStatus.login ? '@' + ghStatus.login : 'Repos, Issues, Gists'}</div>
+          </div>
+        </div>
+        <span class="badge ${ghStatus.connected ? 'badge-online' : 'badge-offline'}">
+          ${ghStatus.connected ? 'Connected' : 'Offline'}
+        </span>
+      </div>
+    </div>
+
+    <div class="urls-box">
+      <div style="font-weight:700;margin-bottom:6px;color:#fff;">Authorized Redirect URIs for Developer Portals:</div>
+      <code>${req.protocol}://${req.get('host')}/api/connectors/callback</code>
+      <code>${req.protocol}://${req.get('host')}/api/linkedin/callback</code>
+      <code>${req.protocol}://${req.get('host')}/api/github/callback</code>
+    </div>
+
+    <a href="/" class="btn">Return to J.A.R.V.I.S. Dashboard</a>
+  </div>
+</body>
+</html>`;
+      return res.send(html);
+    }
+
+    // 2. Error reported by OAuth provider
+    if (error || !code) {
+      const html = `<!DOCTYPE html><html><body style="background:#090a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(255,255,255,0.05);border-radius:16px;max-width:380px;"><h2>❌ Authorization Failed</h2><p style="color:#f87171;font-size:13px;">${error || 'Missing authorization code'}</p></div><script>if(window.opener){window.opener.postMessage({type:'CONNECTORS_AUTH_FAILED',error:'${error||'Failed'}'},'*');setTimeout(()=>window.close(),2000);}</script></body></html>`;
+      return res.status(400).send(html);
+    }
+
+    // 3. Provider detection & exchange
+    const redirectUri = `${req.protocol}://${req.get('host')}/api/connectors/callback`;
+
+    // A. LinkedIn
+    if (explicitProvider === 'linkedin' || state.includes('linkedin') || state.startsWith('li_')) {
+      try {
+        const { linkedinService } = await import('../services/linkedin_service');
+        const saved = await linkedinService.exchangeAuthCode(code, redirectUri);
+        const html = `<!DOCTYPE html><html><head><title>LinkedIn Connected | J.A.R.V.I.S.</title></head><body style="background:#090a0f;color:#fff;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(18,20,29,0.9);border:1px solid rgba(10,102,194,0.3);border-radius:16px;max-width:380px;"><div style="font-size:36px;margin-bottom:12px;">💼</div><h2 style="color:#388bfd;margin:0 0 8px 0;">LinkedIn Connected</h2><p style="font-size:13px;color:#9ca3af;margin:0 0 16px 0;">Linked as <b>${saved.name || 'User'}</b>. Closing popup...</p></div><script>if(window.opener){window.opener.postMessage({type:'LINKEDIN_AUTH_SUCCESS',status:${JSON.stringify(linkedinService.getStatus())}},'*');window.opener.postMessage({type:'CONNECTORS_AUTH_SUCCESS',provider:'linkedin',status:${JSON.stringify(linkedinService.getStatus())}},'*');setTimeout(()=>window.close(),1000);}</script></body></html>`;
+        return res.send(html);
+      } catch (err: any) {
+        return res.status(500).send(`<!DOCTYPE html><html><body style="background:#090a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(255,255,255,0.05);border-radius:16px;"><h2 style="color:#f87171;">❌ LinkedIn Auth Error</h2><p style="color:#9ca3af;font-size:13px;">${err.message}</p></div><script>if(window.opener){window.opener.postMessage({type:'LINKEDIN_AUTH_FAILED',error:'${err.message}'},'*');setTimeout(()=>window.close(),2000);}</script></body></html>`);
+      }
+    }
+
+    // B. GitHub
+    if (explicitProvider === 'github' || state.includes('github') || state.startsWith('gh_')) {
+      try {
+        const { githubService } = await import('../services/github_service');
+        const saved = await githubService.exchangeAuthCode(code, redirectUri);
+        const html = `<!DOCTYPE html><html><head><title>GitHub Connected | J.A.R.V.I.S.</title></head><body style="background:#090a0f;color:#fff;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(18,20,29,0.9);border:1px solid rgba(240,80,50,0.3);border-radius:16px;max-width:380px;"><div style="font-size:36px;margin-bottom:12px;">🐙</div><h2 style="color:#ff7a64;margin:0 0 8px 0;">GitHub Connected</h2><p style="font-size:13px;color:#9ca3af;margin:0 0 16px 0;">Authenticated as <b>@${saved.login || 'User'}</b>. Closing popup...</p></div><script>if(window.opener){window.opener.postMessage({type:'GITHUB_AUTH_SUCCESS',status:${JSON.stringify(githubService.getStatus())}},'*');window.opener.postMessage({type:'CONNECTORS_AUTH_SUCCESS',provider:'github',status:${JSON.stringify(githubService.getStatus())}},'*');setTimeout(()=>window.close(),1000);}</script></body></html>`;
+        return res.send(html);
+      } catch (err: any) {
+        return res.status(500).send(`<!DOCTYPE html><html><body style="background:#090a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(255,255,255,0.05);border-radius:16px;"><h2 style="color:#f87171;">❌ GitHub Auth Error</h2><p style="color:#9ca3af;font-size:13px;">${err.message}</p></div><script>if(window.opener){window.opener.postMessage({type:'GITHUB_AUTH_FAILED',error:'${err.message}'},'*');setTimeout(()=>window.close(),2000);}</script></body></html>`);
+      }
+    }
+
+    // C. Google
+    if (explicitProvider === 'google' || state.includes('google') || state.startsWith('goog_')) {
+      try {
+        const saved = await googleAuthService.exchangeAuthCode(code, redirectUri);
+        const html = `<!DOCTYPE html><html><head><title>Google Connected | J.A.R.V.I.S.</title></head><body style="background:#090a0f;color:#fff;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(18,20,29,0.9);border:1px solid rgba(0,240,255,0.3);border-radius:16px;max-width:380px;"><div style="font-size:36px;margin-bottom:12px;">🌐</div><h2 style="color:#00f0ff;margin:0 0 8px 0;">Google Connected</h2><p style="font-size:13px;color:#9ca3af;margin:0 0 16px 0;">Authenticated as <b>${saved.email || 'User'}</b>. Closing popup...</p></div><script>if(window.opener){window.opener.postMessage({type:'GOOGLE_AUTH_SUCCESS',status:${JSON.stringify(googleAuthService.getStatus())}},'*');window.opener.postMessage({type:'CONNECTORS_AUTH_SUCCESS',provider:'google',status:${JSON.stringify(googleAuthService.getStatus())}},'*');setTimeout(()=>window.close(),1000);}</script></body></html>`;
+        return res.send(html);
+      } catch (err: any) {
+        return res.status(500).send(`<!DOCTYPE html><html><body style="background:#090a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(255,255,255,0.05);border-radius:16px;"><h2 style="color:#f87171;">❌ Google Auth Error</h2><p style="color:#9ca3af;font-size:13px;">${err.message}</p></div><script>if(window.opener){window.opener.postMessage({type:'GOOGLE_AUTH_FAILED',error:'${err.message}'},'*');setTimeout(()=>window.close(),2000);}</script></body></html>`);
+      }
+    }
+
+    // D. Resilient Multi-Provider Fallback Auto-Detection
+    try {
+      const { githubService } = await import('../services/github_service');
+      const saved = await githubService.exchangeAuthCode(code, redirectUri);
+      const html = `<!DOCTYPE html><html><body style="background:#090a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(18,20,29,0.9);border-radius:16px;"><div style="font-size:36px;margin-bottom:12px;">🐙</div><h2>GitHub Connected</h2><p style="color:#9ca3af;font-size:13px;">Authenticated as <b>@${saved.login || 'User'}</b></p></div><script>if(window.opener){window.opener.postMessage({type:'GITHUB_AUTH_SUCCESS',status:${JSON.stringify(githubService.getStatus())}},'*');window.opener.postMessage({type:'CONNECTORS_AUTH_SUCCESS',provider:'github',status:${JSON.stringify(githubService.getStatus())}},'*');setTimeout(()=>window.close(),1000);}</script></body></html>`;
+      return res.send(html);
+    } catch {
+      try {
+        const { linkedinService } = await import('../services/linkedin_service');
+        const saved = await linkedinService.exchangeAuthCode(code, redirectUri);
+        const html = `<!DOCTYPE html><html><body style="background:#090a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(18,20,29,0.9);border-radius:16px;"><div style="font-size:36px;margin-bottom:12px;">💼</div><h2>LinkedIn Connected</h2><p style="color:#9ca3af;font-size:13px;">Linked as <b>${saved.name || 'User'}</b></p></div><script>if(window.opener){window.opener.postMessage({type:'LINKEDIN_AUTH_SUCCESS',status:${JSON.stringify(linkedinService.getStatus())}},'*');window.opener.postMessage({type:'CONNECTORS_AUTH_SUCCESS',provider:'linkedin',status:${JSON.stringify(linkedinService.getStatus())}},'*');setTimeout(()=>window.close(),1000);}</script></body></html>`;
+        return res.send(html);
+      } catch (finalErr: any) {
+        return res.status(500).send(`<!DOCTYPE html><html><body style="background:#090a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(255,255,255,0.05);border-radius:16px;"><h2 style="color:#f87171;">❌ OAuth Code Exchange Failed</h2><p style="color:#9ca3af;font-size:13px;">${finalErr.message || 'Unable to exchange code with any configured provider.'}</p></div><script>if(window.opener){window.opener.postMessage({type:'CONNECTORS_AUTH_FAILED',error:'${finalErr.message}'},'*');setTimeout(()=>window.close(),2500);}</script></body></html>`);
+      }
+    }
+  };
+
+  router.get('/connectors/callback', handleUniversalCallback);
+  router.get('/auth/callback', handleUniversalCallback);
+
+  router.post('/connectors/callback', async (req: Request, res: Response) => {
+    try {
+      const { code, provider, redirectUri } = req.body;
+      if (!code) return res.status(400).json({ success: false, error: 'code is required' });
+      const prov = (provider || '').toLowerCase();
+      const uri = redirectUri || `${req.protocol}://${req.get('host')}/api/connectors/callback`;
+
+      if (prov === 'linkedin') {
+        const { linkedinService } = await import('../services/linkedin_service');
+        const saved = await linkedinService.exchangeAuthCode(code, uri);
+        return res.json({ success: true, provider: 'linkedin', auth: saved, status: linkedinService.getStatus() });
+      }
+      if (prov === 'github') {
+        const { githubService } = await import('../services/github_service');
+        const saved = await githubService.exchangeAuthCode(code, uri);
+        return res.json({ success: true, provider: 'github', auth: saved, status: githubService.getStatus() });
+      }
+      if (prov === 'google') {
+        const saved = await googleAuthService.exchangeAuthCode(code, uri);
+        return res.json({ success: true, provider: 'google', auth: saved, status: googleAuthService.getStatus() });
+      }
+
+      // Default try GitHub then LinkedIn
+      try {
+        const { githubService } = await import('../services/github_service');
+        const saved = await githubService.exchangeAuthCode(code, uri);
+        return res.json({ success: true, provider: 'github', auth: saved, status: githubService.getStatus() });
+      } catch {
+        const { linkedinService } = await import('../services/linkedin_service');
+        const saved = await linkedinService.exchangeAuthCode(code, uri);
+        return res.json({ success: true, provider: 'linkedin', auth: saved, status: linkedinService.getStatus() });
+      }
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 

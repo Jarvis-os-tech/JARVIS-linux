@@ -14,7 +14,7 @@ import { MultiAgentStatusModal } from './MultiAgentStatusModal';
 import { loadAgentMemory, saveAgentMemory, formatMemoryForSystemInstruction, autoExtractMemoriesFromText, AgentMemoryState } from '../utils/agent_memory';
 import { analyzeUtterance, NluAnalysisResult } from '../utils/nlu_engine';
 import { PersonaMetadata, MutedRelayEvent } from '../utils/multi_agent_orchestrator';
-import { AudioQueuePlayer, float32ToInt16Base64, calculateVolume } from '../utils/audio';
+import { AudioQueuePlayer, float32ToInt16Base64, resampleTo16k, calculateVolume } from '../utils/audio';
 import { assistantGreeterInstance } from '../utils/automatic_greeting';
 import { AlertCircle, RefreshCw, CheckCircle2, ExternalLink, Sparkles, X, Send, Brain, Zap, Tag, Radio, Shield } from 'lucide-react';
 
@@ -229,26 +229,58 @@ export function ClassicApp({ onSwitchToModern }: ClassicAppProps) {
   const inputAudioCtxRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const isMutedRef = useRef(isMuted);
+  const lastAudioProcessTimeRef = useRef<number>(Date.now());
 
   // Keep refs in sync with state for event listeners
   useEffect(() => {
     isMutedRef.current = isMuted;
   }, [isMuted]);
 
-  // Initialize AudioQueuePlayer for output playback
+  // Initialize AudioQueuePlayer for output playback with continuous watchdog
   useEffect(() => {
     audioQueuePlayerRef.current = new AudioQueuePlayer(
       (vol) => setOutputVolume(vol),
       (isPlaying) => {
-        if (isPlaying && connectionState !== 'disconnected') {
-          setConnectionState('speaking');
-        } else if (!isPlaying && connectionState === 'speaking') {
-          setConnectionState('listening');
+        if (isPlaying) {
+          setConnectionState((prev) => (prev !== 'disconnected' && prev !== 'error' ? 'speaking' : prev));
+        } else {
+          setConnectionState((prev) => (prev === 'speaking' ? 'listening' : prev));
+          if (
+            inputAudioCtxRef.current &&
+            (inputAudioCtxRef.current.state === 'suspended' || (inputAudioCtxRef.current as any).state === 'interrupted')
+          ) {
+            inputAudioCtxRef.current.resume().catch(() => {});
+          }
         }
       }
     );
 
+    const watchdogTimer = setInterval(() => {
+      if (
+        micStreamRef.current &&
+        inputAudioCtxRef.current &&
+        !isMutedRef.current &&
+        wsRef.current &&
+        wsRef.current.readyState === WebSocket.OPEN
+      ) {
+        if (
+          inputAudioCtxRef.current.state === 'suspended' ||
+          (inputAudioCtxRef.current as any).state === 'interrupted'
+        ) {
+          inputAudioCtxRef.current.resume().catch(() => {});
+        }
+
+        const tracks = micStreamRef.current.getAudioTracks();
+        const isTrackDead = tracks.length === 0 || !tracks.some((t) => t.readyState === 'live' && t.enabled);
+        if (isTrackDead && Date.now() - lastAudioProcessTimeRef.current > 3000) {
+          console.warn('[ClassicApp] Microphone track interrupted. Auto-recovering mic stream...');
+          startMicStream().catch(() => {});
+        }
+      }
+    }, 1000);
+
     return () => {
+      clearInterval(watchdogTimer);
       audioQueuePlayerRef.current?.close();
       stopMicStream();
       closeWebSocket();
@@ -325,6 +357,9 @@ export function ClassicApp({ onSwitchToModern }: ClassicAppProps) {
   const startMicStream = async () => {
     try {
       stopMicStream();
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        throw new Error("Microphone capture API is unsupported in this browser.");
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -334,9 +369,33 @@ export function ClassicApp({ onSwitchToModern }: ClassicAppProps) {
       });
       micStreamRef.current = stream;
 
+      stream.getAudioTracks().forEach((track) => {
+        track.onended = () => {
+          console.warn('[ClassicApp] Microphone track ended unexpectedly. Auto-recovering...');
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !isMutedRef.current) {
+            startMicStream().catch(() => {});
+          }
+        };
+      });
+
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      const inputAudioCtx = new AudioCtx({ sampleRate: 16000 });
+      let inputAudioCtx: AudioContext;
+      try {
+        inputAudioCtx = new AudioCtx({ sampleRate: 16000 });
+      } catch {
+        inputAudioCtx = new AudioCtx();
+      }
       inputAudioCtxRef.current = inputAudioCtx;
+
+      inputAudioCtx.onstatechange = () => {
+        if (inputAudioCtx.state === "suspended" || (inputAudioCtx as any).state === "interrupted") {
+          inputAudioCtx.resume().catch(() => {});
+        }
+      };
+
+      if (inputAudioCtx.state === "suspended") {
+        await inputAudioCtx.resume();
+      }
 
       const source = inputAudioCtx.createMediaStreamSource(stream);
       const processor = inputAudioCtx.createScriptProcessor(4096, 1, 1);
@@ -345,7 +404,10 @@ export function ClassicApp({ onSwitchToModern }: ClassicAppProps) {
       source.connect(processor);
       processor.connect(inputAudioCtx.destination);
 
+      const actualSampleRate = inputAudioCtx.sampleRate;
+
       processor.onaudioprocess = (e) => {
+        lastAudioProcessTimeRef.current = Date.now();
         if (isMutedRef.current) {
           setInputVolume(0);
           return;
@@ -356,7 +418,8 @@ export function ClassicApp({ onSwitchToModern }: ClassicAppProps) {
         setInputVolume(vol);
 
         // Convert Float32 PCM to 16kHz Int16 Base64 for Live API
-        const base64Pcm = float32ToInt16Base64(inputBuffer);
+        const resampled16k = resampleTo16k(inputBuffer, actualSampleRate);
+        const base64Pcm = float32ToInt16Base64(resampled16k);
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           wsRef.current.send(JSON.stringify({
             type: 'audio',
@@ -364,11 +427,12 @@ export function ClassicApp({ onSwitchToModern }: ClassicAppProps) {
           }));
         }
       };
+      return true;
     } catch (err: any) {
       console.error("Microphone access failed:", err);
       const isPermError = err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError' || err.message?.includes('Permission denied') || err.message?.includes('permission');
       if (isPermError) {
-        setErrorMsg("Microphone permission denied. Click the site permission icon in your browser address bar to grant microphone access, or send text messages below.");
+        setErrorMsg("Microphone permission denied. Click the lock icon in your browser address bar to allow microphone access.");
       } else {
         setErrorMsg(`Microphone access failed: ${err.message || 'Microphone unavailable'}.`);
       }
@@ -377,6 +441,7 @@ export function ClassicApp({ onSwitchToModern }: ClassicAppProps) {
       } else {
         setConnectionState('error');
       }
+      return false;
     }
   };
 

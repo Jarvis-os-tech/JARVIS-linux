@@ -5,6 +5,22 @@ import { PersonaAudioProfile } from '../types';
  * gapless audio queue playback at 24kHz, and volume visualization metering.
  */
 
+export function resampleTo16k(buffer: Float32Array, origSampleRate: number): Float32Array {
+  if (!buffer || buffer.length === 0) return new Float32Array(0);
+  if (origSampleRate === 16000) return buffer;
+  const ratio = origSampleRate / 16000;
+  const newLength = Math.round(buffer.length / ratio);
+  const result = new Float32Array(newLength);
+  for (let i = 0; i < newLength; i++) {
+    const origIndex = i * ratio;
+    const indexLow = Math.floor(origIndex);
+    const indexHigh = Math.min(indexLow + 1, buffer.length - 1);
+    const fraction = origIndex - indexLow;
+    result[i] = buffer[indexLow] * (1 - fraction) + buffer[indexHigh] * fraction;
+  }
+  return result;
+}
+
 export function float32ToInt16Base64(buffer: Float32Array): string {
   const l = buffer.length;
   const int16Array = new Int16Array(l);

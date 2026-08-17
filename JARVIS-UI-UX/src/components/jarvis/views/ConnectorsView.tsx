@@ -9,6 +9,7 @@ const seed = [
   { id: "c1", n: "Calendar MCP", d: "Read/write scheduling across all connected calendars.", on: true, c: "var(--cyan-hud)" },
   { id: "c2", n: "Mail Gateway", d: "Triage, draft and send on your behalf with approval gates.", on: true, c: "var(--violet-hud)" },
   { id: "c3", n: "Web Browser", d: "Headless browsing, extraction and form automation.", on: true, c: "var(--blue-hud)" },
+  { id: "c7", n: "LinkedIn Professional", d: "Career intelligence, profile sync, network search and post publishing.", on: true, c: "#0A66C2" },
   { id: "c4", n: "Home Systems", d: "Lights, climate, locks and energy telemetry.", on: false, c: "var(--emerald-hud)" },
   { id: "c5", n: "Code Repository", d: "Read repos, open pull requests, run CI checks.", on: true, c: "var(--amber-hud)" },
   { id: "c6", n: "Finance Feed", d: "Market data, portfolio snapshots and alerts.", on: false, c: "var(--pink-hud)" },

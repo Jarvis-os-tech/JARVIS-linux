@@ -284,18 +284,78 @@ class MultiAgentOrchestrator {
     });
 
     try {
+      const fs = await import('fs');
+      const path = await import('path');
+      const { memoryClient } = await import('../memory/client');
+      const { memoryContextBuilder } = await import('../memory/context_builder');
+
       const effectiveToken = googleAccessToken || getGlobalGoogleAccessToken() || process.env.GOOGLE_ACCESS_TOKEN || '';
       const prompt = loadPersonaPrompt(manager.id);
+      
+      // Inject Hermes Frozen Memory snapshot and dynamic scoped context for the manager
+      const fullSystemPrompt = await memoryContextBuilder.assembleFullSystemPrompt(
+        `${prompt}\n[MUTED RELAY ENFORCEMENT]: You are running as a background manager. Wrap your final findings inside structural braces {${manager.name.toUpperCase()}_REPORT: ...}.`,
+        taskDescription
+      );
+
       const executionResult = await executeUnifiedAiChat({
         message: taskDescription,
         personaId: manager.id,
         provider: 'auto',
-        systemInstruction: `${prompt}\n[MUTED RELAY ENFORCEMENT]: You are running as a background manager. Wrap your final findings inside structural braces {${manager.name.toUpperCase()}_REPORT: ...}.`,
+        systemInstruction: fullSystemPrompt,
         googleAccessToken: effectiveToken
       });
 
       manager.status = 'idle';
       manager.activeTask = undefined;
+
+      // 1. Archive Execution Artifact to JARVIS-MEMORY/execution/
+      try {
+        const execDir = path.join(process.cwd(), 'JARVIS-MEMORY', 'execution');
+        if (!fs.existsSync(execDir)) {
+          fs.mkdirSync(execDir, { recursive: true });
+        }
+        const cleanTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = `EXEC-${cleanTimestamp}-${manager.id}.md`;
+        const execFilePath = path.join(execDir, filename);
+        const mdContent = `---
+type: execution
+agent_id: ${manager.id}
+agent_name: ${manager.name}
+task: "${taskDescription.replace(/"/g, '\\"')}"
+timestamp: ${new Date().toISOString()}
+status: completed
+tags: [execution, ${manager.id}, delegation]
+---
+# Agent Execution Report: ${manager.name}
+
+**Directive**: ${taskDescription}  
+**Timestamp**: ${new Date().toLocaleString()}  
+**Agent Domain**: ${manager.domain}  
+
+## Execution Output
+${executionResult.text}
+`;
+        fs.writeFileSync(execFilePath, mdContent, 'utf-8');
+      } catch (fileErr: any) {
+        console.warn('[Orchestrator] Warning writing execution log:', fileErr.message);
+      }
+
+      // 2. Commit Executive Finding into Universal Memory WAL
+      try {
+        await memoryClient.createNode({
+          title: `[${manager.name} Task] ${taskDescription.slice(0, 45)}`,
+          content: executionResult.text,
+          kind: 'decision',
+          tier: 'working',
+          scope: manager.id,
+          importance: 0.8,
+          tags: ['delegation', manager.id, 'execution'],
+        });
+        memoryContextBuilder.invalidateCache();
+      } catch (memErr: any) {
+        console.warn('[Orchestrator] Memory sync warning during delegation:', memErr.message);
+      }
 
       const relayedEvent = this.processMutedRelayOutput(executionResult.text, manager.id);
 

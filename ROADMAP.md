@@ -216,7 +216,7 @@ News/Research ➔ Groq / Gemini Pro ➔ Synthesize ➔ Save to Obsidian Vault �
 
 | Phase | Milestone Name | Focus Area | Status |
 |:---:|:---|:---|:---:|
-| **Phase 0** | **Core Architecture & Ephemeral Lifecycle** | Event bus, switch registry, SQLite, task queue, lifecycle manager | ⚪ **NEXT** |
+| **Phase 0** | **Core Architecture & Ephemeral Lifecycle** | Event bus, switch registry, SQLite, task queue, lifecycle manager | 🟢 **100% DONE** |
 | **Phase 1** | **Real-Time Voice Core Polish** | Barge-in handling, noise filtering, voice memory | 🟢 **80% DONE** |
 | **Phase 2** | **Unified Ephemeral Vision & Perception** | Voice-toggled screen + camera + OCR + gesture (auto-teardown) | 🟡 **PARTIAL** |
 | **Phase 3** | **Computer & System Control (Primary)** | Wayland mouse/keys, AT-SPI UI targeting, PTY terminal, apps | 🟡 **ACTIVE** |
@@ -224,13 +224,14 @@ News/Research ➔ Groq / Gemini Pro ➔ Synthesize ➔ Save to Obsidian Vault �
 | **Phase 5** | **Memory & Obsidian Life OS** | SQLite long-term facts + automatic 2-way Obsidian daily sync | 🟡 **BASIC** |
 | **Phase 6** | **Daily AI Knowledge & Research Agents**| Auto-boot AI news digest + on-demand deep research agent | ⚪ UPCOMING |
 | **Phase 7** | **Multi-Agent Federation** | Hermes bridge, OpenClaw GitHub coder, specialist delegation | ⚪ UPCOMING |
-| **Phase 8** | **Autonomous Task & Verification Engine** | Long-running jobs, priority queue, visual verification loop | ⚪ UPCOMING |
-| **Phase 9** | **Proactive JARVIS & System Watchdog** | Morning briefings, proactive health warnings, self-healing | ⚪ UPCOMING |
-| **Phase 10**| **n8n Workflow Automation Engine** | Voice-driven multi-app pipelines and webhook automations | ⚪ UPCOMING |
-| **Phase 11**| **Security Hardening & Permissions** | Trust-level permission gates, audit logging, kill switch | ⚪ UPCOMING |
-| **Phase 12**| **Future: Remote Access & Mobile PWA** | Tailscale VPN, Telegram / WhatsApp bots, Mobile PWA | 🔵 **FUTURE** |
-| **Phase 13**| **Future: Multi-Channel Command Center**| Multi-channel TV dashboard, split telemetry views | 🔵 **FUTURE** |
-| **Phase 14**| **Future: Offline Local AI & Wake Word** | OpenWakeWord, local Whisper, Ollama local weights | 🔵 **FUTURE** |
+| **Phase 8** | **Cognitive Nervous System & Autonomous Evolution** | Artificial nervous system, live world state, experience memory, capability forge | ⚪ UPCOMING |
+| **Phase 9** | **Autonomous Task & Verification Engine** | Long-running jobs, priority queue, visual verification loop | ⚪ UPCOMING |
+| **Phase 10**| **Proactive JARVIS & System Watchdog** | Morning briefings, proactive health warnings, self-healing | ⚪ UPCOMING |
+| **Phase 11**| **n8n Workflow Automation Engine** | Voice-driven multi-app pipelines and webhook automations | ⚪ UPCOMING |
+| **Phase 12**| **Security Hardening & Permissions** | Trust-level permission gates, audit logging, kill switch | ⚪ UPCOMING |
+| **Phase 13**| **Future: Remote Access & Mobile PWA** | Tailscale VPN, Telegram / WhatsApp bots, Mobile PWA | 🔵 **FUTURE** |
+| **Phase 14**| **Future: Multi-Channel Command Center**| Multi-channel TV dashboard, split telemetry views | 🔵 **FUTURE** |
+| **Phase 15**| **Future: Offline Local AI & Wake Word** | OpenWakeWord, local Whisper, Ollama local weights | 🔵 **FUTURE** |
 
 ---
 
@@ -244,15 +245,15 @@ News/Research ➔ Groq / Gemini Pro ➔ Synthesize ➔ Save to Obsidian Vault �
 > Establish the rock-solid foundation with automatic resource teardowns so JARVIS stays blazing fast.
 
 #### Core Subsystems to Build:
-- [ ] **Prime JARVIS Orchestrator**: Central router connecting voice, tools, agents, and state.
-- [ ] **Ephemeral Lifecycle & Resource Sweeper Manager (`lifecycle_manager.ts`)**: Automatically shuts down idle browser contexts, video pipelines, PTY shells, and specialist agents after use.
-- [ ] **Event Bus (`eventemitter3`)**: Decoupled pub/sub event system for all events (`task:created`, `vision:toggle`, `agent:done`).
-- [ ] **Feature Switch Manager**: Structured, hot-reloadable system reflecting the 4 operational tiers.
-- [ ] **SQLite Database Engine (`better-sqlite3`)**: Single-file storage for tasks, long-term memories, logs, and configuration.
-- [ ] **Tool Registry**: Unified catalog and dispatcher for C++ workers, Playwright browser tools, and workspace APIs.
-- [ ] **Task Priority Queue**: In-process priority queue with dependency resolution and timeouts.
-- [ ] **Health Monitoring & Structured Logger (`pino`)**: Real-time heartbeat tracking and structured JSON logging.
-- [ ] **Self-Healing Watchdog**: Automatic detection and recovery for failed subprocesses.
+- [x] **Prime JARVIS Orchestrator**: Central router connecting voice, tools, agents, and state.
+- [x] **Ephemeral Lifecycle & Resource Sweeper Manager (`lifecycle_manager.ts`)**: Automatically shuts down idle browser contexts, video pipelines, PTY shells, and specialist agents after use.
+- [x] **Event Bus (`eventemitter3`)**: Decoupled pub/sub event system for all events (`task:created`, `vision:toggle`, `agent:done`).
+- [x] **Feature Switch Manager**: Structured, hot-reloadable system reflecting the 4 operational tiers.
+- [x] **SQLite Database Engine (`better-sqlite3`)**: Single-file storage for tasks, long-term memories, logs, and configuration.
+- [x] **Tool Registry**: Unified catalog and dispatcher for C++ workers, Playwright browser tools, and workspace APIs.
+- [x] **Task Priority Queue**: In-process priority queue with dependency resolution and timeouts.
+- [x] **Health Monitoring & Structured Logger (`pino`)**: Real-time heartbeat tracking and structured JSON logging.
+- [x] **Self-Healing Watchdog**: Automatic detection and recovery for failed subprocesses.
 
 ---
 
@@ -367,8 +368,105 @@ News/Research ➔ Groq / Gemini Pro ➔ Synthesize ➔ Save to Obsidian Vault �
 
 ---
 
-### ⚡ PHASE 8 — Autonomous Task & Verification Engine
-**Timeline**: Week 10-11 | **Focus**: True Autonomy with Feedback
+### 🧬 PHASE 8 — Cognitive Nervous System & Autonomous Evolution
+**Timeline**: Week 10-12 | **Focus**: System-Wide Neural Awareness, Reflection & Capability Forging
+
+> Transform J.A.R.V.I.S. into a continuously aware, self-learning, and safely self-extending AI operating system.
+
+```text
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                   COGNITIVE NERVOUS SYSTEM & EVOLUTION PIPELINE                        │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│                                      WORLD                                             │
+│                                        │                                               │
+│                                        ▼                                               │
+│                                 NERVOUS SYSTEM                                         │
+│                                        │                                               │
+│                    ┌───────────────────┼───────────────────┐                           │
+│                    ▼                   ▼                   ▼                           │
+│               WORLD STATE        CONTEXT ENGINE      REFLEX LAYER                      │
+│                    │                   │                   │                           │
+│                    └───────────────────┼───────────────────┘                           │
+│                                        ▼                                               │
+│                                  JARVIS PRIME                                          │
+│                                        │                                               │
+│                               DEPARTMENT AGENTS                                        │
+│                                        │                                               │
+│                                        ▼                                               │
+│                                     ACTION                                             │
+│                                        │                                               │
+│                                        ▼                                               │
+│                                     RESULT                                             │
+│                                        │                                               │
+│                                        ▼                                               │
+│                               EXPERIENCE MEMORY                                        │
+│                                        │                                               │
+│                                        ▼                                               │
+│                               CONTINUOUS LEARNING                                      │
+│                                        │                                               │
+│                    ┌───────────────────┴───────────────────┐                           │
+│                    ▼                                       ▼                           │
+│           ADAPTIVE STRATEGY                        CAPABILITY FORGE                    │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### A. Artificial Nervous System & Reflex Layer
+- [ ] **Global Event Layer**: System-wide nervous system interconnecting Agent, Memory, System/Hardware, User Interaction, Tool, Background, External, and Priority signals.
+- [ ] **Event Priority & Attention Routing**:
+  - `Low`: Telemetry log only.
+  - `Medium`: Route to relevant specialist department.
+  - `High`: Route directly to JARVIS Prime.
+  - `Critical`: Sub-millisecond Reflex / ULTRON direct intervention.
+- [ ] **Sub-Millisecond Reflex Layer**: Instant, sub-LLM reactive responses:
+  - Immediate audio barge-in cutoff upon user interruption.
+  - Thermal / battery critical hardware tripwires.
+  - Automatic subprocess crash detection and instant recovery.
+  - Task timeout watchdog with auto-retry/cancellation.
+- [ ] **Standardized Agent Live State & Health System**: Track states (`IDLE`, `THINKING`, `WORKING`, `WAITING`, `BLOCKED`, `DEGRADED`, `FAILED`, `OFFLINE`), resource metrics, error rates, and heartbeats.
+
+#### B. Universal Context & Live World State
+- [ ] **Global Live World State Store**: Unified in-memory and SQLite-backed real-time snapshot of active application, current task, active agents, running tools, telemetry, active project, and goal.
+- [ ] **Context Engine & Dynamic Packet Compiler**: Model-aware context compilation calculating strict token budgets (Groq 8k/128k, Gemini 1M, NIM) with delta state caching.
+- [ ] **Three-Tier State vs. Memory Separation**:
+  - `Shared State`: Current live reality (who is doing what right now).
+  - `Shared Memory`: Past persistent knowledge and accumulated lessons.
+  - `Local Working Context`: Private, isolated agent workspace context.
+- [ ] **Temporal Intelligence Engine**: Sequence and causality reasoning (e.g. *"This error started after the model configuration changed"*).
+
+#### C. Adaptive Intelligence & Continuous Learning
+- [ ] **Experience Memory**: Dedicated structured schema tracking `Situation`, `Decision`, `Action`, `Result`, `Success/Failure`, `Error`, `Fix`, `Lesson Learned`, and `Confidence` (SQLite WAL + FTS5 + Semantic Vector embeddings).
+- [ ] **Continuous Learning & Reflection Engine**: System-wide `Observe ➔ Act ➔ Check Result ➔ Evaluate ➔ Extract Lesson ➔ Store Experience ➔ Improve Strategy` loop.
+- [ ] **Decision Ledger**: Cryptographic audit record explaining *why* decisions were made, alternatives considered, evidence, confidence, and actual vs expected results.
+- [ ] **Agent Performance Evaluation**: Live scorecard per department (Success Rate, Latency, Token Cost, Resource Usage, User Corrections).
+- [ ] **Historical Performance-Based Dynamic Routing**: Route tasks dynamically based on empirical past success rather than static model assignments.
+- [ ] **Prediction & Anticipation Engine**: Silent context preparation upon detecting project/app context switches (e.g. user opens VS Code ➔ detect project ➔ retrieve notes silently).
+
+#### D. Proactive Intelligence & Attention Model
+- [ ] **Initiative Engine**: Evaluates `Importance`, `Confidence`, `Urgency`, `Usefulness`, `Interruption Cost`, and `User Activity` to decide action.
+- [ ] **Silence Intelligence**: Decides whether to `Speak Now`, `Notify Silently`, `Prepare in Background`, `Wait for Better Timing`, or `Ignore`.
+- [ ] **Multi-Modal User Attention Sensor**: Real-time Interruption Cost score (0-100) calculated via Mutter D-Bus active window, PTY activity, mic audio level, and idle timer.
+- [ ] **Autonomous Background Reasoning Cycles**: Scheduled low-priority background reviews checking pending goals, blocked tasks, and failed automations when idle.
+
+#### E. Goal & Continuity System
+- [ ] **Hierarchical System-Wide Goal Manager**: Top-level tracking from `Long-Term Goal ➔ Objectives ➔ Projects ➔ Tasks ➔ Subtasks ➔ Agent Assignments`.
+- [ ] **Long-Running Task Continuity & Checkpoints**: Persistent task execution that survives voice disconnects, agent crashes, and server restarts.
+- [ ] **System-Wide Recovery & Fallback Orchestrator**: Multi-tier cascading failover (`Retry ➔ Different Model ➔ Different Agent ➔ Different Tool ➔ Alternative Workflow ➔ Escalate`).
+- [ ] **System-Wide Self-Evaluation**: End-of-task behavioral review measuring execution efficiency, tool selection quality, and workflow optimization.
+
+#### F. Self-Extension & Capability Evolution (Ada-SI)
+- [ ] **Capability Gap Detection**: Automated decision tree (*"Does capability exist? ➔ Can another agent do it? ➔ Can an external MCP/plugin do it? ➔ Can capabilities combine? ➔ Genuinely missing ➔ Capability Forge"*).
+- [ ] **Capability Forge / Self-Extension Engine**: End-to-end automated synthesis (`Plan ➔ Generate ➔ Static Check ➔ Sandbox Test ➔ Security Check ➔ Integration Test ➔ Approval ➔ Register`).
+- [ ] **Native Linux Sandbox Isolation (`bubblewrap` / `bwrap`)**: Zero-overhead isolated build/test zone with strict tmpfs chroot, read-only system mounts, seccomp-bpf, and network namespace isolation (with optional Docker container backend support).
+- [ ] **Capability Lifecycle Management**: 7-stage promotion model (`EXPERIMENTAL ➔ TESTING ➔ CANARY ➔ TRUSTED ➔ DEPRECATED ➔ DISABLED ➔ QUARANTINED`).
+- [ ] **Capability Trust & Permission Manifests**: Strict schema declaring accessed files, network domains, system permissions, risk level, and required approval gates.
+- [ ] **Capability Versioning & Instant Rollback**: Automatic failure detection and 1-click or automated reversion to previous verified skill version.
+- [ ] **Controlled Experiment Engine**: A/B benchmarking for prompts, model routing rules, context compilation strategies, and agent workflows.
+- [ ] **Agent Knowledge & Experience Sharing Mesh**: Structured, curated lessons shared across departments (FRIDAY ➔ EDITH ➔ KAREN ➔ ULTRON).
+
+---
+
+### ⚡ PHASE 9 — Autonomous Task & Verification Engine
+**Timeline**: Week 12-13 | **Focus**: True Autonomy with Feedback
 
 > Long-running tasks that plan, execute, verify results, and self-correct without user hand-holding.
 
@@ -381,8 +479,8 @@ News/Research ➔ Groq / Gemini Pro ➔ Synthesize ➔ Save to Obsidian Vault �
 
 ---
 
-### 📢 PHASE 9 — Proactive JARVIS & System Watchdog
-**Timeline**: Week 11-12 | **Focus**: Alive & Self-Monitoring
+### 📢 PHASE 10 — Proactive JARVIS & System Watchdog
+**Timeline**: Week 13-14 | **Focus**: Alive & Self-Monitoring
 
 > JARVIS speaks when it matters — morning briefings, hardware health warnings, and automatic recovery.
 
@@ -394,8 +492,8 @@ News/Research ➔ Groq / Gemini Pro ➔ Synthesize ➔ Save to Obsidian Vault �
 
 ---
 
-### 🔄 PHASE 10 — n8n Workflow Automation Engine
-**Timeline**: Week 12-13 | **Focus**: Low-Code Multi-App Pipelines
+### 🔄 PHASE 11 — n8n Workflow Automation Engine
+**Timeline**: Week 14-15 | **Focus**: Low-Code Multi-App Pipelines
 
 > Connect JARVIS to external webhooks and services.
 
@@ -406,8 +504,8 @@ News/Research ➔ Groq / Gemini Pro ➔ Synthesize ➔ Save to Obsidian Vault �
 
 ---
 
-### 🛡️ PHASE 11 — Security Hardening & Permissions
-**Timeline**: Week 13-14 | **Focus**: Ironclad Workstation Safety
+### 🛡️ PHASE 12 — Security Hardening & Permissions
+**Timeline**: Week 15-16 | **Focus**: Ironclad Workstation Safety
 
 > Safe autonomous execution with a graduated trust model.
 
@@ -428,7 +526,7 @@ These phases are designed for future implementation when transitioning to an alw
 
 ---
 
-### 📱 PHASE 12 — Future: Remote Access & Mobile PWA
+### 📱 PHASE 13 — Future: Remote Access & Mobile PWA
 - [ ] **Tailscale Mesh VPN**: Encrypted private tunnel to your desktop without open ports.
 - [ ] **Telegram AI Bot (`grammy`)**: Send voice notes & text from your phone; JARVIS executes on desktop and replies.
 - [ ] **Mobile PWA**: Responsive web app for remote voice streaming from your phone browser.
@@ -436,14 +534,14 @@ These phases are designed for future implementation when transitioning to an alw
 
 ---
 
-### 📺 PHASE 13 — Future: Multi-Channel / TV Command Center
+### 📺 PHASE 14 — Future: Multi-Channel / TV Command Center
 - [ ] **Voice-Switched TV Channels**: *"Jarvis, switch to news channel"*, *"Switch to security channel"*.
 - [ ] **Split-Screen HUD**: Simultaneous monitoring of agent activity, system thermals, and camera feeds.
 - [ ] **Picture-in-Picture Visualizer**: Mini-HUD for background desktop work.
 
 ---
 
-### 🔋 PHASE 14 — Future: Offline Local AI & Wake Word
+### 🔋 PHASE 15 — Future: Offline Local AI & Wake Word
 - [ ] **Local Neural Wake Word ("Hello Jarvis")**: OpenWakeWord running 24/7 on CPU (~30MB RAM).
 - [ ] **Local Whisper STT & Piper TTS**: 100% offline fallback voice conversation.
 - [ ] **Ollama Local LLM Integration**: Run Llama 3.2 3B / 8B for local reasoning during internet outages.
@@ -461,11 +559,12 @@ PRIORITY 5  ➔  Phase 5  : Memory & Obsidian Life OS (Automatic Knowledge Base)
 PRIORITY 6  ➔  Phase 6  : Daily AI Knowledge & Research Agents (Auto-Boot + Ephemeral)
 PRIORITY 7  ➔  Phase 4  : Ephemeral Browser Agent (Playwright Auto-Teardown)
 PRIORITY 8  ➔  Phase 7  : Multi-Agent Federation (Hermes & OpenClaw)
-PRIORITY 9  ➔  Phase 8  : Autonomous Task & Verification Engine (Reliable Autonomy)
-PRIORITY 10 ➔  Phase 9  : Proactive JARVIS & System Watchdog (Alive Personality)
-PRIORITY 11 ➔  Phase 10 : n8n Workflow Automation (Multi-App Pipelines)
-PRIORITY 12 ➔  Phase 11 : Security Hardening & Permission System (Safety Core)
-FUTURE      ➔  Phases 12–14 : Remote Access, Mobile PWA, Telegram, TV Channels, Local AI
+PRIORITY 9  ➔  Phase 8  : Cognitive Nervous System & Autonomous Evolution (Neural Core)
+PRIORITY 10 ➔  Phase 9  : Autonomous Task & Verification Engine (Reliable Autonomy)
+PRIORITY 11 ➔  Phase 10 : Proactive JARVIS & System Watchdog (Alive Personality)
+PRIORITY 12 ➔  Phase 11 : n8n Workflow Automation (Multi-App Pipelines)
+PRIORITY 13 ➔  Phase 12 : Security Hardening & Permission System (Safety Core)
+FUTURE      ➔  Phases 13–15 : Remote Access, Mobile PWA, Telegram, TV Channels, Local AI
 ```
 
 ---
@@ -502,4 +601,5 @@ FUTURE      ➔  Phases 12–14 : Remote Access, Mobile PWA, Telegram, TV Channe
 
 ---
 
-*Authored by J.A.R.V.I.S. Multi-Agent Engineering Core — 2026*
+*Last Updated: 17/08/2026*  
+*Authored by J.A.R.V.I.S. Multi-Agent Engineering Core*

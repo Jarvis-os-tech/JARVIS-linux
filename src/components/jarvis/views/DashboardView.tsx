@@ -1,4 +1,4 @@
-import { Mic, MicOff, Camera, Monitor, Square, Play, Sparkles, Volume2, Shield, Loader2 } from "lucide-react";
+import { Mic, MicOff, Camera, Monitor, Square, Play, Sparkles, Volume2, Shield, Loader2, AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
 import { Conversation } from "../Conversation";
 import { OrbStage } from "../OrbStage";
 import { useJarvis, useStats } from "../JarvisProvider";
@@ -15,6 +15,11 @@ export function DashboardView() {
     connectionState,
     isMuted,
     setIsMuted,
+    errorMsg,
+    setErrorMsg,
+    micPermissionState,
+    requestMicPermission,
+    inputVolume,
     handleStartSession,
     handleStopSession,
     handleInterrupt,
@@ -213,6 +218,28 @@ export function DashboardView() {
           </button>
         </div>
       </div>
+
+      {/* Microphone Permission / Access Alert */}
+      {(micPermissionState === "denied" || (errorMsg && errorMsg.toLowerCase().includes("micro"))) && (
+        <div className="neu-inset p-3.5 rounded-2xl border border-rose-500/40 bg-rose-950/20 text-rose-200 flex items-center justify-between gap-3 text-xs shadow-lg shadow-rose-950/40 animate-pulse">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+            <div>
+              <span className="font-bold text-rose-300 block">Microphone Access Blocked or Restricted</span>
+              <span className="text-[11px] text-rose-200/80">
+                Click the <strong>lock / site settings icon</strong> next to <code className="bg-black/40 px-1 py-0.5 rounded text-rose-300">localhost:3000</code> in your browser address bar and set <strong>Microphone</strong> to <strong>Allow</strong>.
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={requestMicPermission}
+            className="neu flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 transition-all shrink-0 cursor-pointer shadow-md"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Activate Microphone</span>
+          </button>
+        </div>
+      )}
 
       {/* Main holographic orb & command console */}
       <OrbStage />

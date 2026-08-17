@@ -243,9 +243,18 @@ SoundServerStatus diagnose_sound_server() {
 }
 
 SoundServerStatus heal_sound_server() {
-    (void)std::system("systemctl --user restart pipewire wireplumber pipewire-pulse 2>&1 >/dev/null");
+    SoundServerStatus current = diagnose_sound_server();
+    if (!current.pipewire_running && !current.pulse_running) {
+        (void)std::system("systemctl --user restart pipewire wireplumber pipewire-pulse 2>&1 >/dev/null");
+        usleep(200000);
+    }
+    // Unmute speakers and capture sources safely
     (void)std::system("amixer sset Master unmute 2>/dev/null || true");
-    usleep(150000);
+    (void)std::system("amixer sset Capture unmute 2>/dev/null || true");
+    (void)std::system("amixer sset Capture cap 2>/dev/null || true");
+    (void)std::system("wpctl set-mute @DEFAULT_AUDIO_SINK@ 0 2>/dev/null || true");
+    (void)std::system("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ 0 2>/dev/null || true");
+    usleep(50000);
     return diagnose_sound_server();
 }
 

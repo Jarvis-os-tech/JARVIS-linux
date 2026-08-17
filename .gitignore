@@ -12,6 +12,9 @@ workers_cpp/bin/
 !.env.example
 data/
 .vscode/
+__pycache__/
+*.pyc
+*.pyo
 
 # Obsidian & Local Memory Vault (Structure Only Tracked in Git, Zero Personal Data)
 JARVIS-MEMORY/**

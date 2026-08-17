@@ -516,15 +516,18 @@ export async function healSoundServer(): Promise<{ success: boolean; status: Sou
     };
   }
 
-  // Fallback restart
+  // Fallback restart only if inactive
   try {
-    await execAsync('systemctl --user restart pipewire wireplumber pipewire-pulse 2>&1 || true', { timeout: 3000 });
-    await execAsync('amixer sset Master unmute 2>/dev/null || true', { timeout: 1000 });
+    const diag = await diagnoseSoundServer();
+    if (!diag.pipewireRunning && !diag.pulseRunning) {
+      await execAsync('systemctl --user restart pipewire wireplumber pipewire-pulse 2>&1 || true', { timeout: 3000 });
+    }
+    await execAsync('amixer sset Master unmute 2>/dev/null || true; amixer sset Capture unmute 2>/dev/null || true; wpctl set-mute @DEFAULT_AUDIO_SOURCE@ 0 2>/dev/null || true', { timeout: 1000 });
     const freshStatus = await diagnoseSoundServer();
     return {
       success: freshStatus.healthy,
       status: freshStatus,
-      message: freshStatus.healthy ? 'Sound server daemons restarted successfully.' : 'Sound server restart attempted; status degraded.'
+      message: freshStatus.healthy ? 'Sound server verified and unmuted.' : 'Sound server check completed.'
     };
   } catch (err: any) {
     return {

@@ -2,12 +2,13 @@ import { logOrchestrator } from './logger';
 import { eventBus } from './event_bus';
 import { jarvisDb, memoryRepo, taskRepo, auditRepo, configRepo } from '../db/db';
 import { lifecycleManager } from './lifecycle_manager';
-import { toolRegistry } from '../tools/tool_registry';
+import { toolRegistry, ToolExecutionResult } from '../tools/tool_registry';
 import { taskQueue } from './task_queue';
 import { watchdog } from './watchdog';
 import { switchManager } from './switch_manager';
 import { multiAgentOrchestrator } from '../utils/multi_agent_orchestrator';
 import { obsidianSyncBridge } from '../utils/obsidian_sync';
+import type { MemoryKind, MemoryTier } from '../memory/types';
 
 export class PrimeJarvisOrchestrator {
   private static instance: PrimeJarvisOrchestrator;
@@ -42,11 +43,66 @@ export class PrimeJarvisOrchestrator {
       auditRepo.log('LIFECYCLE', 'info', `Teardown: ${data.name}`, { reason: data.reason });
     });
 
-    // 2. Perform initial watchdog health probe
+    // 2. Wire Universal Memory Event Handlers
+    eventBus.on('memory:created', async (data) => {
+      try {
+        const { memoryClient } = await import('../memory/client');
+        const { memoryContextBuilder } = await import('../memory/context_builder');
+        await memoryClient.createNode({
+          content: data.content,
+          title: data.title,
+          kind: (data.kind || 'fact') as MemoryKind,
+          tier: (data.tier || 'working') as MemoryTier,
+          importance: data.importance || 0.7,
+        });
+        memoryContextBuilder.invalidateCache();
+      } catch (memErr: any) {
+        logOrchestrator.warn(`[PrimeOrchestrator] Memory event auto-sync warning: ${memErr.message}`);
+      }
+    });
+
+    // 3. Initialize Lifelong Learning Sentinels & Watchers
+    const { vaultWatcher } = await import('../memory/watcher');
+    const { gitMemorySyncer } = await import('../memory/git_syncer');
+    const { autoCaptureEngine } = await import('../memory/auto_capture');
+
+    vaultWatcher.start();
+    gitMemorySyncer.start();
+    autoCaptureEngine.start();
+
+    // 4. Perform initial watchdog health probe
     await watchdog.probe();
 
-    this.isInitialized = true;
-    logOrchestrator.info('J.A.R.V.I.S. Prime Orchestrator Core is ONLINE and fully synchronized.');
+    logOrchestrator.info('J.A.R.V.I.S. Prime Orchestrator Core is ONLINE and fully synchronized with Universal Memory.');
+  }
+
+  /**
+   * Central tool dispatch entry point.
+   * Routes all tool execution through the unified ToolRegistry with
+   * audit logging, event bus emissions, feature switch enforcement, and timeouts.
+   */
+  public async dispatch(toolName: string, args: any = {}, context?: any): Promise<ToolExecutionResult> {
+    return toolRegistry.execute(toolName, args, context);
+  }
+
+  /**
+   * Graceful shutdown: tears down all ephemeral resources, stops the watchdog,
+   * and logs the shutdown event.
+   */
+  public async shutdown(): Promise<void> {
+    logOrchestrator.info('Initiating J.A.R.V.I.S. Prime Orchestrator graceful shutdown...');
+
+    // 1. Tear down all ephemeral resources (browser contexts, PTY shells, video streams)
+    await lifecycleManager.teardownAll('GRACEFUL_SHUTDOWN');
+
+    // 2. Stop the watchdog probe loop
+    watchdog.stop();
+
+    // 3. Log shutdown audit
+    auditRepo.log('ORCHESTRATOR', 'info', 'J.A.R.V.I.S. Prime Orchestrator shutdown complete.');
+
+    logOrchestrator.info('J.A.R.V.I.S. Prime Orchestrator shutdown complete.');
+    this.isInitialized = false;
   }
 
   public getSystemSummary() {

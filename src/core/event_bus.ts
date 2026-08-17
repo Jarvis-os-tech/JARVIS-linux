@@ -32,12 +32,26 @@ export interface JarvisEventMap {
   'switch:changed': (data: { featureId: string; enabled: boolean }) => void;
 
   // Memory & Obsidian Sync Events
+  'memory:created': (data: { content: string; title?: string; kind?: string; tier?: string; importance?: number }) => void;
   'memory:fact_added': (fact: any) => void;
   'memory:fact_deleted': (data: { id: string }) => void;
   'obsidian:synced': (data: { file: string; type: string }) => void;
 
+  // Research & Grounding Events
+  'research:start': (data: { query: string; mode: string; category?: string }) => void;
+  'research:progress': (data: { query: string; step: string; percent?: number }) => void;
+  'research:complete': (data: { query: string; cached?: boolean; factsCount?: number; groundingScore?: number; durationMs?: number }) => void;
+  'research:error': (data: { query: string; error: string }) => void;
+
   // System Health & Watchdog Alerts
   'system:alert': (data: { level: 'info' | 'warn' | 'error'; message: string; source: string }) => void;
+  'watchdog:probe': (report: any) => void;
+
+  // Connector & OAuth Events
+  'connector:status_changed': (data: { provider: string; connected: boolean }) => void;
+
+  // Conversation & Auto-Capture Events
+  'conversation:turn_completed': (data: any) => void;
 }
 
 export class JarvisEventBus extends EventEmitter<JarvisEventMap> {

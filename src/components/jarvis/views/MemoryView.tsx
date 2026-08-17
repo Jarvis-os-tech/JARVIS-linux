@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Brain,
   Search,
@@ -32,11 +32,15 @@ import {
   CopyCheck,
   Cpu,
   Info,
+  Network,
+  RefreshCw,
 } from "lucide-react";
 import { useJarvis } from "../JarvisProvider";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { saveAgentMemory, MemoryFact } from "@/utils/agent_memory";
+import { InteractiveMemoryGraph } from "../memory/InteractiveMemoryGraph";
+import { GraphNodeData, GraphLinkData } from "../memory/memoryGraphLayout";
 
 const DEFAULT_CATEGORIES = [
   { id: "all", label: "All Nodes", icon: Database },
@@ -117,11 +121,47 @@ const CATEGORY_STYLES: Record<string, { label: string; badgeCls: string }> = {
 
 export function MemoryView() {
   const { agentMemoryState, setAgentMemoryState, pushLog, pushNotification } = useJarvis();
+  const [viewMode, setViewMode] = useState<"graph" | "cards">("graph");
+  const [vaultStats, setVaultStats] = useState<any>(null);
+  const [isFlushing, setIsFlushing] = useState(false);
+
   const [q, setQ] = useState("");
   const [tag, setTag] = useState<string>("all");
   const [agentFilter, setAgentFilter] = useState<string>("all");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [selectedFactId, setSelectedFactId] = useState<string | null>(null);
+
+  // Fetch Universal Memory Status on mount
+  useEffect(() => {
+    fetch("/api/memory/status")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) setVaultStats(data);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleFlushBuffers = async () => {
+    setIsFlushing(true);
+    try {
+      const res = await fetch("/api/memory/flush", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stale_threshold_secs: 0 }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(`Flushed ${data.flushed_buffers} buffer(s) into ${data.sealed_summaries?.length || 0} summary notes.`);
+        fetch("/api/memory/status")
+          .then((r) => r.json())
+          .then((d) => d.success && setVaultStats(d));
+      }
+    } catch (err: any) {
+      toast.error(`Flush failed: ${err.message}`);
+    } finally {
+      setIsFlushing(false);
+    }
+  };
 
   // New Memory Form State
   const [newKey, setNewKey] = useState("");
@@ -191,6 +231,74 @@ export function MemoryView() {
       };
     });
   }, [agentMemoryState.facts]);
+
+  // Construct OpenHuman Graph Nodes & Links
+  const { graphNodes, graphLinks } = useMemo(() => {
+    const nodes: GraphNodeData[] = [];
+    const links: GraphLinkData[] = [];
+
+    // 1. Root Master Hub
+    nodes.push({
+      id: "root-jarvis",
+      title: "J.A.R.V.I.S. Core Brain",
+      content: "Central neural orchestrator and root universal memory vault.",
+      kind: "root",
+      level: 0,
+      importance: 1.0,
+      radius: 22,
+    });
+
+    // 2. Persona Sub-Hubs
+    const personaHubs = [
+      { id: "hub-ultron", title: "ULTRON Security & Isolation", agentId: "ultron", color: "#F43F5E" },
+      { id: "hub-friday", title: "FRIDAY Intelligence & Web", agentId: "friday", color: "#F59E0B" },
+      { id: "hub-edith", title: "EDITH Architecture & POSIX", agentId: "edith", color: "#8B5CF6" },
+      { id: "hub-karen", title: "KAREN Autonomous Pipelines", agentId: "karen", color: "#10B981" },
+      { id: "hub-user", title: "OPERATOR Directives", agentId: "user", color: "#38BDF8" },
+    ];
+
+    for (const hub of personaHubs) {
+      nodes.push({
+        id: hub.id,
+        title: hub.title,
+        content: `Domain specialist memory cluster for ${hub.title}`,
+        kind: "source",
+        scope: hub.agentId,
+        level: 1,
+        color: hub.color,
+        radius: 16,
+      });
+
+      links.push({
+        source: "root-jarvis",
+        target: hub.id,
+        strength: 0.8,
+      });
+    }
+
+    // 3. Memory Fact Leaf Nodes
+    for (const item of memoryItems) {
+      const parentHubId = `hub-${item.agentId.toLowerCase()}`;
+      nodes.push({
+        id: item.id,
+        title: item.title,
+        content: item.desc,
+        kind: (item.tag === "preference" ? "preference" : item.tag === "work_context" ? "decision" : item.tag === "personal_fact" ? "fact" : "pattern") as any,
+        scope: item.agentId,
+        importance: 0.8,
+        tags: [item.tag, item.agentId],
+        color: item.color,
+      });
+
+      links.push({
+        source: parentHubId,
+        target: item.id,
+        strength: 0.6,
+      });
+    }
+
+    return { graphNodes: nodes, graphLinks: links };
+  }, [memoryItems]);
 
   const filtered = useMemo(() => {
     return memoryItems.filter((m) => {
@@ -364,7 +472,7 @@ export function MemoryView() {
               {agentMemoryState.facts.length} Active Nodes
             </span>
             <span className="neu-inset px-2.5 py-0.5 rounded-full text-[10px] font-mono text-cyan-hud border border-cyan-500/20 flex items-center gap-1">
-              <Database className="w-3 h-3 text-cyan-400" /> SQLite Persistent Graph
+              <Database className="w-3 h-3 text-cyan-400" /> {vaultStats ? `Rust WAL (${vaultStats.node_count || agentMemoryState.facts.length} nodes)` : "SQLite Persistent Graph"}
             </span>
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">
@@ -372,7 +480,45 @@ export function MemoryView() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* View Mode Toggle: 3D Brain Graph vs Ledger View */}
+          <div className="flex items-center bg-slate-900/90 border border-slate-700/60 rounded-xl p-0.5 shadow-sm">
+            <button
+              onClick={() => setViewMode("graph")}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer",
+                viewMode === "graph"
+                  ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              )}
+            >
+              <Network className="w-3.5 h-3.5" />
+              <span>3D Brain Graph</span>
+            </button>
+            <button
+              onClick={() => setViewMode("cards")}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer",
+                viewMode === "cards"
+                  ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              )}
+            >
+              <Database className="w-3.5 h-3.5" />
+              <span>Ledger View</span>
+            </button>
+          </div>
+
+          <button
+            onClick={handleFlushBuffers}
+            disabled={isFlushing}
+            className="neu-inset px-3 py-1.5 rounded-xl text-xs font-semibold text-purple-300 hover:text-purple-200 border border-purple-500/30 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            title="Consolidate unsealed memory buffers into L1 summaries"
+          >
+            <RefreshCw className={cn("w-3.5 h-3.5", isFlushing && "animate-spin")} />
+            <span>{isFlushing ? "Flushing..." : "Flush Buffers"}</span>
+          </button>
+
           <button
             onClick={() => {
               setIsAddOpen(!isAddOpen);
@@ -542,24 +688,95 @@ export function MemoryView() {
         })}
       </div>
 
-      {/* 2-Column Responsive Layout (Left: Mission Rail Style Component Cards | Right: Detail View Panel) */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-12 gap-3.5 overflow-hidden">
-        {/* Left Column: Vertical List of Clickable Component Cards (Mission Rail Style) */}
-        <aside className="lg:col-span-5 xl:col-span-4 bezel flex min-h-0 flex-col overflow-hidden rounded-2xl">
-          {/* Mission Rail Style Header */}
-          <div className="flex items-center justify-between border-b border-[oklch(0_0_0/35%)] px-4 py-3 shrink-0">
-            <div className="flex items-center gap-2.5">
-              <span className="neu-sm grid h-9 w-9 place-items-center rounded-xl text-cyan-hud">
-                <Brain className="w-4 h-4 text-cyan-400" />
-              </span>
-              <div>
-                <span className="etched block text-[12px] font-bold tracking-[0.16em] text-foreground">
-                  MEMORY NODES
+      {/* MAIN VIEW AREA: Conditional 3D Brain Graph vs 2-Column Ledger */}
+      {viewMode === "graph" ? (
+        <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-3.5 overflow-hidden">
+          <div className="flex-1 min-h-[480px]">
+            <InteractiveMemoryGraph
+              nodes={graphNodes}
+              links={graphLinks}
+              searchFilter={q}
+              scopeFilter={agentFilter}
+              selectedNodeId={selectedFactId}
+              onSelectNode={(node) => {
+                if (node) {
+                  setSelectedFactId(node.id);
+                }
+              }}
+            />
+          </div>
+
+          {/* Side Drawer for Node Inspection in Graph View */}
+          {activeFact && (
+            <div className="w-full lg:w-88 neu rounded-2xl p-4 border border-cyan-500/30 bg-slate-900/90 backdrop-blur-xl flex flex-col gap-3 shrink-0 overflow-y-auto max-h-[640px] shadow-2xl">
+              <div className="flex items-center justify-between">
+                <span
+                  className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border"
+                  style={{
+                    backgroundColor: `${activeFact.color}20`,
+                    color: activeFact.color,
+                    borderColor: `${activeFact.color}50`,
+                  }}
+                >
+                  {activeFact.tag}
                 </span>
-                <span className="text-[10px] font-mono text-muted-foreground">
-                  {filtered.length} of {memoryItems.length} entities
+                <span className="text-xs font-mono text-muted-foreground">{activeFact.agentInfo.name}</span>
+              </div>
+
+              <h3 className="text-sm font-bold text-white">{activeFact.title}</h3>
+
+              <div className="neu-inset rounded-xl p-3 bg-slate-950/70 border border-white/5 font-mono text-xs text-slate-300 whitespace-pre-wrap leading-relaxed max-h-64 overflow-y-auto">
+                {activeFact.desc}
+              </div>
+
+              <div className="flex flex-wrap gap-1">
+                <span className="neu-inset px-2 py-0.5 rounded text-[10px] font-mono text-cyan-400 border border-cyan-500/20">
+                  #{activeFact.tag}
+                </span>
+                <span className="neu-inset px-2 py-0.5 rounded text-[10px] font-mono text-muted-foreground border border-white/5">
+                  source:{activeFact.source}
                 </span>
               </div>
+
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-2 border-t border-white/10 mt-auto">
+                <span>Updated: {new Date(activeFact.updatedAt).toLocaleTimeString()}</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleCopyRaw(activeFact.desc)}
+                    className="hover:text-cyan-400 flex items-center gap-1 cursor-pointer"
+                  >
+                    <Copy className="w-3 h-3" /> Copy
+                  </button>
+                  <button
+                    onClick={() => handleInjectContext(activeFact)}
+                    className="hover:text-amber-400 flex items-center gap-1 cursor-pointer"
+                  >
+                    <Zap className="w-3 h-3" /> Inject
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* 2-Column Responsive Layout (Left: Mission Rail Style Component Cards | Right: Detail View Panel) */
+        <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-12 gap-3.5 overflow-hidden">
+          {/* Left Column: Vertical List of Clickable Component Cards (Mission Rail Style) */}
+          <aside className="lg:col-span-5 xl:col-span-4 bezel flex min-h-0 flex-col overflow-hidden rounded-2xl">
+            {/* Mission Rail Style Header */}
+            <div className="flex items-center justify-between border-b border-[oklch(0_0_0/35%)] px-4 py-3 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <span className="neu-sm grid h-9 w-9 place-items-center rounded-xl text-cyan-hud">
+                  <Brain className="w-4 h-4 text-cyan-400" />
+                </span>
+                <div>
+                  <span className="etched block text-[12px] font-bold tracking-[0.16em] text-foreground">
+                    MEMORY NODES
+                  </span>
+                  <span className="text-[10px] font-mono text-muted-foreground">
+                    {filtered.length} of {memoryItems.length} entities
+                  </span>
+                </div>
             </div>
             <button
               onClick={() => {
@@ -1057,6 +1274,8 @@ export function MemoryView() {
           </div>
         </section>
       </div>
+      )}
     </div>
   );
 }
+

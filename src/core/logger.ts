@@ -14,6 +14,17 @@ export type SubsystemTag =
 
 export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
 
+import pino from 'pino';
+import fs from 'fs';
+import path from 'path';
+
+const logDir = path.join(process.cwd(), 'data', 'logs');
+fs.mkdirSync(logDir, { recursive: true });
+
+const pinoLogger = pino(
+  pino.destination({ dest: path.join(logDir, 'jarvis.log'), append: true })
+);
+
 const ANSI = {
   reset: '\x1b[0m',
   bold: '\x1b[1m',
@@ -65,6 +76,13 @@ export function createSubsystemLogger(subsystem: SubsystemTag): SubsystemLogger 
   const color = SUBSYSTEM_COLORS[subsystem] || ANSI.cyan;
 
   const log = (level: LogLevel, msg: string, meta?: any) => {
+    // Write to pino JSON stream
+    const pinoLogData: any = { subsystem, msg };
+    if (meta !== undefined) {
+      pinoLogData.meta = meta;
+    }
+    pinoLogger[level](pinoLogData);
+
     const timeStr = `${ANSI.dim}${formatTime()}${ANSI.reset}`;
     const badge = `${color}[${subsystem}]${ANSI.reset}`;
 

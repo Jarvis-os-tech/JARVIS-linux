@@ -67,10 +67,21 @@ async function bootstrapJarvisServer() {
   // Graceful Shutdown
   const handleShutdown = async (signal: string) => {
     logServer.warn(`Received ${signal}. Shutting down J.A.R.V.I.S. Core...`);
+
+    // 1. Gracefully tear down all ephemeral resources and stop watchdog
+    await primeOrchestrator.shutdown();
+
+    // 2. Close HTTP & WebSocket server
     server.close(() => {
       logServer.info('HTTP & WebSocket server closed.');
       process.exit(0);
     });
+
+    // Force exit after 5s if graceful close hangs
+    setTimeout(() => {
+      logServer.warn('Graceful shutdown timed out. Forcing exit.');
+      process.exit(1);
+    }, 5000);
   };
 
   process.on('SIGTERM', () => handleShutdown('SIGTERM'));

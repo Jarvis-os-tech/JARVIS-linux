@@ -9,7 +9,7 @@ export interface QueuedTask {
   title: string;
   description?: string;
   priority: TaskPriority;
-  execute: () => Promise<any>;
+  execute: (signal?: AbortSignal) => Promise<any>;
   retries?: number;
   maxRetries?: number;
   timeoutMs?: number;
@@ -21,6 +21,7 @@ export class TaskPriorityQueue {
   private activeCount = 0;
   private maxConcurrency = 3;
   private isProcessing = false;
+  private runningAbortControllers: Map<string, AbortController> = new Map();
 
   public static getInstance(): TaskPriorityQueue {
     if (!TaskPriorityQueue.instance) {
@@ -30,7 +31,27 @@ export class TaskPriorityQueue {
   }
 
   constructor() {
-    logTaskQueue.info('Task Priority Queue active (Max concurrency: 3, SQLite-backed).');
+    this.recoverStaleTasks();
+    logTaskQueue.info('Task Priority Queue active (Max concurrency: 3, SQLite-backed, cold-boot recovery enabled).');
+  }
+
+  /**
+   * Cold-boot recovery: mark any tasks left in 'running' state from a previous
+   * crash as 'failed', so they don't remain orphaned in SQLite forever.
+   */
+  private recoverStaleTasks(): void {
+    try {
+      const staleTasks = taskRepo.getByStatus('running');
+      if (staleTasks.length > 0) {
+        for (const task of staleTasks) {
+          taskRepo.updateStatus(task.id, 'failed', null, 'Recovered on cold-boot: task was interrupted by server shutdown.');
+          logTaskQueue.warn(`Cold-boot recovery: Marked stale running task as failed: ${task.title} (${task.id})`);
+        }
+        logTaskQueue.info(`Cold-boot recovery complete: ${staleTasks.length} stale task(s) marked as failed.`);
+      }
+    } catch (err: any) {
+      logTaskQueue.warn(`Cold-boot recovery skipped: ${err?.message}`);
+    }
   }
 
   public enqueue(task: QueuedTask): string {
@@ -59,6 +80,7 @@ export class TaskPriorityQueue {
     this.queue.sort((a, b) => a.priority - b.priority);
 
     logTaskQueue.info(`Enqueued task: ${fullTask.title} [Priority: ${fullTask.priority}, ID: ${id}]`);
+    eventBus.emit('task:created', { id, title: fullTask.title, priority: fullTask.priority });
     this.processNext();
     return id;
   }
@@ -78,6 +100,10 @@ export class TaskPriorityQueue {
     this.activeCount++;
     this.isProcessing = false;
 
+    // Create AbortController for this running task
+    const abortController = new AbortController();
+    this.runningAbortControllers.set(task.id, abortController);
+
     // Update SQLite state
     taskRepo.updateStatus(task.id, 'running');
     logTaskQueue.info(`Executing task: ${task.title} (Active running: ${this.activeCount})`);
@@ -87,36 +113,54 @@ export class TaskPriorityQueue {
     );
 
     try {
-      const result = await Promise.race([task.execute(), timeoutPromise]);
+      const result = await Promise.race([task.execute(abortController.signal), timeoutPromise]);
       taskRepo.updateProgress(task.id, 100);
       taskRepo.updateStatus(task.id, 'completed', result);
       logTaskQueue.info(`Task completed: ${task.title} (${task.id})`);
+      eventBus.emit('task:completed', { taskId: task.id, result });
     } catch (err: any) {
       const errMsg = err?.message || String(err);
-      logTaskQueue.error(`Task failed: ${task.title} (${task.id}) - ${errMsg}`);
 
-      if ((task.retries || 0) < (task.maxRetries || 2)) {
+      if (abortController.signal.aborted) {
+        taskRepo.updateStatus(task.id, 'cancelled');
+        logTaskQueue.info(`Task cancelled (abort signal): ${task.title} (${task.id})`);
+        eventBus.emit('task:cancelled', { taskId: task.id });
+      } else if ((task.retries || 0) < (task.maxRetries || 2)) {
         task.retries = (task.retries || 0) + 1;
         logTaskQueue.warn(`Retrying task ${task.id} (Attempt ${task.retries}/${task.maxRetries})...`);
         this.queue.push(task);
         this.queue.sort((a, b) => a.priority - b.priority);
       } else {
+        logTaskQueue.error(`Task failed: ${task.title} (${task.id}) - ${errMsg}`);
         taskRepo.updateStatus(task.id, 'failed', null, errMsg);
+        eventBus.emit('task:failed', { taskId: task.id, error: errMsg });
       }
     } finally {
+      this.runningAbortControllers.delete(task.id);
       this.activeCount--;
       this.processNext();
     }
   }
 
   public cancel(id: string): boolean {
+    // Try to cancel from pending queue first
     const idx = this.queue.findIndex((t) => t.id === id);
     if (idx !== -1) {
       this.queue.splice(idx, 1);
       taskRepo.updateStatus(id, 'cancelled');
       logTaskQueue.info(`Cancelled pending task: ${id}`);
+      eventBus.emit('task:cancelled', { taskId: id });
       return true;
     }
+
+    // Try to abort an actively running task
+    const abortController = this.runningAbortControllers.get(id);
+    if (abortController) {
+      abortController.abort();
+      logTaskQueue.info(`Abort signal sent to running task: ${id}`);
+      return true;
+    }
+
     return false;
   }
 

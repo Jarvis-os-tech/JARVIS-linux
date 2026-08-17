@@ -26,7 +26,7 @@ import {
 } from "@/lib/jarvis-data";
 import { PERSONAS, VOICE_TRANSFER_SYSTEM_INSTRUCTION, TELGISH_LANGUAGE_SYSTEM_INSTRUCTION, detectVoiceTransfer, getPersonaAudioProfile } from "@/data/personas";
 import { VoicePersona, ConnectionState, WorkspaceActionItem, AgentConfig } from "@/types";
-import { AudioQueuePlayer, float32ToInt16Base64, calculateVolume } from "@/utils/audio";
+import { AudioQueuePlayer, float32ToInt16Base64, resampleTo16k, calculateVolume } from "@/utils/audio";
 import { assistantGreeterInstance } from "@/utils/automatic_greeting";
 import { loadAgentMemory, saveAgentMemory, formatMemoryForSystemInstruction, autoExtractMemoriesFromText, AgentMemoryState } from "@/utils/agent_memory";
 import { analyzeUtterance, NluAnalysisResult } from "@/utils/nlu_engine";
@@ -51,6 +51,7 @@ function useJarvisState(onSwitchToClassic?: () => void) {
   const [selectedPersona, setSelectedPersona] = useState<VoicePersona>(PERSONAS[0]);
   const [connectionState, setConnectionState] = useState<ConnectionState>("disconnected");
   const [isMuted, setIsMuted] = useState(false);
+  const [micPermissionState, setMicPermissionState] = useState<"prompt" | "granted" | "denied" | "unsupported">("prompt");
   const [latencyMs, setLatencyMs] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -149,6 +150,22 @@ function useJarvisState(onSwitchToClassic?: () => void) {
 
   // Synchronize Google OAuth token globally across backend server & active Live WebSocket
   useEffect(() => {
+    // Initial fetch from server to load persistent/auto-refreshed Google credentials
+    fetch("/api/workspace/token/status")
+      .then((res) => res.json())
+      .then((status) => {
+        if (status.connected && status.token) {
+          setGoogleAccessToken(status.token);
+          localStorage.setItem("g_access_token", status.token);
+          if (status.email) localStorage.setItem("g_user_email", status.email);
+          if (status.name) localStorage.setItem("g_user_name", status.name);
+          if (status.picture) localStorage.setItem("g_user_picture", status.picture);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     const token = googleAccessToken || localStorage.getItem("g_access_token") || "";
     if (token) {
       fetch("/api/workspace/token", {
@@ -234,25 +251,60 @@ function useJarvisState(onSwitchToClassic?: () => void) {
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const isMutedRef = useRef(isMuted);
   const isStartingVisionRef = useRef(false);
+  const lastAudioProcessTimeRef = useRef<number>(Date.now());
 
   useEffect(() => {
     isMutedRef.current = isMuted;
   }, [isMuted]);
 
-  // Audio queue initialization
+  // Audio queue initialization with continuous watchdog
   useEffect(() => {
     audioQueuePlayerRef.current = new AudioQueuePlayer(
       (vol) => setOutputVolume(vol),
       (isPlaying) => {
-        if (isPlaying && connectionState !== "disconnected") {
-          setConnectionState("speaking");
-        } else if (!isPlaying && connectionState === "speaking") {
-          setConnectionState("listening");
+        if (isPlaying) {
+          setConnectionState((prev) => (prev !== "disconnected" && prev !== "error" ? "speaking" : prev));
+        } else {
+          setConnectionState((prev) => (prev === "speaking" ? "listening" : prev));
+          // When AI finishes speaking, immediately ensure the microphone AudioContext is resumed and capturing
+          if (
+            inputAudioCtxRef.current &&
+            (inputAudioCtxRef.current.state === "suspended" || (inputAudioCtxRef.current as any).state === "interrupted")
+          ) {
+            inputAudioCtxRef.current.resume().catch(() => {});
+          }
         }
       }
     );
 
+    // Continuous Sound Server Watchdog: Ensure input microphone AudioContext & tracks stay active
+    const inputWatchdogTimer = setInterval(() => {
+      if (
+        micStreamRef.current &&
+        inputAudioCtxRef.current &&
+        !isMutedRef.current &&
+        wsRef.current &&
+        wsRef.current.readyState === WebSocket.OPEN
+      ) {
+        if (
+          inputAudioCtxRef.current.state === "suspended" ||
+          (inputAudioCtxRef.current as any).state === "interrupted"
+        ) {
+          inputAudioCtxRef.current.resume().catch(() => {});
+        }
+
+        // Detect dead or muted tracks and auto-recover
+        const tracks = micStreamRef.current.getAudioTracks();
+        const isTrackDead = tracks.length === 0 || !tracks.some((t) => t.readyState === "live" && t.enabled);
+        if (isTrackDead && Date.now() - lastAudioProcessTimeRef.current > 3000) {
+          console.warn("[JarvisProvider] Microphone track interrupted. Auto-recovering mic stream...");
+          startMicStream().catch(() => {});
+        }
+      }
+    }, 1000);
+
     return () => {
+      clearInterval(inputWatchdogTimer);
       audioQueuePlayerRef.current?.close();
       stopMicStream();
       closeWebSocket();
@@ -336,18 +388,38 @@ function useJarvisState(onSwitchToClassic?: () => void) {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    if (typeof navigator !== "undefined" && navigator.permissions?.query) {
+      navigator.permissions
+        .query({ name: "microphone" as any })
+        .then((permissionStatus) => {
+          setMicPermissionState(permissionStatus.state as any);
+          permissionStatus.onchange = () => {
+            setMicPermissionState(permissionStatus.state as any);
+          };
+        })
+        .catch(() => {});
+    }
+  }, []);
+
   /* ------- Audio and Mic handling ------- */
   const stopMicStream = useCallback(() => {
     if (processorRef.current) {
-      processorRef.current.disconnect();
+      try {
+        processorRef.current.disconnect();
+      } catch {}
       processorRef.current = null;
     }
     if (inputAudioCtxRef.current) {
-      inputAudioCtxRef.current.close();
+      try {
+        inputAudioCtxRef.current.close();
+      } catch {}
       inputAudioCtxRef.current = null;
     }
     if (micStreamRef.current) {
-      micStreamRef.current.getTracks().forEach((track) => track.stop());
+      try {
+        micStreamRef.current.getTracks().forEach((track) => track.stop());
+      } catch {}
       micStreamRef.current = null;
     }
     setInputVolume(0);
@@ -356,14 +428,60 @@ function useJarvisState(onSwitchToClassic?: () => void) {
   const startMicStream = useCallback(async () => {
     try {
       stopMicStream();
+
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        setMicPermissionState("unsupported");
+        throw new Error("Microphone capture (getUserMedia) is unsupported or blocked by browser security policy.");
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
       });
       micStreamRef.current = stream;
+      setMicPermissionState("granted");
+      setErrorMsg(null);
+
+      // Track lifecycle monitoring
+      stream.getAudioTracks().forEach((track) => {
+        track.onended = () => {
+          console.warn("[JarvisProvider] Microphone hardware track ended. Auto-recovering...");
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !isMutedRef.current) {
+            startMicStream().catch(() => {});
+          }
+        };
+        track.onmute = () => {
+          console.warn("[JarvisProvider] Microphone hardware track muted by OS.");
+        };
+        track.onunmute = () => {
+          console.log("[JarvisProvider] Microphone hardware track unmuted.");
+        };
+      });
 
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      const inputAudioCtx = new AudioCtx({ sampleRate: 16000 });
+      let inputAudioCtx: AudioContext;
+      try {
+        inputAudioCtx = new AudioCtx({ sampleRate: 16000 });
+      } catch {
+        // Fallback for sound drivers / PipeWire / ALSA that require native hardware sample rate (e.g., 44.1k/48k)
+        inputAudioCtx = new AudioCtx();
+      }
       inputAudioCtxRef.current = inputAudioCtx;
+
+      // Attach auto-resume listener for any PipeWire / ALSA interruptions during playback
+      inputAudioCtx.onstatechange = () => {
+        if (inputAudioCtx.state === "suspended" || (inputAudioCtx as any).state === "interrupted") {
+          inputAudioCtx.resume().catch(() => {});
+        }
+      };
+
+      // Resume AudioContext if suspended (critical for modern browser autoplay policy)
+      if (inputAudioCtx.state === "suspended") {
+        await inputAudioCtx.resume();
+      }
 
       const source = inputAudioCtx.createMediaStreamSource(stream);
       const processor = inputAudioCtx.createScriptProcessor(4096, 1, 1);
@@ -372,7 +490,10 @@ function useJarvisState(onSwitchToClassic?: () => void) {
       source.connect(processor);
       processor.connect(inputAudioCtx.destination);
 
+      const actualSampleRate = inputAudioCtx.sampleRate;
+
       processor.onaudioprocess = (e) => {
+        lastAudioProcessTimeRef.current = Date.now();
         if (isMutedRef.current) {
           setInputVolume(0);
           return;
@@ -381,21 +502,48 @@ function useJarvisState(onSwitchToClassic?: () => void) {
         const vol = calculateVolume(inputBuffer);
         setInputVolume(vol);
 
-        const base64Pcm = float32ToInt16Base64(inputBuffer);
+        // Cleanly resample Float32 buffer to exact 16kHz PCM mono for Gemini Live API
+        const resampled16k = resampleTo16k(inputBuffer, actualSampleRate);
+        const base64Pcm = float32ToInt16Base64(resampled16k);
+
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           wsRef.current.send(JSON.stringify({ type: "audio", audio: base64Pcm }));
         }
       };
+      return true;
     } catch (err: any) {
       console.error("Microphone access failed:", err);
-      setErrorMsg(`Microphone access failed: ${err.message || "Microphone unavailable"}`);
+      const isPermDenied =
+        err.name === "NotAllowedError" ||
+        err.name === "PermissionDeniedError" ||
+        err.message?.toLowerCase().includes("permission") ||
+        err.message?.toLowerCase().includes("denied");
+
+      if (isPermDenied) {
+        setMicPermissionState("denied");
+        const msg = "Microphone access blocked. Click the lock/site settings icon in your browser URL bar to allow microphone permissions.";
+        setErrorMsg(msg);
+        toast.error(msg, { duration: 7000 });
+      } else {
+        setErrorMsg(`Microphone access failed: ${err.message || "Microphone unavailable"}`);
+      }
+
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         setConnectionState("listening");
       } else {
         setConnectionState("error");
       }
+      return false;
     }
   }, [stopMicStream]);
+
+  const requestMicPermission = useCallback(async () => {
+    const success = await startMicStream();
+    if (success) {
+      toast.success("Microphone activated and calibrated successfully.");
+    }
+    return success;
+  }, [startMicStream]);
 
   /* ------- Vision Handling ------- */
   const stopVision = useCallback(() => {
@@ -746,10 +894,11 @@ function useJarvisState(onSwitchToClassic?: () => void) {
     };
   }, [closeWebSocket, selectedPersona, agentMemoryState, googleAccessToken, startMicStream, pushLog, pushNotification, appendTranscriptChunk, startVision, stopVision]);
 
-  const handleStartSession = useCallback(() => {
+  const handleStartSession = useCallback(async () => {
     audioQueuePlayerRef.current?.getAudioContext();
+    await startMicStream();
     connectWebSocket();
-  }, [connectWebSocket]);
+  }, [connectWebSocket, startMicStream]);
 
   const handleStopSession = useCallback(() => {
     audioQueuePlayerRef.current?.stopAndClear();
@@ -1045,6 +1194,10 @@ function useJarvisState(onSwitchToClassic?: () => void) {
     setErrorMsg,
     isMuted,
     setIsMuted,
+    micPermissionState,
+    requestMicPermission,
+    startMicStream,
+    stopMicStream,
     handleStartSession,
     handleStopSession,
     handleInterrupt,

@@ -1,0 +1,46 @@
+{
+  "name": "jarvis-skill-hooks",
+  "version": "1.0.0",
+  "description": "Autonomous Skill Harvester & Execution Hooks for J.A.R.V.I.S.",
+  "hooks": {
+    "on_task_start": [
+      {
+        "action": "harvest_skills",
+        "description": "Harvest domain skills matching the incoming prompt from /home/gopi/Documents/jarvis-agents/skills/",
+        "enforce_rules": [
+          ".agents/rules/instructions.md",
+          ".agents/rules/code-before.md",
+          ".agents/rules/skill-harvester.md"
+        ]
+      }
+    ],
+    "on_code_before": [
+      {
+        "action": "query_graph",
+        "target": "codebase-memory-mcp",
+        "description": "Query codebase knowledge graph before writing or modifying any code"
+      },
+      {
+        "action": "apply_ponytail",
+        "description": "Enforce minimalist standard library & native platform features"
+      }
+    ],
+    "on_code_after": [
+      {
+        "action": "detect_changes",
+        "target": "codebase-memory-mcp",
+        "description": "Sync code changes into knowledge graph"
+      },
+      {
+        "action": "verify_build",
+        "command": "npm run build",
+        "description": "Ensure zero build regression"
+      }
+    ]
+  },
+  "skill_registry": {
+    "path": "/home/gopi/Documents/jarvis-agents/skills/",
+    "strategy": "auto_harvest_on_intent",
+    "top_k_skills": 5
+  }
+}

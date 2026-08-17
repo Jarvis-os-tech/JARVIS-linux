@@ -103,7 +103,7 @@ export class JarvisDatabase {
       );
 
       INSERT OR REPLACE INTO schema_info (version, engine_version, initialized_at, updated_at, tables_count, status)
-      VALUES (1, '0.1.0', CAST(strftime('%s', 'now') AS INTEGER), CAST(strftime('%s', 'now') AS INTEGER), 13, 'healthy');
+      VALUES (1, '0.1.0', CAST(strftime('%s', 'now') AS INTEGER), CAST(strftime('%s', 'now') AS INTEGER), 8, 'healthy');
 
       CREATE TABLE IF NOT EXISTS workspace_actions (
         id TEXT PRIMARY KEY,
@@ -114,6 +114,21 @@ export class JarvisDatabase {
         result_json TEXT,
         created_at INTEGER NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS research_cache (
+        hash TEXT PRIMARY KEY,
+        query TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        category TEXT NOT NULL,
+        result_json TEXT NOT NULL,
+        sources_json TEXT NOT NULL,
+        triangulation_json TEXT,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_research_cache_query ON research_cache(query);
+      CREATE INDEX IF NOT EXISTS idx_research_cache_expires ON research_cache(expires_at);
     `);
   }
 
@@ -217,6 +232,11 @@ export const taskRepo = {
     return stmt.all() as TaskRecord[];
   },
 
+  getByStatus(status: string): TaskRecord[] {
+    const stmt = jarvisDb.db.prepare('SELECT * FROM tasks WHERE status = ? ORDER BY created_at DESC');
+    return stmt.all(status) as TaskRecord[];
+  },
+
   getById(id: string): TaskRecord | null {
     const stmt = jarvisDb.db.prepare('SELECT * FROM tasks WHERE id = ?');
     return (stmt.get(id) as TaskRecord) || null;
@@ -312,5 +332,10 @@ export const configRepo = {
       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
     `);
     stmt.run(key, JSON.stringify(value), Date.now());
+  },
+
+  delete(key: string): boolean {
+    const stmt = jarvisDb.db.prepare('DELETE FROM configs WHERE key = ?');
+    return stmt.run(key).changes > 0;
   },
 };

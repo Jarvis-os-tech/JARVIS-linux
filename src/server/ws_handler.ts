@@ -2,6 +2,7 @@ import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { GoogleGenAI, Modality, LiveServerMessage } from '@google/genai';
 import { WORKSPACE_FUNCTION_DECLARATIONS, executeWorkspaceTool, setGlobalGoogleAccessToken, getGlobalGoogleAccessToken } from '../utils/workspace_tools';
+import { googleAuthService } from '../services/google_auth_service';
 import { TELGISH_LANGUAGE_SYSTEM_INSTRUCTION, PERSONAS, getPersonaAudioProfile, VOICE_TRANSFER_SYSTEM_INSTRUCTION } from '../data/personas';
 import { masterOrchestratorInstance } from '../utils/multi_agent_orchestrator';
 import { obsidianDailyLogger } from '../utils/obsidian_logger';
@@ -9,6 +10,7 @@ import { getSystemInfoSummaryForLLM } from '../utils/system_controller';
 import { logVoice, logOrchestrator, logTool } from '../core/logger';
 import { eventBus } from '../core/event_bus';
 import { memoryRepo } from '../db/db';
+import { toolRegistry } from '../tools/tool_registry';
 
 export function attachWebSocketServer(server: http.Server): WebSocketServer {
   const wss = new WebSocketServer({ server, path: '/live' });
@@ -145,6 +147,12 @@ export function attachWebSocketServer(server: http.Server): WebSocketServer {
       if (config.googleAccessToken) {
         currentAccessToken = config.googleAccessToken;
         setGlobalGoogleAccessToken(config.googleAccessToken);
+      } else {
+        const persisted = await googleAuthService.getValidToken();
+        if (persisted) {
+          currentAccessToken = persisted;
+          setGlobalGoogleAccessToken(persisted);
+        }
       }
 
       try {
@@ -227,11 +235,18 @@ ${groundTruthContext}`;
 
                     let toolResult: any;
                     try {
-                      toolResult = await executeWorkspaceTool(
-                        call.name,
-                        (call.args as Record<string, any>) || {},
-                        currentAccessToken
-                      );
+                      const toolArgs = (call.args as Record<string, any>) || {};
+                      const registryTool = toolRegistry.getTool(call.name);
+                      
+                      if (registryTool) {
+                        toolResult = await toolRegistry.execute(call.name, toolArgs);
+                      } else {
+                        toolResult = await executeWorkspaceTool(
+                          call.name,
+                          toolArgs,
+                          currentAccessToken
+                        );
+                      }
                     } catch (toolErr: any) {
                       logTool.error(`Tool execution failed for ${call.name}: ${toolErr.message}`);
                       toolResult = { success: false, error: toolErr.message };
