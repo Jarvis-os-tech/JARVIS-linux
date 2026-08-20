@@ -65,12 +65,12 @@ export function Sidebar() {
 
       <div className="neu-inset hidden rounded-2xl p-3 lg:block">
         <div className="flex items-center gap-2.5">
-          <span className="neu relative grid h-9 w-9 place-items-center rounded-xl">
-            <Boxes className="h-4 w-4 text-cyan-hud" />
+          <span className="neu relative grid h-9 w-9 place-items-center rounded-xl overflow-hidden p-0.5">
+            <img src="/jarvis-logo.png" alt="JARVIS OS" className="h-full w-full object-cover rounded-lg drop-shadow-[0_0_6px_var(--cyan-hud)]" />
           </span>
           <div className="min-w-0">
-            <p className="truncate text-xs font-bold">JARVIS Core</p>
-            <p className="truncate font-mono text-[10px] text-muted-foreground">v4.0 · Console</p>
+            <p className="truncate text-xs font-bold text-foreground">JARVIS OS Core</p>
+            <p className="truncate font-mono text-[10px] text-cyan-hud/80">MK-VII · Online</p>
           </div>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 text-center">

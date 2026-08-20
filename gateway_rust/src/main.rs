@@ -13,17 +13,24 @@ mod playback;
 
 /// Jarvis Audio Gateway — Zero-GC, microsecond-latency Linux audio engine.
 ///
-/// Captures microphone audio (16kHz mono PCM), streams it over TCP to the
-/// Jarvis orchestrator, and plays back response audio (24kHz mono PCM)
-/// through the system speakers.
+/// Captures microphone audio (16kHz mono PCM) and plays back response audio (24kHz mono PCM)
+/// with low-latency Unix Domain Socket streaming directly to the Python Core Engine.
 #[derive(Parser, Debug)]
 #[command(name = "jarvis-gateway", version, about)]
 struct Args {
-    /// Orchestrator host address
+    /// Unix domain socket path for high-performance zero-network IPC
+    #[arg(long, default_value = "/tmp/jarvis_audio.sock")]
+    socket_path: String,
+
+    /// Use TCP bridge instead of Unix domain socket
+    #[arg(long, default_value_t = false)]
+    use_tcp: bool,
+
+    /// Orchestrator host address (when using TCP)
     #[arg(long, default_value = "127.0.0.1")]
     host: String,
 
-    /// Orchestrator TCP port
+    /// Orchestrator TCP port (when using TCP)
     #[arg(long, default_value_t = 3001)]
     port: u16,
 
@@ -56,10 +63,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     info!("========================================");
     info!("  J.A.R.V.I.S. Audio Gateway v{}", env!("CARGO_PKG_VERSION"));
     info!("========================================");
-    info!(
-        "Orchestrator target: {}:{}",
-        args.host, args.port
-    );
+
+    let target = if args.use_tcp {
+        let addr = format!("{}:{}", args.host, args.port);
+        info!("Audio Bridge Target: TCP -> {}", addr);
+        bridge::BridgeTarget::Tcp(addr)
+    } else {
+        info!("Audio Bridge Target: Unix Domain Socket -> {}", args.socket_path);
+        bridge::BridgeTarget::UnixSocket(args.socket_path)
+    };
+
     info!(
         "Capture: {}Hz mono i16 | Playback: {}Hz mono i16",
         args.capture_rate, args.playback_rate
@@ -70,15 +83,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let shutdown = Arc::new(AtomicBool::new(false));
 
     // --- Ring Buffers ---
-    // Capture ring: mic capture thread (producer) → TCP bridge send loop (consumer)
     let capture_rb = HeapRb::<u8>::new(args.buffer_size);
     let (capture_prod, capture_cons) = capture_rb.split();
 
-    // Playback ring: TCP bridge recv loop (producer) → speaker playback thread (consumer)
     let playback_rb = HeapRb::<u8>::new(args.buffer_size * 2); // larger for 24kHz
     let (playback_prod, playback_cons) = playback_rb.split();
 
-    // --- Spawn Capture Thread (dedicated OS thread for real-time cpal) ---
+    // --- Spawn Capture Thread ---
     let capture_rate = args.capture_rate;
     let capture_shutdown = Arc::clone(&shutdown);
     let capture_handle = std::thread::Builder::new()
@@ -89,7 +100,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         })?;
 
-    // --- Spawn Playback Thread (dedicated OS thread for real-time cpal) ---
+    // --- Spawn Playback Thread ---
     let playback_rate = args.playback_rate;
     let playback_shutdown = Arc::clone(&shutdown);
     let playback_handle = std::thread::Builder::new()
@@ -100,11 +111,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         })?;
 
-    // --- Spawn TCP Bridge (on tokio async runtime) ---
-    let bridge_addr = format!("{}:{}", args.host, args.port);
+    // --- Spawn Audio Bridge Task ---
     let bridge_shutdown = Arc::clone(&shutdown);
     let bridge_handle = tokio::spawn(async move {
-        bridge::run(capture_cons, playback_prod, &bridge_addr, bridge_shutdown).await;
+        bridge::run(capture_cons, playback_prod, target, bridge_shutdown).await;
     });
 
     // --- Wait for Ctrl+C ---
@@ -114,14 +124,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     info!("Shutdown signal received. Stopping...");
     shutdown.store(true, Ordering::SeqCst);
 
-    // Give threads a moment to exit
     tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
 
-    // Abort the bridge task if still running
     bridge_handle.abort();
     let _ = bridge_handle.await;
 
-    // Unpark capture/playback threads so they can check the shutdown flag
     capture_handle.thread().unpark();
     playback_handle.thread().unpark();
 

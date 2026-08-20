@@ -1,99 +1,87 @@
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use ringbuf::traits::{Consumer, Producer};
 use ringbuf::{HeapCons, HeapProd};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::{TcpStream, UnixStream};
 use tokio::time::{self, Duration};
 use tracing::{error, info, warn};
 
 /// Maximum backoff delay between reconnection attempts (30 seconds).
 const MAX_BACKOFF_SECS: u64 = 30;
 
-/// Initial backoff delay (2 seconds).
-const INITIAL_BACKOFF_SECS: u64 = 2;
+/// Initial backoff delay (1 second).
+const INITIAL_BACKOFF_SECS: u64 = 1;
 
 /// Interval between send cycles (20ms = ~320 samples at 16kHz = 640 bytes).
 const SEND_INTERVAL_MS: u64 = 20;
 
-/// Maximum frame size to send in one TCP write (32KB — well under TCP MSS).
+/// Maximum frame size to send in one write (32KB).
 const MAX_FRAME_BYTES: usize = 32768;
 
-/// Runs the TCP bridge on the tokio async runtime.
-///
-/// Connects to the orchestrator, sends captured PCM audio (length-prefixed frames),
-/// and receives response audio. Auto-reconnects with exponential backoff on failure.
-///
-/// Wire protocol (both directions):
-///   [payload_length: u32 little-endian][pcm_bytes: &[u8]]
+#[derive(Clone, Debug)]
+pub enum BridgeTarget {
+    UnixSocket(String),
+    Tcp(String),
+}
+
+/// Runs the Audio Bridge on tokio runtime with support for Unix Domain Sockets and TCP.
 pub async fn run(
     capture_cons: HeapCons<u8>,
     playback_prod: HeapProd<u8>,
-    addr: &str,
+    target: BridgeTarget,
     shutdown: Arc<AtomicBool>,
 ) {
     let mut backoff_secs = INITIAL_BACKOFF_SECS;
 
-    // We need interior mutability for the ring buffer halves across the
-    // split read/write tokio tasks. Using Arc<Mutex<>> here is fine because
-    // the lock is held only briefly (memcpy into/out of a local buffer),
-    // never across an await point.
     let capture_cons = Arc::new(tokio::sync::Mutex::new(capture_cons));
     let playback_prod = Arc::new(tokio::sync::Mutex::new(playback_prod));
 
     loop {
         if shutdown.load(Ordering::Relaxed) {
-            info!("[Bridge] Shutdown flag set, exiting");
+            info!("[Bridge] Shutdown flag set, exiting bridge loop");
             return;
         }
 
-        info!("[Bridge] Connecting to {}...", addr);
-
-        match TcpStream::connect(addr).await {
-            Ok(stream) => {
-                info!("[Bridge] Connected to orchestrator at {}", addr);
-                backoff_secs = INITIAL_BACKOFF_SECS; // Reset backoff on success
-
-                // Disable Nagle's algorithm for low-latency sends
-                if let Err(e) = stream.set_nodelay(true) {
-                    warn!("[Bridge] Failed to set TCP_NODELAY: {}", e);
-                }
-
-                let (read_half, write_half) = stream.into_split();
-
-                let send_shutdown = Arc::clone(&shutdown);
-                let send_cons = Arc::clone(&capture_cons);
-                let recv_shutdown = Arc::clone(&shutdown);
-                let recv_prod = Arc::clone(&playback_prod);
-
-                // Run send and receive concurrently; if either fails, reconnect.
-                tokio::select! {
-                    result = send_loop(write_half, send_cons, send_shutdown) => {
-                        match result {
-                            Ok(()) => info!("[Bridge] Send loop ended (shutdown)"),
-                            Err(e) => warn!("[Bridge] Send loop error: {}", e),
-                        }
+        match &target {
+            BridgeTarget::UnixSocket(path) => {
+                info!("[Bridge] Connecting to Unix Domain Socket: {}", path);
+                match UnixStream::connect(Path::new(path)).await {
+                    Ok(stream) => {
+                        info!("[Bridge] Connected to Python Core Engine via Unix Socket: {}", path);
+                        backoff_secs = INITIAL_BACKOFF_SECS;
+                        let (read_half, write_half) = stream.into_split();
+                        run_stream_io(read_half, write_half, &capture_cons, &playback_prod, &shutdown).await;
+                        warn!("[Bridge] Unix socket connection closed, will reconnect...");
                     }
-                    result = recv_loop(read_half, recv_prod, recv_shutdown) => {
-                        match result {
-                            Ok(()) => info!("[Bridge] Recv loop ended (shutdown)"),
-                            Err(e) => warn!("[Bridge] Recv loop error: {}", e),
-                        }
+                    Err(e) => {
+                        warn!("[Bridge] Failed to connect to Unix socket {}: {}. Retrying in {}s...", path, e, backoff_secs);
                     }
                 }
-
-                warn!("[Bridge] Connection lost, will reconnect...");
             }
-            Err(e) => {
-                warn!(
-                    "[Bridge] Failed to connect to {}: {}. Retrying in {}s...",
-                    addr, e, backoff_secs
-                );
+            BridgeTarget::Tcp(addr) => {
+                info!("[Bridge] Connecting to TCP: {}", addr);
+                match TcpStream::connect(addr).await {
+                    Ok(stream) => {
+                        info!("[Bridge] Connected to orchestrator via TCP at {}", addr);
+                        backoff_secs = INITIAL_BACKOFF_SECS;
+                        if let Err(e) = stream.set_nodelay(true) {
+                            warn!("[Bridge] Failed to set TCP_NODELAY: {}", e);
+                        }
+                        let (read_half, write_half) = stream.into_split();
+                        run_stream_io(read_half, write_half, &capture_cons, &playback_prod, &shutdown).await;
+                        warn!("[Bridge] TCP connection closed, will reconnect...");
+                    }
+                    Err(e) => {
+                        warn!("[Bridge] Failed to connect to TCP {}: {}. Retrying in {}s...", addr, e, backoff_secs);
+                    }
+                }
             }
         }
 
-        // Wait before reconnecting (with shutdown check)
+        // Wait before reconnecting
         let sleep_duration = Duration::from_secs(backoff_secs);
         let mut interval = time::interval(Duration::from_millis(200));
         let deadline = time::Instant::now() + sleep_duration;
@@ -106,18 +94,47 @@ pub async fn run(
             }
         }
 
-        // Exponential backoff: 2 → 4 → 8 → 16 → 30 (capped)
         backoff_secs = (backoff_secs * 2).min(MAX_BACKOFF_SECS);
     }
 }
 
-/// Periodically drains captured PCM from the ring buffer and sends
-/// length-prefixed frames over TCP to the orchestrator.
-async fn send_loop(
-    mut writer: tokio::net::tcp::OwnedWriteHalf,
+async fn run_stream_io<R, W>(
+    read_half: R,
+    write_half: W,
+    capture_cons: &Arc<tokio::sync::Mutex<HeapCons<u8>>>,
+    playback_prod: &Arc<tokio::sync::Mutex<HeapProd<u8>>>,
+    shutdown: &Arc<AtomicBool>,
+) where
+    R: AsyncRead + Unpin + Send + 'static,
+    W: AsyncWrite + Unpin + Send + 'static,
+{
+    let send_shutdown = Arc::clone(shutdown);
+    let send_cons = Arc::clone(capture_cons);
+    let recv_shutdown = Arc::clone(shutdown);
+    let recv_prod = Arc::clone(playback_prod);
+
+    tokio::select! {
+        result = send_loop(write_half, send_cons, send_shutdown) => {
+            if let Err(e) = result {
+                warn!("[Bridge] Send loop ended with error: {}", e);
+            }
+        }
+        result = recv_loop(read_half, recv_prod, recv_shutdown) => {
+            if let Err(e) = result {
+                warn!("[Bridge] Recv loop ended with error: {}", e);
+            }
+        }
+    }
+}
+
+async fn send_loop<W>(
+    mut writer: W,
     capture_cons: Arc<tokio::sync::Mutex<HeapCons<u8>>>,
     shutdown: Arc<AtomicBool>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+where
+    W: AsyncWrite + Unpin,
+{
     let mut send_buf = vec![0u8; MAX_FRAME_BYTES];
     let mut interval = time::interval(Duration::from_millis(SEND_INTERVAL_MS));
 
@@ -128,30 +145,28 @@ async fn send_loop(
             return Ok(());
         }
 
-        // Drain available bytes from capture ring buffer
         let available = {
             let mut cons = capture_cons.lock().await;
             cons.pop_slice(&mut send_buf)
         };
 
         if available > 0 {
-            // Write length prefix (u32 LE)
             let len_bytes = (available as u32).to_le_bytes();
             writer.write_all(&len_bytes).await?;
-
-            // Write PCM payload
             writer.write_all(&send_buf[..available]).await?;
+            writer.flush().await?;
         }
     }
 }
 
-/// Continuously reads length-prefixed PCM frames from the orchestrator
-/// and pushes them into the playback ring buffer.
-async fn recv_loop(
-    mut reader: tokio::net::tcp::OwnedReadHalf,
+async fn recv_loop<R>(
+    mut reader: R,
     playback_prod: Arc<tokio::sync::Mutex<HeapProd<u8>>>,
     shutdown: Arc<AtomicBool>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+where
+    R: AsyncRead + Unpin,
+{
     let mut len_buf = [0u8; 4];
     let mut recv_buf = vec![0u8; MAX_FRAME_BYTES * 2];
 
@@ -160,7 +175,6 @@ async fn recv_loop(
             return Ok(());
         }
 
-        // Read 4-byte length prefix
         reader.read_exact(&mut len_buf).await?;
         let payload_len = u32::from_le_bytes(len_buf) as usize;
 
@@ -169,12 +183,7 @@ async fn recv_loop(
         }
 
         if payload_len > recv_buf.len() {
-            error!(
-                "[Bridge] Received oversized frame: {} bytes (max {})",
-                payload_len,
-                recv_buf.len()
-            );
-            // Skip this frame by reading and discarding
+            error!("[Bridge] Oversized frame: {} bytes (max {})", payload_len, recv_buf.len());
             let mut remaining = payload_len;
             while remaining > 0 {
                 let to_read = remaining.min(recv_buf.len());
@@ -184,17 +193,12 @@ async fn recv_loop(
             continue;
         }
 
-        // Read the PCM payload
         reader.read_exact(&mut recv_buf[..payload_len]).await?;
 
-        // Push into playback ring buffer
         let mut prod = playback_prod.lock().await;
         let written = prod.push_slice(&recv_buf[..payload_len]);
         if written < payload_len {
-            warn!(
-                "[Bridge] Playback buffer full, dropped {} bytes",
-                payload_len - written
-            );
+            warn!("[Bridge] Playback buffer full, dropped {} bytes", payload_len - written);
         }
     }
 }

@@ -98,13 +98,7 @@ export class SystemWatchdog {
         );
       }
     } catch (err: any) {
-      logWatchdog.warn('Sound server check failed, attempting to heal...');
-      try {
-        child_process.execSync('systemctl --user restart pipewire.service 2>&1', { timeout: 5000 });
-        logWatchdog.info('Sound server healed successfully.');
-      } catch (healErr: any) {
-        issues.push(`Sound server heal failed: ${healErr?.message || healErr}`);
-      }
+      issues.push(`Sound server check degraded: ${err?.message || 'Audio subsystem status check timeout'}`);
     }
 
     // 5. CPU Temperature Check

@@ -65,15 +65,21 @@ export class PrimeJarvisOrchestrator {
     const { vaultWatcher } = await import('../memory/watcher');
     const { gitMemorySyncer } = await import('../memory/git_syncer');
     const { autoCaptureEngine } = await import('../memory/auto_capture');
+    const { cronEngine } = await import('./cron_engine');
+    const { dualStoreMemory } = await import('../memory/dual_store');
+    const { skillsEngine } = await import('./skills_engine');
 
     vaultWatcher.start();
     gitMemorySyncer.start();
     autoCaptureEngine.start();
+    cronEngine.start();
+    dualStoreMemory.getFrozenSnapshot(); // Pre-warm memory snapshot
+    skillsEngine.listSkills(); // Pre-warm skills index
 
     // 4. Perform initial watchdog health probe
     await watchdog.probe();
 
-    logOrchestrator.info('J.A.R.V.I.S. Prime Orchestrator Core is ONLINE and fully synchronized with Universal Memory.');
+    logOrchestrator.info('J.A.R.V.I.S. Prime Orchestrator Core is ONLINE and fully synchronized with Universal Memory, Cron Loops & Skills Hub.');
   }
 
   /**

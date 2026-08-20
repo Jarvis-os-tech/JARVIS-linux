@@ -28,11 +28,11 @@ export function float32ToInt16Base64(buffer: Float32Array): string {
     const s = Math.max(-1, Math.min(1, buffer[i]));
     int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
   }
-  let binary = '';
   const bytes = new Uint8Array(int16Array.buffer);
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunkSize)));
   }
   return btoa(binary);
 }
@@ -40,16 +40,20 @@ export function float32ToInt16Base64(buffer: Float32Array): string {
 export function base64ToAudioBuffer(base64: string, ctx: AudioContext): AudioBuffer {
   const binary = atob(base64);
   const len = binary.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binary.charCodeAt(i);
+  const numSamples = Math.floor(len / 2);
+  const float32 = new Float32Array(numSamples);
+
+  // Decode 16-bit little-endian PCM to Float32 [-1.0, 1.0] without per-chunk boundary windowing
+  // Raw streaming PCM chunks from Gemini Live are continuous waveforms that must be stitched gaplessly
+  for (let i = 0; i < numSamples; i++) {
+    const low = binary.charCodeAt(i * 2);
+    const high = binary.charCodeAt(i * 2 + 1);
+    let sample = (high << 8) | low;
+    if (sample >= 0x8000) sample -= 0x10000;
+    float32[i] = sample / 32768.0;
   }
-  const int16 = new Int16Array(bytes.buffer);
-  const float32 = new Float32Array(int16.length);
-  for (let i = 0; i < int16.length; i++) {
-    float32[i] = int16[i] / 32768.0;
-  }
-  const buffer = ctx.createBuffer(1, float32.length, 24000);
+
+  const buffer = ctx.createBuffer(1, numSamples, 24000);
   buffer.getChannelData(0).set(float32);
   return buffer;
 }
@@ -73,7 +77,7 @@ export class AudioQueuePlayer {
   private onVolumeChange?: (volume: number) => void;
   private onPlaybackStateChange?: (isPlaying: boolean) => void;
 
-  // DSP Nodes
+  // DSP Nodes for Studio-Quality Human Voice Warmth & Clarity
   private personaGainNode: GainNode | null = null;
   private bassFilterNode: BiquadFilterNode | null = null;
   private midFilterNode: BiquadFilterNode | null = null;
@@ -83,6 +87,9 @@ export class AudioQueuePlayer {
 
   private currentProfile: PersonaAudioProfile | null = null;
   private watchdogTimer: any = null;
+  private lastPlaybackEndTimeMs = 0;
+  private lastPlaybackEndAudioTime = 0;
+  private isBufferingInitial = true;
 
   constructor(onVolumeChange?: (vol: number) => void, onPlaybackStateChange?: (isPlaying: boolean) => void) {
     this.onVolumeChange = onVolumeChange;
@@ -92,40 +99,30 @@ export class AudioQueuePlayer {
   private initDspGraph(ctx: AudioContext): void {
     try {
       this.personaGainNode = ctx.createGain();
-      this.personaGainNode.gain.value = 1.0;
-
-      // Bass EQ (Low Shelf @ 150Hz)
       this.bassFilterNode = ctx.createBiquadFilter();
       this.bassFilterNode.type = 'lowshelf';
-      this.bassFilterNode.frequency.value = 150;
-      this.bassFilterNode.gain.value = 0.0;
+      this.bassFilterNode.frequency.value = 220; // 220Hz warm chest resonance
 
-      // Mid EQ (Peaking @ 1500Hz)
       this.midFilterNode = ctx.createBiquadFilter();
       this.midFilterNode.type = 'peaking';
-      this.midFilterNode.frequency.value = 1500;
+      this.midFilterNode.frequency.value = 2800; // 2.8kHz vocal clarity & presence
       this.midFilterNode.Q.value = 1.0;
-      this.midFilterNode.gain.value = 0.0;
 
-      // Treble EQ (High Shelf @ 6000Hz)
       this.trebleFilterNode = ctx.createBiquadFilter();
       this.trebleFilterNode.type = 'highshelf';
-      this.trebleFilterNode.frequency.value = 6000;
-      this.trebleFilterNode.gain.value = 0.0;
+      this.trebleFilterNode.frequency.value = 7500; // 7.5kHz air brilliance
 
-      // Dynamics Compressor (Vocal Clarity & Anti-clipping)
       this.compressorNode = ctx.createDynamicsCompressor();
-      this.compressorNode.threshold.value = -24;
-      this.compressorNode.knee.value = 12;
-      this.compressorNode.ratio.value = 3.0;
-      this.compressorNode.attack.value = 0.003;
-      this.compressorNode.release.value = 0.25;
+      this.compressorNode.threshold.value = -20; // Soft knee threshold
+      this.compressorNode.knee.value = 12; // Smooth curve transition
+      this.compressorNode.ratio.value = 2.5; // Natural vocal compression
+      this.compressorNode.attack.value = 0.005; // Fast 5ms attack
+      this.compressorNode.release.value = 0.180; // 180ms smooth release
 
-      // Master Gain
       this.masterGainNode = ctx.createGain();
-      this.masterGainNode.gain.value = 1.0;
+      this.masterGainNode.gain.value = 0.92; // Dedicated 1.5dB output headroom protection
 
-      // Connect DSP Chain: personaGain -> bass -> mid -> treble -> compressor -> masterGain -> destination
+      // Audio Graph Pipeline: Source -> Persona Gain -> Low Shelf -> Mid -> High Shelf -> Compressor -> Master Headroom Gain -> Destination
       this.personaGainNode.connect(this.bassFilterNode);
       this.bassFilterNode.connect(this.midFilterNode);
       this.midFilterNode.connect(this.trebleFilterNode);
@@ -144,7 +141,8 @@ export class AudioQueuePlayer {
   public getAudioContext(): AudioContext {
     if (!this.ctx || this.ctx.state === 'closed') {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      this.ctx = new AudioCtx({ sampleRate: 24000 });
+      // Use system native sample rate (e.g. 48kHz) to prevent Linux PipeWire/ALSA clock drift
+      this.ctx = new AudioCtx();
       this.initDspGraph(this.ctx);
 
       // Sound Server Watchdog: Listen for PipeWire/ALSA server disconnects or suspend states
@@ -187,25 +185,25 @@ export class AudioQueuePlayer {
     try {
       if (this.personaGainNode) {
         this.personaGainNode.gain.cancelScheduledValues(now);
-        this.personaGainNode.gain.setTargetAtTime(profile.gain || 1.0, now, ramp);
+        this.personaGainNode.gain.setTargetAtTime(profile.gain || 0.98, now, ramp);
       }
       if (this.bassFilterNode) {
         this.bassFilterNode.gain.cancelScheduledValues(now);
-        this.bassFilterNode.gain.setTargetAtTime(profile.bassGainDb || 0.0, now, ramp);
+        this.bassFilterNode.gain.setTargetAtTime(profile.bassGainDb ?? 0, now, ramp);
       }
       if (this.midFilterNode) {
         this.midFilterNode.gain.cancelScheduledValues(now);
-        this.midFilterNode.gain.setTargetAtTime(profile.midGainDb || 0.0, now, ramp);
+        this.midFilterNode.gain.setTargetAtTime(profile.midGainDb ?? 0, now, ramp);
       }
       if (this.trebleFilterNode) {
         this.trebleFilterNode.gain.cancelScheduledValues(now);
-        this.trebleFilterNode.gain.setTargetAtTime(profile.trebleGainDb || 0.0, now, ramp);
+        this.trebleFilterNode.gain.setTargetAtTime(profile.trebleGainDb ?? 0, now, ramp);
       }
       if (this.compressorNode) {
         this.compressorNode.threshold.cancelScheduledValues(now);
-        this.compressorNode.threshold.setTargetAtTime(profile.compressorThreshold ?? -24, now, ramp);
+        this.compressorNode.threshold.setTargetAtTime(profile.compressorThreshold ?? -20, now, ramp);
         this.compressorNode.ratio.cancelScheduledValues(now);
-        this.compressorNode.ratio.setTargetAtTime(profile.compressorRatio ?? 3.0, now, ramp);
+        this.compressorNode.ratio.setTargetAtTime(profile.compressorRatio ?? 2.5, now, ramp);
       }
     } catch (err) {
       console.warn('[AudioQueuePlayer] Failed to apply DSP audio profile:', err);
@@ -218,6 +216,9 @@ export class AudioQueuePlayer {
 
   public enqueueChunk(base64Pcm: string) {
     const ctx = this.getAudioContext();
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
     try {
       const audioBuffer = base64ToAudioBuffer(base64Pcm, ctx);
       const channelData = audioBuffer.getChannelData(0);
@@ -237,8 +238,17 @@ export class AudioQueuePlayer {
       }
 
       const currentTime = ctx.currentTime;
-      if (this.nextStartTime < currentTime) {
-        this.nextStartTime = currentTime + 0.01; // small buffer to prevent click
+      const isQueueIdle = this.activeSources.length === 0;
+
+      // Adaptive Jitter Buffer:
+      // 1. If starting a fresh utterance or queue idle: give 45ms initial lead cushion to absorb packet arrival variance
+      // 2. If small underrun occurred: resume with 15ms smoothing lead to prevent cascading stutter
+      // 3. Otherwise: schedule seamlessly at exact end of previous chunk (gapless playback)
+      if (isQueueIdle || this.isBufferingInitial || this.nextStartTime <= currentTime) {
+        this.nextStartTime = currentTime + 0.045;
+        this.isBufferingInitial = false;
+      } else if (this.nextStartTime < currentTime) {
+        this.nextStartTime = currentTime + 0.015;
       }
 
       source.start(this.nextStartTime);
@@ -255,6 +265,10 @@ export class AudioQueuePlayer {
           this.activeSources.splice(idx, 1);
         }
         if (this.activeSources.length === 0) {
+          this.lastPlaybackEndTimeMs = Date.now();
+          this.lastPlaybackEndAudioTime = ctx.currentTime;
+          this.isBufferingInitial = true;
+          this.nextStartTime = 0;
           if (this.onPlaybackStateChange) {
             this.onPlaybackStateChange(false);
           }
@@ -268,6 +282,17 @@ export class AudioQueuePlayer {
     }
   }
 
+  public isPlaying(): boolean {
+    if (this.activeSources.length > 0) return true;
+    if (this.ctx && this.nextStartTime > this.ctx.currentTime) return true;
+    return false;
+  }
+
+  public isEchoSuppressionActive(cooldownMs = 350): boolean {
+    if (this.isPlaying()) return true;
+    return Date.now() - this.lastPlaybackEndTimeMs < cooldownMs;
+  }
+
   public stopAndClear() {
     this.activeSources.forEach((source) => {
       try {
@@ -278,6 +303,8 @@ export class AudioQueuePlayer {
       }
     });
     this.activeSources = [];
+    this.lastPlaybackEndTime = 0;
+    this.isBufferingInitial = true;
     if (this.ctx) {
       this.nextStartTime = this.ctx.currentTime;
     }

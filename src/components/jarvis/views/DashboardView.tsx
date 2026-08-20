@@ -225,9 +225,13 @@ export function DashboardView() {
           <div className="flex items-center gap-3">
             <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
             <div>
-              <span className="font-bold text-rose-300 block">Microphone Access Blocked or Restricted</span>
+              <span className="font-bold text-rose-300 block">Microphone Access Restricted</span>
               <span className="text-[11px] text-rose-200/80">
-                Click the <strong>lock / site settings icon</strong> next to <code className="bg-black/40 px-1 py-0.5 rounded text-rose-300">localhost:3000</code> in your browser address bar and set <strong>Microphone</strong> to <strong>Allow</strong>.
+                {typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window) ? (
+                  <>In the desktop app, click <strong>Activate Microphone</strong> below to grant audio capture permissions.</>
+                ) : (
+                  <>Click the <strong>lock / site settings icon</strong> next to <code className="bg-black/40 px-1 py-0.5 rounded text-rose-300">localhost:3000</code> in your browser address bar and set <strong>Microphone</strong> to <strong>Allow</strong>.</>
+                )}
               </span>
             </div>
           </div>

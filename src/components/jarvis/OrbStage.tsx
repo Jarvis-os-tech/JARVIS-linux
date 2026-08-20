@@ -22,7 +22,7 @@ function loadHue(load: number) {
 }
 
 export function OrbStage() {
-  const { thinking, cpu, ram, net, connectionState, inputVolume, outputVolume, selectedPersona } = useJarvis();
+  const { thinking, cpu, ram, net, connectionState, inputVolume, outputVolume, selectedPersona, liveSubtitle } = useJarvis();
   const stats = useStats();
 
   const isSpeaking = connectionState === "speaking";
@@ -47,7 +47,15 @@ export function OrbStage() {
       <div className="brushed pointer-events-none absolute inset-0 opacity-60" />
       <div className="pointer-events-none absolute -left-1/4 top-0 h-full w-1/3 -skew-x-12 animate-sweep bg-[linear-gradient(90deg,transparent,color-mix(in_oklab,var(--cyan-hud)_12%,transparent),transparent)]" />
 
-      <svg viewBox="0 0 760 520" className="relative h-full max-h-[24rem] w-full">
+      {/* Latency-Aware Instant Voice Subtitle Pill */}
+      {liveSubtitle && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 max-w-[90%] rounded-full border border-cyan-500/40 bg-black/75 px-4 py-1.5 backdrop-blur-md text-xs text-cyan-300 font-medium tracking-wide shadow-[0_0_20px_rgba(6,182,212,0.35)] animate-fade-in flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-cyan-400 animate-ping" />
+          <span className="truncate">{liveSubtitle}</span>
+        </div>
+      )}
+
+      <svg viewBox="0 0 760 520" className="relative h-full max-h-[34rem] w-full">
         <defs>
           <radialGradient id="domeGrad" cx="50%" cy="34%">
             <stop offset="0%" stopColor="oklch(1 0 0)" stopOpacity="0.16" />

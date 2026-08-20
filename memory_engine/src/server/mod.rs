@@ -28,6 +28,11 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/memory/graph", get(get_graph_handler))
         .route("/api/memory/buffers", get(list_buffers_handler))
         .route("/ws/memory/stream", get(ws_handler))
+        .route("/api/memory/kg/query", post(kg_query_handler))
+        .route("/api/memory/kg/supersede", post(kg_supersede_handler))
+        .route("/api/memory/diary/write", post(diary_write_handler))
+        .route("/api/memory/diary/read", get(diary_read_handler))
+        .route("/api/memory/context/snapshot", get(context_snapshot_handler))
         .layer(cors)
         .with_state(state)
 }

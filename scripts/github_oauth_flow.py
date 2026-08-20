@@ -312,16 +312,19 @@ def fetch_github_userinfo(access_token: str) -> Dict[str, Any]:
     return user_data
 
 
-def save_to_jarvis_sqlite(auth_payload: Dict[str, Any]) -> bool:
+def save_to_jarvis_sqlite(auth_payload: Dict[str, Any], target_db_path: Optional[Path] = None) -> bool:
     """Save token directly into J.A.R.V.I.S. local SQLite database (jarvis.db)."""
-    db_paths = [
+    db_paths = [target_db_path] if target_db_path else [
         Path.cwd() / "data" / "jarvis.db",
         Path("/home/gopi/Downloads/JARVIS-V0/data/jarvis.db"),
     ]
 
     for db_path in db_paths:
-        if db_path.parent.exists():
+        if not db_path:
+            continue
+        if db_path.parent.exists() or target_db_path:
             try:
+                db_path.parent.mkdir(parents=True, exist_ok=True)
                 conn = sqlite3.connect(str(db_path))
                 cursor = conn.cursor()
                 cursor.execute("""
@@ -351,11 +354,15 @@ def save_to_jarvis_sqlite(auth_payload: Dict[str, Any]) -> bool:
     return False
 
 
-def save_to_json_file(auth_payload: Dict[str, Any]) -> str:
+def save_to_json_file(auth_payload: Dict[str, Any], target_json_path: Optional[Path] = None) -> str:
     """Save credentials to local JSON file."""
-    data_dir = Path.cwd() / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    out_file = data_dir / "github_auth.json"
+    if target_json_path:
+        out_file = target_json_path
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        data_dir = Path.cwd() / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        out_file = data_dir / "github_auth.json"
 
     with open(out_file, "w", encoding="utf-8") as f:
         json.dump(auth_payload, f, indent=2)

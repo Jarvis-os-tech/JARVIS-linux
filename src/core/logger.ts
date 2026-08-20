@@ -10,7 +10,11 @@ export type SubsystemTag =
   | 'WATCHDOG'
   | 'SWITCH_MANAGER'
   | 'OBSIDIAN'
-  | 'SERVER';
+  | 'SERVER'
+  | 'SECURITY'
+  | 'MEMORY'
+  | 'CRON'
+  | 'SKILL';
 
 export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
 
@@ -53,6 +57,10 @@ const SUBSYSTEM_COLORS: Record<SubsystemTag, string> = {
   SWITCH_MANAGER: ANSI.dim,
   OBSIDIAN: ANSI.magenta,
   SERVER: ANSI.green,
+  SECURITY: ANSI.red,
+  MEMORY: ANSI.magenta,
+  CRON: ANSI.cyan,
+  SKILL: ANSI.green,
 };
 
 function formatTime(): string {
@@ -156,3 +164,10 @@ export const logWatchdog = createSubsystemLogger('WATCHDOG');
 export const logSwitch = createSubsystemLogger('SWITCH_MANAGER');
 export const logObsidian = createSubsystemLogger('OBSIDIAN');
 export const logServer = createSubsystemLogger('SERVER');
+export const logSecurity = createSubsystemLogger('SECURITY');
+export const logMemory = createSubsystemLogger('MEMORY');
+export const logCron = createSubsystemLogger('CRON');
+export const logSkill = createSubsystemLogger('SKILL');
+
+// Expose the underlying pino logger for low-level integrations (used by console sanitizer)
+export const rawPino = pinoLogger;

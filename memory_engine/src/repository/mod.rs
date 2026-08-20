@@ -1,11 +1,15 @@
 pub mod conversation_repo;
+pub mod diary_repo;
 pub mod edge_repo;
 pub mod graph_repo;
+pub mod knowledge_triple_repo;
 pub mod node_repo;
 
 pub use conversation_repo::ConversationRepository;
+pub use diary_repo::DiaryRepository;
 pub use edge_repo::EdgeRepository;
 pub use graph_repo::GraphRepository;
+pub use knowledge_triple_repo::KnowledgeTripleRepository;
 pub use node_repo::NodeRepository;
 
 #[cfg(test)]

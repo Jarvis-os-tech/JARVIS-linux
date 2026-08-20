@@ -55,18 +55,19 @@ export function TopBar() {
   return (
     <header className="bezel gloss relative z-50 flex h-[4.25rem] items-center justify-between gap-3 rounded-2xl px-4 sm:px-5">
       <div className="flex min-w-0 items-center gap-3">
-        <span className="neu relative grid h-11 w-11 shrink-0 place-items-center rounded-2xl">
-          <span className="absolute inset-1 animate-ping-ring rounded-xl border border-cyan-hud/40" />
-          <svg viewBox="0 0 24 24" fill="none" className="h-6 w-6 drop-shadow-[0_0_8px_var(--cyan-hud)]">
-            <path d="M12 2L2 8l10 6 10-6-10-6z" stroke="var(--cyan-hud)" strokeWidth="1.6" strokeLinejoin="round" />
-            <path d="M2 16l10 6 10-6M2 12l10 6 10-6" stroke="var(--cyan-hud)" strokeWidth="1.6" strokeLinejoin="round" />
-          </svg>
+        <span className="neu relative grid h-11 w-11 shrink-0 place-items-center rounded-2xl overflow-hidden p-0.5 group">
+          <span className="absolute inset-0 animate-ping-ring rounded-2xl border border-cyan-hud/40 pointer-events-none" />
+          <img
+            src="/jarvis-logo.png"
+            alt="JARVIS OS"
+            className="h-full w-full object-cover rounded-[14px] drop-shadow-[0_0_10px_var(--cyan-hud)] transition-transform duration-300 group-hover:scale-105"
+          />
         </span>
         <div className="min-w-0">
-          <span className="font-display etched block truncate text-lg font-bold tracking-[0.3em] text-foreground">
-            JARVIS
+          <span className="font-display etched block truncate text-lg font-bold tracking-[0.25em] text-foreground">
+            JARVIS OS
           </span>
-          <span className="block text-[9.5px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">
+          <span className="block text-[9.5px] font-semibold uppercase tracking-[0.28em] text-cyan-hud/90">
             Console MK-VII
           </span>
         </div>

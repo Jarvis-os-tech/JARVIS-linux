@@ -323,3 +323,42 @@ pub struct KnowledgeEdge {
     pub weight: f64,
     pub created_at: i64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnowledgeTriple {
+    pub id: String,
+    pub subject: String,
+    pub predicate: String,
+    pub object: String,
+    pub valid_from: i64,
+    pub valid_to: Option<i64>,
+    pub confidence: f64,
+    pub source_node_id: Option<String>,
+    pub source: String,
+    pub agent_id: Option<String>,
+    pub metadata_json: Option<String>,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiaryEntry {
+    pub id: String,
+    pub agent_id: String,
+    pub session_id: Option<String>,
+    pub entry_type: String,
+    pub content: String,
+    pub tags_json: Option<String>,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventMesh {
+    pub id: String,
+    pub event_type: String,
+    pub source_agent: String,
+    pub target_agent: Option<String>,
+    pub payload_json: String,
+    pub status: String,
+    pub created_at: i64,
+    pub processed_at: Option<i64>,
+}

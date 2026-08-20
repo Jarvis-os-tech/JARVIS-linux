@@ -650,6 +650,56 @@ export function createApiRouter(): Router {
     }
   });
 
+  router.post('/memory/kg/query', async (req: Request, res: Response) => {
+    try {
+      const { subject, predicate, as_of } = req.body;
+      if (!subject) return res.status(400).json({ success: false, error: 'subject is required' });
+      const { memoryClient } = await import('../memory/client');
+      const triples = await memoryClient.queryKG(subject, predicate, as_of);
+      res.json({ success: true, triples });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/memory/kg/supersede', async (req: Request, res: Response) => {
+    try {
+      const { subject, predicate, old_object, new_object } = req.body;
+      if (!subject || !predicate || !old_object || !new_object) {
+        return res.status(400).json({ success: false, error: 'subject, predicate, old_object, and new_object are required' });
+      }
+      const { memoryClient } = await import('../memory/client');
+      const triple = await memoryClient.supersedeKG(subject, predicate, old_object, new_object);
+      res.json({ success: !!triple, triple });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/memory/diary/write', async (req: Request, res: Response) => {
+    try {
+      const { content, agent_id, entry_type } = req.body;
+      if (!content) return res.status(400).json({ success: false, error: 'content is required' });
+      const { memoryClient } = await import('../memory/client');
+      const success = await memoryClient.writeDiary(content, agent_id, entry_type);
+      res.json({ success });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/memory/diary/read', async (req: Request, res: Response) => {
+    try {
+      const agentId = req.query.agent_id as string | undefined;
+      const limit = req.query.limit ? Number(req.query.limit) : 50;
+      const { memoryClient } = await import('../memory/client');
+      const entries = await memoryClient.readDiary(agentId, limit);
+      res.json({ success: true, count: entries.length, entries });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   router.post('/agents/delegate', async (req: Request, res: Response) => {
     try {
       const { targetManagerId, taskDescription } = req.body;
@@ -1384,6 +1434,25 @@ export function createApiRouter(): Router {
   router.get('/orchestrator/prompts', (_req: Request, res: Response) => {
     try {
       res.json(getAllPersonaPrompts());
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Iron Man Mark Suit Pre-Flight & Full Systems Diagnostic Sweep
+  router.get('/diagnostics/full-sweep', async (_req: Request, res: Response) => {
+    try {
+      const { suitDiagnosticsEngine } = await import('../core/suit_diagnostics');
+      res.json(await suitDiagnosticsEngine.runFullPreFlightSweep());
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/diagnostics/full-sweep', async (_req: Request, res: Response) => {
+    try {
+      const { suitDiagnosticsEngine } = await import('../core/suit_diagnostics');
+      res.json(await suitDiagnosticsEngine.runFullPreFlightSweep());
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

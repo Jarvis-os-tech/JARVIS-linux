@@ -9,6 +9,9 @@ import {
   FlushResponse,
   TreeDrilldownResponse,
   MemoryEvent,
+  KnowledgeTriple,
+  DiaryEntry,
+  ContextSnapshot
 } from './types';
 
 export class MemoryClient {
@@ -274,6 +277,111 @@ export class MemoryClient {
       logTool.warn(`[MemoryClient] Tree drilldown error: ${err.message}`);
     }
 
+    return null;
+  }
+  /**
+   * 6. Query Knowledge Graph
+   */
+  public async queryKG(subject: string, predicate?: string, asOf?: number): Promise<KnowledgeTriple[]> {
+    const isOnline = await this.checkHealth();
+    if (!isOnline) return [];
+
+    try {
+      let url = `${this.baseUrl}/api/memory/kg/query?subject=${encodeURIComponent(subject)}`;
+      if (predicate) url += `&predicate=${encodeURIComponent(predicate)}`;
+      if (asOf) url += `&as_of=${asOf}`;
+
+      const res = await fetch(url);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (err: any) {
+      logTool.warn(`[MemoryClient] KG query error: ${err.message}`);
+    }
+    return [];
+  }
+
+  /**
+   * 7. Supersede Knowledge Graph Object
+   */
+  public async supersedeKG(subject: string, predicate: string, oldObject: string, newObject: string): Promise<KnowledgeTriple | null> {
+    const isOnline = await this.checkHealth();
+    if (!isOnline) return null;
+
+    try {
+      const res = await fetch(`${this.baseUrl}/api/memory/kg/supersede`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject, predicate, old_object: oldObject, new_object: newObject }),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (err: any) {
+      logTool.warn(`[MemoryClient] KG supersede error: ${err.message}`);
+    }
+    return null;
+  }
+
+  /**
+   * 8. Write Diary Entry
+   */
+  public async writeDiary(content: string, agentId?: string, entryType?: string): Promise<boolean> {
+    const isOnline = await this.checkHealth();
+    if (!isOnline) return false;
+
+    try {
+      const res = await fetch(`${this.baseUrl}/api/memory/diary/write`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, agent_id: agentId, entry_type: entryType }),
+      });
+      return res.ok;
+    } catch (err: any) {
+      logTool.warn(`[MemoryClient] Diary write error: ${err.message}`);
+    }
+    return false;
+  }
+
+  /**
+   * 9. Read Diary Entries
+   */
+  public async readDiary(agentId?: string, limit?: number): Promise<DiaryEntry[]> {
+    const isOnline = await this.checkHealth();
+    if (!isOnline) return [];
+
+    try {
+      let url = `${this.baseUrl}/api/memory/diary/read`;
+      const params = new URLSearchParams();
+      if (agentId) params.append('agent_id', agentId);
+      if (limit) params.append('limit', limit.toString());
+      if (params.toString()) url += `?${params.toString()}`;
+
+      const res = await fetch(url);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (err: any) {
+      logTool.warn(`[MemoryClient] Diary read error: ${err.message}`);
+    }
+    return [];
+  }
+
+  /**
+   * 10. Get Context Snapshot
+   */
+  public async getContextSnapshot(): Promise<ContextSnapshot | null> {
+    const isOnline = await this.checkHealth();
+    if (!isOnline) return null;
+
+    try {
+      const res = await fetch(`${this.baseUrl}/api/memory/context/snapshot`);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (err: any) {
+      logTool.warn(`[MemoryClient] Context snapshot error: ${err.message}`);
+    }
     return null;
   }
 }

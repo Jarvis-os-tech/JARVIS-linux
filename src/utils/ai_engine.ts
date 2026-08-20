@@ -8,6 +8,8 @@ import { getSystemInfoSummaryForLLM } from './system_controller';
 import { TELGISH_LANGUAGE_SYSTEM_INSTRUCTION } from '../data/personas';
 import { loadAgentMemory, formatMemoryForSystemInstruction } from './agent_memory';
 import { GoogleGenAI } from '@google/genai';
+import { groundTruthRegistry } from '../core/ground_truth_registry';
+import { toolRegistry } from '../tools/tool_registry';
 
 export type AiProvider = 'auto' | 'groq' | 'nvidia' | 'gemini';
 
@@ -58,6 +60,13 @@ export const PERSONA_MODEL_MATRIX: Record<string, PersonaModelPolicy> = {
     fallbackProvider: 'nvidia',
     strategy: 'High-speed response recovery. If 550B fails, the 30B Lightning MoE maintains puckish composure and voice continuity without lagging the WebRTC audio loop.'
   },
+  hermes: {
+    primary: 'nvidia/nemotron-3-ultra-550b',
+    fallback: 'meta/llama-3.3-70b-instruct',
+    primaryProvider: 'nvidia',
+    fallbackProvider: 'groq',
+    strategy: 'High-speed fleet coordination. If 550B drops, Llama-3.3-70B steps in to maintain autonomous fleet orchestration and subagent dispatching without interruption.'
+  },
   friday: {
     primary: 'nvidia/nemotron-3-ultra-550b',
     fallback: 'meta/llama-3.1-70b-instruct',
@@ -88,29 +97,9 @@ export const PERSONA_MODEL_MATRIX: Record<string, PersonaModelPolicy> = {
   }
 };
 
-// Convert Gemini tool declarations to lightweight OpenAI tool schema for Groq & NVIDIA NIM
+// Unified OpenAI-compatible tool schema for Groq & NVIDIA NIM
 export function getOpenAiFormatTools(): any[] {
-  return WORKSPACE_FUNCTION_DECLARATIONS.map((fn) => ({
-    type: 'function',
-    function: {
-      name: fn.name,
-      description: fn.description,
-      parameters: {
-        type: 'object',
-        properties: Object.fromEntries(
-          Object.entries(fn.parameters?.properties || {}).map(([k, v]) => [
-            k,
-            {
-              type: v.type.toLowerCase(),
-              description: v.description,
-              ...(v.enum ? { enum: v.enum } : {})
-            }
-          ])
-        ),
-        required: fn.parameters?.required || []
-      }
-    }
-  }));
+  return groundTruthRegistry.getOpenAiUnifiedTools();
 }
 
 // Fast timeout fetch helper to guarantee sub-second circuit-breaking on slow/hanging endpoints
@@ -245,8 +234,8 @@ export async function executeGeminiChat(
   const chat = ai.chats.create({
     model,
     config: {
-      systemInstruction: fullSystemInstruction,
-      tools: [{ functionDeclarations: WORKSPACE_FUNCTION_DECLARATIONS as any }]
+      systemInstruction: `${fullSystemInstruction}\n\n${groundTruthRegistry.getCanonicalCapabilityManifest()}`,
+      tools: [{ functionDeclarations: groundTruthRegistry.getUnifiedFunctionDeclarations() as any }]
     }
   });
 
@@ -257,12 +246,24 @@ export async function executeGeminiChat(
     const functionResponses = [];
     for (const call of response.functionCalls) {
       console.log(`[Gemini Tool Call] ${call.name}:`, call.args);
-      const toolResult = await executeWorkspaceTool(call.name, (call.args as Record<string, any>) || {}, token);
-      actionsExecuted.push({ toolName: call.name, args: call.args, result: toolResult });
+      let toolResult: any;
+      try {
+        const regTool = toolRegistry.getTool(call.name);
+        if (regTool) {
+          toolResult = await toolRegistry.execute(call.name, (call.args as Record<string, any>) || {});
+        } else {
+          toolResult = await executeWorkspaceTool(call.name, (call.args as Record<string, any>) || {}, token);
+        }
+      } catch (err: any) {
+        toolResult = { success: false, error: err.message };
+      }
+
+      const verified = groundTruthRegistry.verifyToolResult(call.name, toolResult);
+      actionsExecuted.push({ toolName: call.name, args: call.args, result: verified.data || toolResult });
       functionResponses.push({
         id: call.id,
         name: call.name,
-        response: { output: toolResult }
+        response: { output: verified.data || toolResult }
       });
     }
     response = await chat.sendMessage({
@@ -294,7 +295,8 @@ ${TELGISH_LANGUAGE_SYSTEM_INSTRUCTION}
 ${groundTruthContext}`;
 
   const universalMemoryPrompt = formatMemoryForSystemInstruction(loadAgentMemory());
-  const combinedSystemPrompt = `${options.systemInstruction || ''}\n${workspaceInstruction}\n\n${universalMemoryPrompt}`.trim();
+  const capabilityManifest = groundTruthRegistry.getCanonicalCapabilityManifest();
+  const combinedSystemPrompt = `${options.systemInstruction || ''}\n${workspaceInstruction}\n\n${universalMemoryPrompt}\n\n${capabilityManifest}`.trim();
   const personaPolicy = options.personaId ? PERSONA_MODEL_MATRIX[options.personaId] : undefined;
 
   const openAiTools = getOpenAiFormatTools();
@@ -337,14 +339,26 @@ ${groundTruthContext}`;
           }
 
           console.log(`[${engine.toUpperCase()} Tool Call] ${fnName}:`, parsedArgs);
-          const toolResult = await executeWorkspaceTool(fnName, parsedArgs, token);
-          actionsExecuted.push({ toolName: fnName, args: parsedArgs, result: toolResult });
+          let toolResult: any;
+          try {
+            const regTool = toolRegistry.getTool(fnName);
+            if (regTool) {
+              toolResult = await toolRegistry.execute(fnName, parsedArgs);
+            } else {
+              toolResult = await executeWorkspaceTool(fnName, parsedArgs, token);
+            }
+          } catch (err: any) {
+            toolResult = { success: false, error: err.message };
+          }
+
+          const verified = groundTruthRegistry.verifyToolResult(fnName, toolResult);
+          actionsExecuted.push({ toolName: fnName, args: parsedArgs, result: verified.data || toolResult });
 
           messages.push({
             role: 'tool',
             name: fnName,
             tool_call_id: toolCall.id,
-            content: JSON.stringify(toolResult)
+            content: JSON.stringify(verified.data || toolResult)
           });
         }
       } else {

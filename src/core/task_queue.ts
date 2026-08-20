@@ -1,6 +1,7 @@
 import { logTaskQueue } from './logger';
 import { eventBus } from './event_bus';
 import { taskRepo, TaskRecord } from '../db/db';
+import { memoryClient } from '../memory/client';
 
 export type TaskPriority = 1 | 2 | 3 | 4; // 1: CRITICAL, 2: HIGH, 3: NORMAL, 4: LOW
 
@@ -118,6 +119,14 @@ export class TaskPriorityQueue {
       taskRepo.updateStatus(task.id, 'completed', result);
       logTaskQueue.info(`Task completed: ${task.title} (${task.id})`);
       eventBus.emit('task:completed', { taskId: task.id, result });
+      
+      memoryClient.createNode({
+        kind: 'pattern',
+        tier: 'working',
+        title: `Task Success: ${task.title}`,
+        content: `Task ${task.id} completed successfully. Result: ${JSON.stringify(result)}`,
+        tags: ['task_queue', 'success', task.id]
+      }).catch(err => logTaskQueue.warn(`Failed to log task success to memory: ${err.message}`));
     } catch (err: any) {
       const errMsg = err?.message || String(err);
 
@@ -134,6 +143,14 @@ export class TaskPriorityQueue {
         logTaskQueue.error(`Task failed: ${task.title} (${task.id}) - ${errMsg}`);
         taskRepo.updateStatus(task.id, 'failed', null, errMsg);
         eventBus.emit('task:failed', { taskId: task.id, error: errMsg });
+        
+        memoryClient.createNode({
+          kind: 'lesson',
+          tier: 'working',
+          title: `Task Failed: ${task.title}`,
+          content: `Task ${task.id} failed. Error: ${errMsg}`,
+          tags: ['task_queue', 'failure', task.id]
+        }).catch(err => logTaskQueue.warn(`Failed to log task failure to memory: ${err.message}`));
       }
     } finally {
       this.runningAbortControllers.delete(task.id);

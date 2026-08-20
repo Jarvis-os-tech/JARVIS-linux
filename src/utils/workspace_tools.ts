@@ -790,14 +790,14 @@ export const WORKSPACE_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
   // --- MULTI-AGENT VOICE TRANSFER PROTOCOL ---
   {
     name: 'switch_persona',
-    description: 'Switch the conversational voice persona to a different agent. ONLY call this if the user EXPLICITLY asks to switch, talk, or transfer to another agent (e.g. "Switch to Ultron", "Talk to Friday", "Transfer to Edith").',
+    description: 'Switch the conversational voice persona to a different agent. ONLY call this if the user EXPLICITLY asks to switch, talk, or transfer to another agent (e.g. "Switch to Hermes", "Switch to Ultron", "Talk to Friday", "Transfer to Edith").',
     parameters: {
       type: 'OBJECT',
       properties: {
         targetPersonaId: {
           type: 'STRING',
-          description: 'The ID of the persona to switch to: "jarvis", "friday", "ultron", "edith", "karen", "vision".',
-          enum: ['jarvis', 'friday', 'ultron', 'edith', 'karen', 'vision']
+          description: 'The ID of the persona to switch to: "jarvis", "hermes", "friday", "ultron", "edith", "karen", "vision".',
+          enum: ['jarvis', 'hermes', 'friday', 'ultron', 'edith', 'karen', 'vision']
         }
       },
       required: ['targetPersonaId']
@@ -1112,14 +1112,14 @@ export const WORKSPACE_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
   // --- MULTI-AGENT DELEGATION & COLLABORATION ---
   {
     name: 'delegate_agent_task',
-    description: 'Delegate a specialized mission to a dedicated specialist sub-agent (friday, ultron, edith, karen) with full scoped memory retrieval, execution logging in /JARVIS-MEMORY/execution/, and CEO relay.',
+    description: 'Delegate a specialized mission to a dedicated specialist sub-agent (hermes, friday, ultron, edith, karen) with full scoped memory retrieval, execution logging in /JARVIS-MEMORY/execution/, and CEO relay.',
     parameters: {
       type: 'OBJECT',
       properties: {
         targetManagerId: {
           type: 'STRING',
-          description: 'Target specialist agent ID: "friday" (Research/AI/Web), "ultron" (Security/Performance/Kernel), "edith" (Architecture/Deep Code), "karen" (Automation/Cross-Platform/APIs).',
-          enum: ['friday', 'ultron', 'edith', 'karen']
+          description: 'Target specialist agent ID: "hermes" (Fleet/Orchestrator/Trading), "friday" (Research/AI/Web), "ultron" (Security/Performance/Kernel), "edith" (Architecture/Deep Code), "karen" (Automation/Cross-Platform/APIs).',
+          enum: ['hermes', 'friday', 'ultron', 'edith', 'karen']
         },
         taskDescription: {
           type: 'STRING',
@@ -2035,7 +2035,7 @@ export async function executeWorkspaceTool(
           body: JSON.stringify({ raw: encodedEmail })
         });
         const data = await res.json();
-        checkGoogleError(data);
+        await checkGoogleError(data);
 
         return {
           success: true,
@@ -2054,7 +2054,7 @@ export async function executeWorkspaceTool(
         const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}${query ? `&q=${encodeURIComponent(query)}` : ''}`;
         const res = await fetch(url, { headers });
         const data = await res.json();
-        checkGoogleError(data);
+        await checkGoogleError(data);
 
         const messages = data.messages || [];
         const detailed = await Promise.all(
@@ -2087,7 +2087,7 @@ export async function executeWorkspaceTool(
         const messageId = args.messageId;
         const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`, { headers });
         const data = await res.json();
-        checkGoogleError(data);
+        await checkGoogleError(data);
 
         const hList = data.payload?.headers || [];
         let bodyText = data.snippet || '';
@@ -2128,7 +2128,7 @@ export async function executeWorkspaceTool(
           body: JSON.stringify({ message: { raw: encodedEmail } })
         });
         const data = await res.json();
-        checkGoogleError(data);
+        await checkGoogleError(data);
 
         return {
           success: true,
@@ -2167,7 +2167,7 @@ export async function executeWorkspaceTool(
           body: JSON.stringify(eventBody)
         });
         const data = await res.json();
-        checkGoogleError(data);
+        await checkGoogleError(data);
 
         return {
           success: true,
@@ -2189,7 +2189,7 @@ export async function executeWorkspaceTool(
 
         const res = await fetch(url, { headers });
         const data = await res.json();
-        checkGoogleError(data);
+        await checkGoogleError(data);
 
         const events = (data.items || []).map((ev: any) => ({
           id: ev.id,
@@ -2219,7 +2219,7 @@ export async function executeWorkspaceTool(
         });
         if (!res.ok && res.status !== 204) {
           const err = await res.json().catch(() => ({ error: { message: 'Delete failed' } }));
-          checkGoogleError(err);
+          await checkGoogleError(err);
           throw new Error(err.error?.message || 'Failed to delete event');
         }
 
@@ -2237,7 +2237,7 @@ export async function executeWorkspaceTool(
         const { title, notes, due } = args;
         const listRes = await fetch('https://tasks.googleapis.com/tasks/v1/users/@me/lists', { headers });
         const listData = await listRes.json();
-        checkGoogleError(listData);
+        await checkGoogleError(listData);
         const listId = listData.items?.[0]?.id || '@default';
 
         const taskPayload: any = { title };
@@ -2250,7 +2250,7 @@ export async function executeWorkspaceTool(
           body: JSON.stringify(taskPayload)
         });
         const data = await res.json();
-        checkGoogleError(data);
+        await checkGoogleError(data);
 
         return {
           success: true,
@@ -2266,7 +2266,7 @@ export async function executeWorkspaceTool(
       case 'list_tasks': {
         const listRes = await fetch('https://tasks.googleapis.com/tasks/v1/users/@me/lists', { headers });
         const listData = await listRes.json();
-        checkGoogleError(listData);
+        await checkGoogleError(listData);
         const listId = listData.items?.[0]?.id || '@default';
 
         const showCompleted = args.showCompleted ? 'true' : 'false';
@@ -2274,7 +2274,7 @@ export async function executeWorkspaceTool(
 
         const res = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks?showCompleted=${showCompleted}&maxResults=${maxResults}`, { headers });
         const data = await res.json();
-        checkGoogleError(data);
+        await checkGoogleError(data);
 
         const tasks = (data.items || []).map((t: any) => ({
           id: t.id,
@@ -2299,7 +2299,7 @@ export async function executeWorkspaceTool(
         const { taskId } = args;
         const listRes = await fetch('https://tasks.googleapis.com/tasks/v1/users/@me/lists', { headers });
         const listData = await listRes.json();
-        checkGoogleError(listData);
+        await checkGoogleError(listData);
         const listId = listData.items?.[0]?.id || '@default';
 
         const res = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${taskId}`, {
@@ -2308,7 +2308,7 @@ export async function executeWorkspaceTool(
           body: JSON.stringify({ status: 'completed' })
         });
         const data = await res.json();
-        checkGoogleError(data);
+        await checkGoogleError(data);
 
         return {
           success: true,
@@ -2324,7 +2324,7 @@ export async function executeWorkspaceTool(
         const { taskId } = args;
         const listRes = await fetch('https://tasks.googleapis.com/tasks/v1/users/@me/lists', { headers });
         const listData = await listRes.json();
-        checkGoogleError(listData);
+        await checkGoogleError(listData);
         const listId = listData.items?.[0]?.id || '@default';
 
         const res = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${taskId}`, {
@@ -2333,7 +2333,7 @@ export async function executeWorkspaceTool(
         });
         if (!res.ok && res.status !== 204) {
           const err = await res.json().catch(() => ({ error: { message: 'Delete failed' } }));
-          checkGoogleError(err);
+          await checkGoogleError(err);
           throw new Error(err.error?.message || 'Failed to delete task');
         }
 
@@ -2354,7 +2354,7 @@ export async function executeWorkspaceTool(
 
         const listRes = await fetch('https://tasks.googleapis.com/tasks/v1/users/@me/lists', { headers });
         const listData = await listRes.json();
-        checkGoogleError(listData);
+        await checkGoogleError(listData);
         const listId = listData.items?.[0]?.id || '@default';
 
         let targetTaskId = taskId;
@@ -2363,7 +2363,7 @@ export async function executeWorkspaceTool(
         if (!targetTaskId || oldTitle) {
           const searchRes = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks?maxResults=100&showHidden=true`, { headers });
           const searchData = await searchRes.json();
-          checkGoogleError(searchData);
+          await checkGoogleError(searchData);
           const tasks = searchData.items || [];
           const query = (oldTitle || targetTaskId || '').toLowerCase().trim();
 
@@ -2392,7 +2392,7 @@ export async function executeWorkspaceTool(
           body: JSON.stringify(patchPayload)
         });
         const data = await res.json();
-        checkGoogleError(data);
+        await checkGoogleError(data);
 
         return {
           success: true,
@@ -2413,7 +2413,7 @@ export async function executeWorkspaceTool(
           body: JSON.stringify({ title: title || 'Untitled Document' })
         });
         const data = await res.json();
-        checkGoogleError(data);
+        await checkGoogleError(data);
 
         const docId = data.documentId;
         const docUrl = `https://docs.google.com/document/d/${docId}/edit`;
@@ -2454,7 +2454,7 @@ export async function executeWorkspaceTool(
         const docId = extractGoogleId(args.documentId);
         const res = await fetch(`https://docs.googleapis.com/v1/documents/${docId}`, { headers });
         const data = await res.json();
-        checkGoogleError(data);
+        await checkGoogleError(data);
 
         let fullText = '';
         if (data.body?.content) {
@@ -2485,7 +2485,7 @@ export async function executeWorkspaceTool(
         const { text } = args;
         const getRes = await fetch(`https://docs.googleapis.com/v1/documents/${docId}`, { headers });
         const docData = await getRes.json();
-        checkGoogleError(docData);
+        await checkGoogleError(docData);
 
         const bodyContent = docData.body?.content || [];
         const lastElem = bodyContent[bodyContent.length - 1];
@@ -2506,7 +2506,7 @@ export async function executeWorkspaceTool(
           })
         });
         const updateData = await updateRes.json();
-        checkGoogleError(updateData);
+        await checkGoogleError(updateData);
 
         return {
           success: true,
@@ -2529,7 +2529,7 @@ export async function executeWorkspaceTool(
           })
         });
         const data = await res.json();
-        checkGoogleError(data);
+        await checkGoogleError(data);
 
         const sheetId = data.spreadsheetId;
         const sheetUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/edit`;
@@ -2586,7 +2586,7 @@ export async function executeWorkspaceTool(
         const range = args.range || 'Sheet1!A1:Z50';
         const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}`, { headers });
         const data = await res.json();
-        checkGoogleError(data);
+        await checkGoogleError(data);
 
         return {
           success: true,
@@ -2621,7 +2621,7 @@ export async function executeWorkspaceTool(
           body: JSON.stringify({ values: rowData })
         });
         const data = await res.json();
-        checkGoogleError(data);
+        await checkGoogleError(data);
 
         return {
           success: true,
@@ -2664,7 +2664,7 @@ export async function executeWorkspaceTool(
         const url = `https://www.googleapis.com/drive/v3/files?pageSize=${limit}&q=${encodeURIComponent(qStr)}&fields=files(id,name,mimeType,webViewLink,createdTime,modifiedTime,size,iconLink)`;
         const res = await fetch(url, { headers });
         const data = await res.json();
-        checkGoogleError(data);
+        await checkGoogleError(data);
 
         return {
           success: true,
@@ -2692,7 +2692,7 @@ export async function executeWorkspaceTool(
           body: JSON.stringify(payload)
         });
         const data = await res.json();
-        checkGoogleError(data);
+        await checkGoogleError(data);
 
         return {
           success: true,

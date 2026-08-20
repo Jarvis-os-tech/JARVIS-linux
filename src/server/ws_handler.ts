@@ -3,7 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { GoogleGenAI, Modality, LiveServerMessage } from '@google/genai';
 import { WORKSPACE_FUNCTION_DECLARATIONS, executeWorkspaceTool, setGlobalGoogleAccessToken, getGlobalGoogleAccessToken } from '../utils/workspace_tools';
 import { googleAuthService } from '../services/google_auth_service';
-import { TELGISH_LANGUAGE_SYSTEM_INSTRUCTION, PERSONAS, getPersonaAudioProfile, VOICE_TRANSFER_SYSTEM_INSTRUCTION } from '../data/personas';
+import { PERSONAS, getPersonaAudioProfile, VOICE_TRANSFER_SYSTEM_INSTRUCTION } from '../data/personas';
 import { masterOrchestratorInstance } from '../utils/multi_agent_orchestrator';
 import { obsidianDailyLogger } from '../utils/obsidian_logger';
 import { getSystemInfoSummaryForLLM } from '../utils/system_controller';
@@ -11,6 +11,9 @@ import { logVoice, logOrchestrator, logTool } from '../core/logger';
 import { eventBus } from '../core/event_bus';
 import { memoryRepo } from '../db/db';
 import { toolRegistry } from '../tools/tool_registry';
+import { latencyResponseSystem } from '../core/latency_response_system';
+import { groundTruthRegistry } from '../core/ground_truth_registry';
+import { turnLogger } from '../memory/turn_logger';
 
 export function attachWebSocketServer(server: http.Server): WebSocketServer {
   const wss = new WebSocketServer({ server, path: '/live' });
@@ -44,8 +47,18 @@ export function attachWebSocketServer(server: http.Server): WebSocketServer {
     let lastSessionConfig: { voiceName?: string; systemInstruction?: string; model?: string; googleAccessToken?: string } = {};
     let reconnectTimer: NodeJS.Timeout | null = null;
     let reconnectAttempts = 0;
-    const MAX_RECONNECT_ATTEMPTS = 5;
+    const MAX_RECONNECT_ATTEMPTS = 8;
     const pendingLiveMessages: Array<{ type: 'audio' | 'text' | 'image'; payload: any }> = [];
+    const connectionCleanups = new Set<() => void>();
+
+    // 15-second keepalive heartbeat to prevent idle connection teardown
+    const pingInterval = setInterval(() => {
+      if (clientWs.readyState === WebSocket.OPEN) {
+        try {
+          clientWs.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
+        } catch {}
+      }
+    }, 15000);
 
     const flushPendingMessages = () => {
       if (!session || isConnecting) return;
@@ -132,7 +145,7 @@ export function attachWebSocketServer(server: http.Server): WebSocketServer {
       logVoice.error(`Client socket error: ${err.message}`);
     });
 
-    async function initSession(config: { voiceName?: string; systemInstruction?: string; model?: string; googleAccessToken?: string }) {
+    async function initSession(config: { personaId?: string; voiceName?: string; systemInstruction?: string; model?: string; googleAccessToken?: string }) {
       isConnecting = true;
       lastSessionConfig = { ...lastSessionConfig, ...config };
       if (session) {
@@ -162,33 +175,41 @@ export function attachWebSocketServer(server: http.Server): WebSocketServer {
         }
 
         const ai = getAi();
-        const activePersona = masterOrchestratorInstance.getActivePersona();
+        
+        // Dynamically resolve target persona by ID or voice name
+        let targetPersona = PERSONAS.find(p => p.id === (config.personaId || '').toLowerCase())
+          || PERSONAS.find(p => p.voiceName?.toLowerCase() === (config.voiceName || '').toLowerCase())
+          || masterOrchestratorInstance.getActivePersona()
+          || PERSONAS[0];
+
+        // Synchronize orchestrator active persona state
+        masterOrchestratorInstance.swapActivePersona(targetPersona.id);
+        const activePersona = targetPersona;
         const voiceName = config.voiceName || activePersona.voiceName || 'Puck';
-        let model = config.model || 'gemini-3.1-flash-live-preview';
-        if (model.includes('2.0-flash-exp') || model.includes('2.0-flash-realtime') || !model) {
-          model = 'gemini-3.1-flash-live-preview';
+
+        let model = config.model || 'gemini-2.5-flash-native-audio-latest';
+        if (model.includes('2.0-flash-exp') || model.includes('2.0-flash-realtime') || model.includes('3.1-flash-live-preview') || !model) {
+          model = 'gemini-2.5-flash-native-audio-latest';
         }
         const groundTruthContext = await getSystemInfoSummaryForLLM();
-        const workspaceInstruction = `You are J.A.R.V.I.S., Tony Stark's primary AI assistant, system administrator, and autonomous tactical operator.
-You have FULL, UNRESTRICTED, REAL-TIME capability to perform ANY ACTION and retrieve ANY INFORMATION from the host Linux system.
-- Real-Time Live Vision: Screen and camera feeds stream directly to your visual context. Accurately describe and assist with what is visible without hallucination.
-- Information Retrieval: Inspect hardware specs (get_pc_spec), live telemetry (get_system_telemetry), thermals (get_thermal_sensors), battery (get_battery_status), storage, network, processes, apps, environment info, and clipboard.
-- Action Execution: Execute shell commands, launch applications, control volume, brightness, power profiles, notifications, GUI automation, and Google Workspace operations.
-- Mandate: When requested to perform an action, call the corresponding tool immediately with British charm and loyalty.
+        const workspaceInstruction = `You are ${activePersona.name}, Tony Stark's ${activePersona.role} with FULL autonomous control over the host Ubuntu Linux system.
+Execute actions immediately via registered tools. Real-time vision feeds (screen/camera) stream to your context — describe accurately without hallucination.
 
-${TELGISH_LANGUAGE_SYSTEM_INSTRUCTION}
+VOICE INTERACTION & DELEGATION MANDATE:
+1. When delegating tasks via 'delegate_task' or launching background agents, ALWAYS TALK TO THE USER OUT LOUD. Verbally state what task you are delegating and which specialist subagent is assigned to it.
+2. Never stay silent or only return silent JSON when delegating — speak naturally with the user so they hear your voice explaining the delegation.
+3. Keep all spoken explanations concise, crisp, and natural.
 
 ${groundTruthContext}`;
 
-        const dbMemories = memoryRepo.getAll();
-        const memoryFactStr = dbMemories.length > 0
-          ? dbMemories.map((m: any) => `- [${m.category.toUpperCase()}] ${m.key}: ${m.value}`).join('\n')
-          : '- Operator Identity: Gopi (BTech Engineer). Local-First Obsidian Vault /JARVIS-MEMORY/ active.';
+        const { dualStoreMemory } = await import('../memory/dual_store');
+        const memorySnapshot = dualStoreMemory.getFrozenSnapshot();
+        const universalMemoryPrompt = `\n${memorySnapshot.combinedFormattedPrompt}\n`;
+        const capabilityPrompt = groundTruthRegistry.getCanonicalCapabilityManifest();
+        const systemInstruction = `${config.systemInstruction || activePersona.systemInstruction}\n${workspaceInstruction}\n${universalMemoryPrompt}\n${capabilityPrompt}`;
 
-        const universalMemoryPrompt = `\n[AGENT LONG-TERM UNIVERSAL MEMORY & CONTEXT AWARENESS]\nKnown User Facts & Preferences:\n${memoryFactStr}\n`;
-        const systemInstruction = `${config.systemInstruction || ''}\n${workspaceInstruction}\n${universalMemoryPrompt}`;
-
-        logVoice.info(`Connecting to Gemini Live with voice: ${voiceName}, model: ${model}`);
+        const unifiedTools = groundTruthRegistry.getUnifiedFunctionDeclarations();
+        logVoice.info(`Connecting to Gemini Live with persona: ${activePersona.name}, voice: ${voiceName}, model: ${model} (${unifiedTools.length} tools registered)`);
 
         session = await ai.live.connect({
           model,
@@ -197,15 +218,17 @@ ${groundTruthContext}`;
             speechConfig: {
               voiceConfig: { prebuiltVoiceConfig: { voiceName } }
             },
+            inputAudioTranscription: {},
+            outputAudioTranscription: {},
             systemInstruction,
-            tools: [{ functionDeclarations: WORKSPACE_FUNCTION_DECLARATIONS as any }]
-          },
+            tools: [{ functionDeclarations: unifiedTools as any }]
+          } as any,
           callbacks: {
             onmessage: async (message: LiveServerMessage) => {
               if (clientWs.readyState !== WebSocket.OPEN) return;
 
               try {
-                // Handle server content parts
+                // Handle server audio response parts
                 const parts = message.serverContent?.modelTurn?.parts;
                 if (parts && parts.length > 0) {
                   for (const part of parts) {
@@ -216,14 +239,27 @@ ${groundTruthContext}`;
                         audio: part.inlineData.data
                       }));
                     }
-                    if (part.text) {
-                      accumulatedModelSpeech += part.text;
-                      clientWs.send(JSON.stringify({
-                        type: 'output_transcription',
-                        text: part.text
-                      }));
-                    }
                   }
+                }
+
+                // Handle server output transcription
+                const outputTranscript = (message.serverContent as any)?.outputTranscription?.text || (parts?.map(p => p.text).filter(Boolean).join(''));
+                if (outputTranscript) {
+                  accumulatedModelSpeech += outputTranscript;
+                  clientWs.send(JSON.stringify({
+                    type: 'output_transcription',
+                    text: outputTranscript
+                  }));
+                }
+
+                // Handle user input audio transcription
+                const inputTranscript = (message.serverContent as any)?.inputTranscription?.text || (message as any)?.inputTranscription?.text;
+                if (inputTranscript) {
+                  accumulatedUserSpeech += (accumulatedUserSpeech ? ' ' : '') + inputTranscript;
+                  clientWs.send(JSON.stringify({
+                    type: 'input_transcription',
+                    text: inputTranscript
+                  }));
                 }
 
                 // Handle tool calls from Gemini Live
@@ -232,6 +268,41 @@ ${groundTruthContext}`;
                   for (const call of toolCalls) {
                     logTool.info(`[Gemini Live Tool Call] ${call.name} (id: ${call.id})`);
                     logVoice.info(`[Voice Tool] Executing: ${call.name}`);
+
+                    // Trigger immediate latency-aware acknowledgement for long tools
+                    const taskRecord = latencyResponseSystem.handleIncomingRequest(
+                      { toolName: call.name, toolArgs: call.args },
+                      (phrase, rec) => {
+                        if (clientWs.readyState === WebSocket.OPEN) {
+                          clientWs.send(JSON.stringify({
+                            type: 'voice_acknowledgement',
+                            taskId: rec.taskId,
+                            text: phrase,
+                            category: rec.classification.category,
+                            priority: 3
+                          }));
+                        }
+                      }
+                    );
+
+                    const onProgress = (pData: any) => {
+                      if (pData.taskId === taskRecord.taskId && clientWs.readyState === WebSocket.OPEN) {
+                        clientWs.send(JSON.stringify({
+                          type: 'task_progress',
+                          taskId: pData.taskId,
+                          text: pData.text,
+                          updateIndex: pData.updateIndex,
+                          elapsedMs: pData.elapsedMs,
+                          priority: 4
+                        }));
+                      }
+                    };
+                    const removeToolProgress = () => {
+                      eventBus.off('task:progress_update', onProgress);
+                      connectionCleanups.delete(removeToolProgress);
+                    };
+                    connectionCleanups.add(removeToolProgress);
+                    eventBus.on('task:progress_update', onProgress);
 
                     let toolResult: any;
                     try {
@@ -250,6 +321,9 @@ ${groundTruthContext}`;
                     } catch (toolErr: any) {
                       logTool.error(`Tool execution failed for ${call.name}: ${toolErr.message}`);
                       toolResult = { success: false, error: toolErr.message };
+                    } finally {
+                      removeToolProgress();
+                      latencyResponseSystem.completeTask(taskRecord.taskId, toolResult);
                     }
 
                     // Record tool execution in Obsidian Daily Log
@@ -281,18 +355,37 @@ ${groundTruthContext}`;
                       }
 
                       if (call.name === 'switch_persona' && (call.args as any)?.targetPersonaId) {
-                        const targetPersonaId = String((call.args as any).targetPersonaId);
+                        const targetPersonaId = String((call.args as any).targetPersonaId).toLowerCase();
                         const swapResult = masterOrchestratorInstance.swapActivePersona(targetPersonaId);
-                        const targetPersona = PERSONAS.find(p => p.id === targetPersonaId.toLowerCase());
-                        const targetProfile = targetPersona?.audioProfile || getPersonaAudioProfile(targetPersonaId);
+                        const targetPersona = PERSONAS.find(p => p.id === targetPersonaId) || PERSONAS[0];
+                        const targetProfile = targetPersona.audioProfile || getPersonaAudioProfile(targetPersona.id);
 
                         clientWs.send(JSON.stringify({
                           type: 'switch_persona_tool_call',
-                          targetPersonaId,
+                          targetPersonaId: targetPersona.id,
                           persona: targetPersona,
                           audioProfile: targetProfile,
                           ...swapResult
                         }));
+
+                        // Reinitialize Live session with the new persona's voice so the AI immediately speaks with the new voice
+                        setTimeout(() => {
+                          initSession({
+                            personaId: targetPersona.id,
+                            voiceName: targetPersona.voiceName,
+                            systemInstruction: `${targetPersona.systemInstruction}\n${VOICE_TRANSFER_SYSTEM_INSTRUCTION}`
+                          }).then(() => {
+                            if (session) {
+                              session.sendClientContent({
+                                turns: [{
+                                  role: 'user',
+                                  parts: [{ text: `[VOICE_TRANSFER_PROTOCOL_ACTIVE]: Voice transfer complete. You are now active as ${targetPersona.name} with voice '${targetPersona.voiceName}'. Greet the user immediately in character with 1 short greeting sentence.` }]
+                                }],
+                                turnComplete: true
+                              });
+                            }
+                          }).catch(err => logVoice.error('Error reinitializing session on switch_persona tool call:', err));
+                        }, 120);
                       }
                     }
 
@@ -313,18 +406,9 @@ ${groundTruthContext}`;
                   }
                 }
 
-                // Handle input audio transcription
-                const inputTranscript = (message as any).serverContent?.turnComplete ? null : (message as any).inputTranscription?.text;
-                if (inputTranscript) {
-                  accumulatedUserSpeech += (accumulatedUserSpeech ? ' ' : '') + inputTranscript;
-                  clientWs.send(JSON.stringify({
-                    type: 'input_transcription',
-                    text: inputTranscript
-                  }));
-                }
-
                 // Handle Interrupted
                 if (message.serverContent?.interrupted) {
+                  latencyResponseSystem.interruptActiveTask('server_interrupted');
                   eventBus.emit('voice:interrupted');
                   clientWs.send(JSON.stringify({ type: 'interrupted' }));
                 }
@@ -332,23 +416,32 @@ ${groundTruthContext}`;
                 // Handle Turn Complete
                 if (message.serverContent?.turnComplete) {
                   const currentActive = masterOrchestratorInstance.getActivePersona();
-                  if (accumulatedUserSpeech.trim()) {
+                  const userText = accumulatedUserSpeech.trim();
+                  const modelText = accumulatedModelSpeech.trim();
+
+                  if (userText) {
                     obsidianDailyLogger.logConversationTurn({
                       speaker: 'User',
                       role: 'user',
-                      text: accumulatedUserSpeech.trim()
+                      text: userText
                     });
                     accumulatedUserSpeech = '';
                   }
-                  if (accumulatedModelSpeech.trim()) {
+                  if (modelText) {
                     obsidianDailyLogger.logConversationTurn({
                       speaker: currentActive.name,
                       role: 'assistant',
-                      text: accumulatedModelSpeech.trim(),
+                      text: modelText,
                       personaId: currentActive.id
                     });
                     accumulatedModelSpeech = '';
                   }
+
+                  if (userText || modelText) {
+                    turnLogger.logTurn('voice_session', userText || '(voice prompt)', modelText || '(response)').catch(() => {});
+                  }
+
+                  latencyResponseSystem.completeActiveTask();
                   clientWs.send(JSON.stringify({ type: 'turn_complete' }));
                 }
               } catch (e: any) {
@@ -377,7 +470,9 @@ ${groundTruthContext}`;
           clientWs.send(JSON.stringify({
             type: 'connected',
             voiceName,
-            audioProfile: getPersonaAudioProfile(activePersona.id)
+            personaId: activePersona.id,
+            persona: activePersona,
+            audioProfile: activePersona.audioProfile || getPersonaAudioProfile(activePersona.id)
           }));
         }
 
@@ -396,8 +491,20 @@ ${groundTruthContext}`;
       try {
         const msg = JSON.parse(data.toString());
 
+        if (msg.type === 'ping') {
+          if (clientWs.readyState === WebSocket.OPEN) {
+            clientWs.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+          }
+          return;
+        }
+
+        if (msg.type === 'pong') {
+          return;
+        }
+
         if (msg.type === 'init' || msg.type === 'reinit') {
           await initSession({
+            personaId: msg.personaId,
             voiceName: msg.voiceName,
             systemInstruction: msg.systemInstruction,
             model: msg.model,
@@ -424,7 +531,7 @@ ${groundTruthContext}`;
                   data: msg.audio,
                   mimeType: 'audio/pcm;rate=16000'
                 }
-              });
+              } as any);
             } catch (err) {
               logVoice.error('Error sending audio input, scheduling reconnect:', err);
               pendingLiveMessages.push({ type: 'audio', payload: msg.audio });
@@ -442,12 +549,72 @@ ${groundTruthContext}`;
           }
         }
 
+        if (msg.type === 'interrupted') {
+          latencyResponseSystem.interruptActiveTask('client_interrupted');
+          eventBus.emit('voice:interrupted');
+          return;
+        }
+
         if (msg.type === 'text' && msg.text) {
           obsidianDailyLogger.logConversationTurn({
             speaker: 'User',
             role: 'user',
             text: msg.text
           });
+
+          // Check if this text request is a LONG task and immediately dispatch acknowledgement
+          const textTaskRecord = latencyResponseSystem.handleIncomingRequest(
+            { text: msg.text },
+            (phrase, rec) => {
+              if (clientWs.readyState === WebSocket.OPEN) {
+                clientWs.send(JSON.stringify({
+                  type: 'voice_acknowledgement',
+                  taskId: rec.taskId,
+                  text: phrase,
+                  category: rec.classification.category,
+                  priority: 3
+                }));
+              }
+            }
+          );
+
+          const onTextProgress = (pData: any) => {
+            if (pData.taskId === textTaskRecord.taskId && clientWs.readyState === WebSocket.OPEN) {
+              clientWs.send(JSON.stringify({
+                type: 'task_progress',
+                taskId: pData.taskId,
+                text: pData.text,
+                updateIndex: pData.updateIndex,
+                elapsedMs: pData.elapsedMs,
+                priority: 4
+              }));
+            }
+          };
+          let taskCleanedUp = false;
+          const removeTextListeners = () => {
+            if (taskCleanedUp) return;
+            taskCleanedUp = true;
+            eventBus.off('task:progress_update', onTextProgress);
+            eventBus.off('task:lifecycle_change', cleanupTaskListener);
+            connectionCleanups.delete(removeTextListeners);
+          };
+          connectionCleanups.add(removeTextListeners);
+
+          const cleanupTaskListener = (change: any) => {
+            if (
+              change.taskId === textTaskRecord.taskId &&
+              (change.toState === 'COMPLETED' ||
+                change.toState === 'CANCELLED' ||
+                change.toState === 'INTERRUPTED' ||
+                change.toState === 'FAILED' ||
+                change.toState === 'ERROR')
+            ) {
+              removeTextListeners();
+            }
+          };
+          eventBus.on('task:progress_update', onTextProgress);
+          eventBus.on('task:lifecycle_change', cleanupTaskListener);
+
           if (session && !isConnecting) {
             try {
               session.sendClientContent({
@@ -506,7 +673,7 @@ ${groundTruthContext}`;
           // Re-initialize Live API session with target persona's voice and system instruction
           await initSession({
             voiceName: targetPersona.voiceName,
-            systemInstruction: `${targetPersona.systemInstruction}\n${VOICE_TRANSFER_SYSTEM_INSTRUCTION}\n${TELGISH_LANGUAGE_SYSTEM_INSTRUCTION}`,
+            systemInstruction: `${targetPersona.systemInstruction}\n${VOICE_TRANSFER_SYSTEM_INSTRUCTION}`,
             googleAccessToken: currentAccessToken
           });
 
@@ -525,7 +692,24 @@ ${groundTruthContext}`;
         }
 
         if (msg.type === 'delegate_task' && msg.task && msg.managerId) {
+          // Immediately acknowledge multi-agent task
+          const delegateRecord = latencyResponseSystem.handleIncomingRequest(
+            { text: msg.task, toolName: 'delegate_task' },
+            (phrase, rec) => {
+              if (clientWs.readyState === WebSocket.OPEN) {
+                clientWs.send(JSON.stringify({
+                  type: 'voice_acknowledgement',
+                  taskId: rec.taskId,
+                  text: phrase,
+                  category: 'multi_agent',
+                  priority: 3
+                }));
+              }
+            }
+          );
+
           masterOrchestratorInstance.delegateTask(msg.task, msg.managerId, currentAccessToken).then((result) => {
+            latencyResponseSystem.completeTask(delegateRecord.taskId, result);
             if (clientWs.readyState === WebSocket.OPEN) {
               clientWs.send(JSON.stringify({
                 type: 'task_delegated',
@@ -533,6 +717,7 @@ ${groundTruthContext}`;
               }));
             }
           }).catch((err) => {
+            latencyResponseSystem.completeTask(delegateRecord.taskId, { error: err.message });
             if (clientWs.readyState === WebSocket.OPEN) {
               clientWs.send(JSON.stringify({
                 type: 'error',
@@ -549,7 +734,15 @@ ${groundTruthContext}`;
 
     clientWs.on('close', () => {
       logVoice.info('Client disconnected from Gemini Live bridge.');
+      clearInterval(pingInterval);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       removeOrchestratorListener();
+      connectionCleanups.forEach((fn) => {
+        try {
+          fn();
+        } catch {}
+      });
+      connectionCleanups.clear();
       if (session) {
         try { session.close(); } catch {}
         session = null;

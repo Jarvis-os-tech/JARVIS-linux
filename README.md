@@ -1,15 +1,9 @@
 <div align="center">
 
-```
-   ██╗ █████╗ ██████╗ ██╗   ██╗██╗███████╗
-   ██║██╔══██╗██╔══██╗██║   ██║██║██╔════╝
-   ██║███████║██████╔╝██║   ██║██║███████╗
-██ ██║██╔══██║██╔══██╗╚██╗ ██╔╝██║╚════██║
-╚████║██║  ██║██║  ██║ ╚████╔╝ ██║███████║
- ╚═══╝╚═╝  ╚═╝╚═╝  ╚═╝  ╚═══╝  ╚═╝╚══════╝
-```
+<img src="./assets/jarvis-logo.jpg" alt="J.A.R.V.I.S. OS Logo" width="160" style="border-radius: 50%; box-shadow: 0 0 30px rgba(0, 240, 255, 0.6); margin-bottom: 1rem;" />
 
-### **The Sovereign Autonomous AI Operating Engine & Personal Linux Super-Assistant**
+# **J.A.R.V.I.S. OS**
+### **The Sovereign Autonomous AI Operating System & Personal Linux Super-Assistant**
 
 [![Platform](https://img.shields.io/badge/OS-Ubuntu_Linux_22.04%2B-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![React 19](https://img.shields.io/badge/Frontend-React_19_+_Vite_6-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)

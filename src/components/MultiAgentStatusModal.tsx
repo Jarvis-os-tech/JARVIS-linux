@@ -13,7 +13,8 @@ import {
   ArrowRightLeft,
   X,
   Play,
-  Volume2
+  Volume2,
+  Compass
 } from 'lucide-react';
 import { PersonaMetadata, MutedRelayEvent } from '../utils/multi_agent_orchestrator';
 
@@ -47,7 +48,7 @@ export const MultiAgentStatusModal: React.FC<MultiAgentStatusModalProps> = ({
       case 'jarvis':
         return <Cpu className="w-5 h-5 text-cyan-400" />;
       case 'friday':
-        return <Activity className="w-5 h-5 text-emerald-400" />;
+        return <Activity className="w-5 h-5 text-amber-400" />;
       case 'ultron':
         return <Shield className="w-5 h-5 text-red-400" />;
       case 'edith':

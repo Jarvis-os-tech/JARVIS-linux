@@ -10,6 +10,20 @@ import { attachWebSocketServer } from './src/server/ws_handler';
 
 dotenv.config();
 
+// Sanitize console usage early in startup: route server console.* through the pino logger
+import './src/core/console_sanitizer';
+
+// Global Crash Prevention & Resilience Guard
+process.on('uncaughtException', (err: Error) => {
+  logServer.error(`[CRASH PREVENTED] Uncaught Exception: ${err.message}`, { stack: err.stack });
+});
+
+process.on('unhandledRejection', (reason: any) => {
+  logServer.error(`[CRASH PREVENTED] Unhandled Rejection: ${reason?.message || reason}`, {
+    stack: reason?.stack,
+  });
+});
+
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = process.env.HOST || 'localhost';
 
@@ -46,7 +60,7 @@ async function bootstrapJarvisServer() {
   // 5. Start Server Listener
   server.listen(PORT, HOST, async () => {
     const url = `http://${HOST}:${PORT}`;
-    logServer.info(`J.A.R.V.I.S. Prime Orchestrator Server running on ${url}`);
+    logServer.info(`J.A.R.V.I.S. OS Prime Orchestrator Server running on ${url}`);
 
     if (process.env.NODE_ENV !== 'production') {
       try {
@@ -87,6 +101,15 @@ async function bootstrapJarvisServer() {
   process.on('SIGTERM', () => handleShutdown('SIGTERM'));
   process.on('SIGINT', () => handleShutdown('SIGINT'));
 }
+
+// Global Process Resilience & Anti-Crash Guards
+process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+  logServer.error(`[Process] Unhandled Rejection intercepted: ${reason?.stack || reason?.message || reason}`);
+});
+
+process.on('uncaughtException', (err: Error) => {
+  logServer.error(`[Process] Uncaught Exception intercepted: ${err?.stack || err?.message || err}`);
+});
 
 bootstrapJarvisServer().catch((err) => {
   logServer.fatal(`Fatal startup error: ${err?.message || err}`);

@@ -34,6 +34,7 @@ import {
   Info,
   Network,
   RefreshCw,
+  Compass,
 } from "lucide-react";
 import { useJarvis } from "../JarvisProvider";
 import { cn } from "@/lib/utils";
@@ -206,6 +207,13 @@ export function MemoryView() {
           lowerVal.includes("posix")
         ) {
           resolvedAgentId = "edith";
+        } else if (
+          lowerKey.includes("karen") ||
+          lowerVal.includes("pipeline") ||
+          lowerVal.includes("automation") ||
+          lowerVal.includes("webhook")
+        ) {
+          resolvedAgentId = "karen";
         } else if (
           lowerKey.includes("jarvis") ||
           lowerVal.includes("multilingual") ||
@@ -759,11 +767,11 @@ export function MemoryView() {
           )}
         </div>
       ) : (
-        /* 2-Column Responsive Layout (Left: Mission Rail Style Component Cards | Right: Detail View Panel) */
+        /* 2-Column Responsive Layout (Left: Card Grid Matrix | Right: Memory Rail Detail View Panel) */
         <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-12 gap-3.5 overflow-hidden">
-          {/* Left Column: Vertical List of Clickable Component Cards (Mission Rail Style) */}
-          <aside className="lg:col-span-5 xl:col-span-4 bezel flex min-h-0 flex-col overflow-hidden rounded-2xl">
-            {/* Mission Rail Style Header */}
+          {/* Left Column: Responsive Card Grid Matrix */}
+          <aside className="lg:col-span-7 xl:col-span-7 bezel flex min-h-0 flex-col overflow-hidden rounded-2xl shadow-xl">
+            {/* Card Grid Header Toolbar */}
             <div className="flex items-center justify-between border-b border-[oklch(0_0_0/35%)] px-4 py-3 shrink-0">
               <div className="flex items-center gap-2.5">
                 <span className="neu-sm grid h-9 w-9 place-items-center rounded-xl text-cyan-hud">
@@ -771,185 +779,196 @@ export function MemoryView() {
                 </span>
                 <div>
                   <span className="etched block text-[12px] font-bold tracking-[0.16em] text-foreground">
-                    MEMORY NODES
+                    MEMORY CARDS
                   </span>
                   <span className="text-[10px] font-mono text-muted-foreground">
-                    {filtered.length} of {memoryItems.length} entities
+                    {filtered.length} of {memoryItems.length} entities indexed
                   </span>
                 </div>
-            </div>
-            <button
-              onClick={() => {
-                setQ("");
-                setTag("all");
-                setAgentFilter("all");
-              }}
-              className="key rounded-lg px-2.5 py-1 text-[11px] font-bold text-cyan-hud cursor-pointer"
-            >
-              Reset
-            </button>
-          </div>
-
-          {/* Vertical Scrollable Container filling available vertical space */}
-          <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-3.5">
-            <p className="text-[10px] font-bold tracking-[0.2em] text-muted-foreground uppercase">
-              INDEXED CARDS ({filtered.length})
-            </p>
-
-            {filtered.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 text-center neu-inset rounded-xl p-4 my-auto">
-                <Brain className="w-8 h-8 text-muted-foreground/40 mb-2" />
-                <p className="text-xs font-semibold text-muted-foreground">No memory nodes found</p>
-                <p className="text-[10px] text-muted-foreground/70 mt-1">
-                  Adjust filters or add a new fact to the knowledge graph
-                </p>
-                <button
-                  onClick={() => setIsAddOpen(true)}
-                  className="mt-3 key px-3 py-1 rounded-lg text-xs font-bold text-cyan-hud cursor-pointer"
-                >
-                  Create Node
-                </button>
               </div>
-            ) : (
-              filtered.map((m) => {
-                const isSelected = activeFact?.id === m.id;
-                const AgentIcon = m.agentInfo.icon;
-                const catStyle = CATEGORY_STYLES[m.tag] || {
-                  label: m.tag,
-                  badgeCls: "text-zinc-400 border-zinc-500/20 bg-zinc-500/10",
-                };
+              <button
+                onClick={() => {
+                  setQ("");
+                  setTag("all");
+                  setAgentFilter("all");
+                }}
+                className="key rounded-lg px-2.5 py-1 text-[11px] font-bold text-cyan-hud cursor-pointer"
+              >
+                Reset Filters
+              </button>
+            </div>
 
-                return (
+            {/* Scrollable Responsive Card Grid (2-columns on sm/md/lg) */}
+            <div className="grid min-h-0 flex-1 grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto p-3.5 auto-rows-min">
+              {filtered.length === 0 ? (
+                <div className="col-span-full flex flex-col items-center justify-center py-12 text-center neu-inset rounded-2xl p-6 my-auto">
+                  <Brain className="w-10 h-10 text-muted-foreground/40 mb-2.5" />
+                  <p className="text-sm font-bold text-muted-foreground">No memory nodes found</p>
+                  <p className="text-xs text-muted-foreground/70 mt-1 max-w-xs">
+                    Adjust filters, clear search terms, or index a new fact into the knowledge graph
+                  </p>
                   <button
-                    key={m.id}
-                    onClick={() => {
-                      setSelectedFactId(m.id);
-                      setIsEditing(false);
-                    }}
-                    style={
-                      isSelected
-                        ? {
-                            borderColor: `color-mix(in oklab, ${m.color} 70%, transparent)`,
-                            boxShadow: `0 0 16px color-mix(in oklab, ${m.color} 25%, transparent)`,
-                            background: `color-mix(in oklab, ${m.color} 8%, transparent)`,
-                          }
-                        : undefined
-                    }
-                    className={cn(
-                      "neu group flex gap-3 rounded-xl p-3 text-left transition-all hover:-translate-y-0.5 cursor-pointer relative overflow-hidden border border-white/5",
-                      isSelected && "neu-inset border"
-                    )}
+                    onClick={() => setIsAddOpen(true)}
+                    className="mt-4 key px-4 py-1.5 rounded-xl text-xs font-bold text-cyan-hud cursor-pointer flex items-center gap-1.5"
                   >
-                    {/* Left Accent Icon Badge */}
-                    <span
-                      className="neu-inset grid h-9 w-9 shrink-0 place-items-center rounded-lg text-sm border border-white/5 shadow-inner"
-                      style={{ color: m.color }}
-                    >
-                      <AgentIcon className="h-4 w-4" />
-                    </span>
-
-                    {/* Card Content Block */}
-                    <span className="min-w-0 flex-1">
-                      {/* Top Badges */}
-                      <span className="flex items-center gap-1.5 flex-wrap">
-                        <span
-                          className="text-[9px] font-mono font-extrabold uppercase tracking-wider px-1.5 py-0.2 rounded neu-inset inline-block"
-                          style={{ color: m.color }}
-                        >
-                          {m.agentInfo.name}
-                        </span>
-                        <span
-                          className={cn(
-                            "text-[9px] font-semibold px-1.5 py-0.2 rounded-full border",
-                            catStyle.badgeCls
-                          )}
-                        >
-                          {catStyle.label}
-                        </span>
-                        {m.source === "auto_extracted" && (
-                          <span className="text-[8.5px] font-mono text-purple-400 bg-purple-500/10 border border-purple-500/20 px-1 rounded">
-                            AUTO
-                          </span>
-                        )}
-                      </span>
-
-                      {/* Title */}
-                      <span className="mt-1 block truncate text-[13px] font-bold text-foreground">
-                        {m.title}
-                      </span>
-
-                      {/* Excerpt */}
-                      <span className="mt-0.5 line-clamp-2 block text-[11px] leading-snug text-muted-foreground font-sans break-words">
-                        {m.desc}
-                      </span>
-
-                      {/* Bottom Status / Meta Line */}
-                      <span className="mt-2 flex items-center justify-between text-[10px] font-mono text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-2.5 h-2.5 text-muted-foreground/70" />
-                          {new Date(m.updatedAt).toLocaleDateString(undefined, {
-                            month: "short",
-                            day: "numeric",
-                          })}
-                        </span>
-                        <span className="text-muted-foreground/70">{m.desc.length} chars</span>
-                      </span>
-
-                      {/* Mission Rail Style Progress / HUD Accent Bar */}
-                      <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-[oklch(0.13_0.01_256)] shadow-[inset_0_1px_2px_oklch(0_0_0/70%)]">
-                        <i
-                          className="block h-full rounded-full transition-all duration-700"
-                          style={{
-                            width: `${Math.min(100, Math.max(20, (m.desc.length / 180) * 100))}%`,
-                            background: `linear-gradient(90deg, ${m.color}, var(--cyan-hud))`,
-                            boxShadow: isSelected ? `0 0 8px ${m.color}` : undefined,
-                          }}
-                        />
-                      </span>
-                    </span>
+                    <Plus className="w-3.5 h-3.5" /> Create Memory Node
                   </button>
-                );
-              })
-            )}
-          </div>
+                </div>
+              ) : (
+                filtered.map((m) => {
+                  const isSelected = activeFact?.id === m.id;
+                  const AgentIcon = m.agentInfo.icon;
+                  const catStyle = CATEGORY_STYLES[m.tag] || {
+                    label: m.tag,
+                    badgeCls: "text-zinc-400 border-zinc-500/20 bg-zinc-500/10",
+                  };
 
-          {/* Bottom Quick Action */}
-          <div className="p-3 border-t border-[oklch(0_0_0/35%)] shrink-0">
-            <button
-              onClick={() => setIsAddOpen(true)}
-              className="key w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold text-cyan-hud glow-ring cursor-pointer"
-            >
-              <Plus className="h-3.5 w-3.5" /> New Memory Node
-            </button>
-          </div>
-        </aside>
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() => {
+                        setSelectedFactId(m.id);
+                        setIsEditing(false);
+                      }}
+                      style={
+                        isSelected
+                          ? {
+                              borderColor: `color-mix(in oklab, ${m.color} 80%, transparent)`,
+                              boxShadow: `0 0 18px color-mix(in oklab, ${m.color} 30%, transparent)`,
+                              background: `color-mix(in oklab, ${m.color} 10%, var(--metal-soft))`,
+                            }
+                          : undefined
+                      }
+                      className={cn(
+                        "neu group flex flex-col justify-between rounded-2xl p-3.5 text-left transition-all duration-200 hover:-translate-y-1 hover:shadow-xl cursor-pointer relative overflow-hidden border border-white/5 min-h-[160px]",
+                        isSelected && "neu-inset border ring-1 ring-cyan-400/40"
+                      )}
+                    >
+                      {/* Card Top Meta Header */}
+                      <div className="flex items-center justify-between gap-2 mb-2 shrink-0">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className="neu-inset grid h-8 w-8 shrink-0 place-items-center rounded-xl text-sm border border-white/5 shadow-inner"
+                            style={{ color: m.color }}
+                          >
+                            <AgentIcon className="h-4 w-4" />
+                          </span>
+                          <div className="min-w-0 flex flex-col">
+                            <span
+                              className="text-[9.5px] font-mono font-extrabold uppercase tracking-wider truncate"
+                              style={{ color: m.color }}
+                            >
+                              {m.agentInfo.name}
+                            </span>
+                            <span className="text-[8.5px] text-muted-foreground font-mono truncate">
+                              {m.agentInfo.role}
+                            </span>
+                          </div>
+                        </div>
 
-        {/* Right Column: Dynamic Detail View Panel */}
-        <section className="lg:col-span-7 xl:col-span-8 bezel flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl p-4 sm:p-5 shadow-2xl">
-          {/* Detail View Header Title Bar */}
-          <div className="flex items-center justify-between pb-3 border-b border-[oklch(0_0_0/35%)] shrink-0">
-            <div className="flex items-center gap-2">
-              <span className="neu-sm grid h-8 w-8 place-items-center rounded-xl text-cyan-hud">
-                <Terminal className="w-4 h-4 text-cyan-400" />
-              </span>
-              <div>
-                <span className="etched block text-[12px] font-bold tracking-[0.16em] text-foreground uppercase">
-                  MEMORY DETAIL VIEW
-                </span>
-                <span className="text-[10px] font-mono text-muted-foreground">
-                  Complete entity telemetry &amp; live prompt context
-                </span>
-              </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span
+                            className={cn(
+                              "text-[8.5px] font-semibold px-2 py-0.5 rounded-full border truncate max-w-[90px]",
+                              catStyle.badgeCls
+                            )}
+                          >
+                            {catStyle.label}
+                          </span>
+                          {m.source === "auto_extracted" && (
+                            <span className="text-[8px] font-mono text-purple-400 bg-purple-500/10 border border-purple-500/20 px-1 py-0.5 rounded">
+                              AUTO
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Card Middle: Title & Plain Text Excerpt */}
+                      <div className="my-1.5 flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span
+                            className="w-1.5 h-1.5 rounded-full shrink-0"
+                            style={{ backgroundColor: m.color }}
+                          />
+                          <h4 className="truncate text-[13px] font-bold text-foreground">
+                            {m.title}
+                          </h4>
+                        </div>
+                        <p className="line-clamp-3 text-[11px] leading-relaxed text-muted-foreground font-sans break-words select-none">
+                          {m.desc}
+                        </p>
+                      </div>
+
+                      {/* Card Bottom: Metrics & HUD Telemetry Bar */}
+                      <div className="mt-2.5 pt-2 border-t border-white/5 shrink-0">
+                        <div className="flex items-center justify-between text-[9.5px] font-mono text-muted-foreground mb-1.5">
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-2.5 h-2.5 text-muted-foreground/70" />
+                            {new Date(m.updatedAt).toLocaleDateString(undefined, {
+                              month: "short",
+                              day: "numeric",
+                            })}
+                          </span>
+                          <span className="text-muted-foreground/80">
+                            {m.desc.split(/\s+/).filter(Boolean).length} words · {m.desc.length} chars
+                          </span>
+                        </div>
+
+                        {/* HUD Accent Bar */}
+                        <div className="h-1 w-full overflow-hidden rounded-full bg-[oklch(0.13_0.01_256)] shadow-[inset_0_1px_2px_oklch(0_0_0/70%)]">
+                          <div
+                            className="h-full rounded-full transition-all duration-700"
+                            style={{
+                              width: `${Math.min(100, Math.max(25, (m.desc.length / 180) * 100))}%`,
+                              background: `linear-gradient(90deg, ${m.color}, var(--cyan-hud))`,
+                              boxShadow: isSelected ? `0 0 10px ${m.color}` : undefined,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
             </div>
 
-            {activeFact && (
-              <span className="neu-inset px-2.5 py-1 rounded-full text-[10px] font-mono text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Live Injected in Session
-              </span>
-            )}
-          </div>
+            {/* Bottom Quick Action */}
+            <div className="p-3 border-t border-[oklch(0_0_0/35%)] shrink-0">
+              <button
+                onClick={() => setIsAddOpen(true)}
+                className="key w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold text-cyan-hud glow-ring cursor-pointer"
+              >
+                <Plus className="h-3.5 w-3.5" /> Index New Memory Card
+              </button>
+            </div>
+          </aside>
 
-          {/* Main Detail View Content (Scrollable) */}
+          {/* Right Column: Main Memory Rail Detail View Panel */}
+          <section className="lg:col-span-5 xl:col-span-5 bezel flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl p-4 sm:p-5 shadow-2xl">
+            {/* Detail View Header Title Bar */}
+            <div className="flex items-center justify-between pb-3 border-b border-[oklch(0_0_0/35%)] shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="neu-sm grid h-8 w-8 place-items-center rounded-xl text-cyan-hud">
+                  <Terminal className="w-4 h-4 text-cyan-400" />
+                </span>
+                <div>
+                  <span className="etched block text-[12px] font-bold tracking-[0.16em] text-foreground uppercase">
+                    MEMORY RAIL CONTEXT
+                  </span>
+                  <span className="text-[10px] font-mono text-muted-foreground">
+                    Zero-latency plain text &amp; live prompt injection
+                  </span>
+                </div>
+              </div>
+
+              {activeFact && (
+                <span className="neu-inset px-2.5 py-1 rounded-full text-[10px] font-mono text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Active Injected
+                </span>
+              )}
+            </div>
+
+            {/* Main Detail View Content (Scrollable) */}
           <div className="min-h-0 flex-1 flex flex-col overflow-y-auto py-3.5 space-y-4">
             {activeFact ? (
               <div className="flex flex-col gap-4 flex-1">

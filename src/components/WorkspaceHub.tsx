@@ -331,6 +331,41 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
     }
   };
 
+  const handleServerAuth = () => {
+    const trimmedId = clientId.trim();
+    const width = 580;
+    const height = 700;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+    const url = `/api/auth/google/login${trimmedId ? `?client_id=${encodeURIComponent(trimmedId)}` : ''}`;
+    const popup = window.open(
+      url,
+      'google_oauth_server_window',
+      `width=${width},height=${height},left=${left},top=${top},status=no,resizable=yes`
+    );
+
+    const messageListener = (event: MessageEvent) => {
+      if (
+        event.data?.type === 'GOOGLE_AUTH_SUCCESS' ||
+        (event.data?.type === 'CONNECTORS_AUTH_SUCCESS' && event.data?.provider === 'google')
+      ) {
+        window.removeEventListener('message', messageListener);
+        const status = event.data.status || {};
+        if (status.token) {
+          setAccessToken(status.token);
+          localStorage.setItem('g_access_token', status.token);
+          if (onTokenUpdate) onTokenUpdate(status.token);
+          fetchWorkspaceData(status.token, activeTab);
+        }
+        setSuccessMsg(`Google Workspace authorized for ${status.email || 'all agents'}!`);
+      } else if (event.data?.type === 'GOOGLE_AUTH_FAILED') {
+        window.removeEventListener('message', messageListener);
+        setError(event.data.error || 'Google authorization failed');
+      }
+    };
+    window.addEventListener('message', messageListener);
+  };
+
   const handleDirectTokenConnect = async () => {
     const raw = directTokenInput.trim();
     if (!raw) {
@@ -1752,13 +1787,23 @@ export const WorkspaceHub: React.FC<WorkspaceHubProps> = ({
             )}
 
             <div className="w-full space-y-2">
-              <button
-                onClick={handleAuth}
-                className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:opacity-95 text-white font-medium text-xs rounded-xl shadow-lg shadow-blue-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Key className="w-4 h-4" />
-                Authorize with Google (1-Click)
-              </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  onClick={handleServerAuth}
+                  className="w-full py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:opacity-95 text-white font-medium text-xs rounded-xl shadow-lg shadow-blue-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Key className="w-3.5 h-3.5" />
+                  Sign In (Server OAuth)
+                </button>
+
+                <button
+                  onClick={handleAuth}
+                  className="w-full py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-white/10 font-medium text-xs rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                  Browser Popup (GIS)
+                </button>
+              </div>
 
               <div className="flex items-center my-2 text-zinc-600 text-[10px] uppercase font-bold tracking-wider">
                 <span className="flex-1 border-t border-zinc-800" />

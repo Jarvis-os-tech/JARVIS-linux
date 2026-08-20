@@ -199,6 +199,53 @@ pub fn initialize_schema(conn: &Connection) -> Result<()> {
             tables_count    INTEGER NOT NULL,
             status          TEXT NOT NULL
         );
+
+        -- 14. Temporal Knowledge Graph
+        CREATE TABLE IF NOT EXISTS knowledge_triples (
+            id TEXT PRIMARY KEY,
+            subject TEXT NOT NULL,
+            predicate TEXT NOT NULL,
+            object TEXT NOT NULL,
+            valid_from INTEGER NOT NULL,
+            valid_to INTEGER,
+            confidence REAL NOT NULL DEFAULT 0.8,
+            source_node_id TEXT REFERENCES memory_nodes(id) ON DELETE SET NULL,
+            source TEXT NOT NULL DEFAULT 'auto',
+            agent_id TEXT,
+            metadata_json TEXT,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_kt_subject ON knowledge_triples(subject);
+        CREATE INDEX IF NOT EXISTS idx_kt_object ON knowledge_triples(object);
+        CREATE INDEX IF NOT EXISTS idx_kt_predicate ON knowledge_triples(predicate);
+        CREATE INDEX IF NOT EXISTS idx_kt_valid ON knowledge_triples(valid_from, valid_to);
+
+        -- 15. Agent reflection logs
+        CREATE TABLE IF NOT EXISTS diary_entries (
+            id TEXT PRIMARY KEY,
+            agent_id TEXT NOT NULL DEFAULT 'jarvis',
+            session_id TEXT,
+            entry_type TEXT NOT NULL DEFAULT 'reflection',
+            content TEXT NOT NULL,
+            tags_json TEXT,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_diary_agent ON diary_entries(agent_id);
+        CREATE INDEX IF NOT EXISTS idx_diary_created ON diary_entries(created_at DESC);
+
+        -- 16. Agent coordination queue
+        CREATE TABLE IF NOT EXISTS events_mesh (
+            id TEXT PRIMARY KEY,
+            event_type TEXT NOT NULL,
+            source_agent TEXT NOT NULL,
+            target_agent TEXT,
+            payload_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at INTEGER NOT NULL,
+            processed_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_events_status ON events_mesh(status);
+        CREATE INDEX IF NOT EXISTS idx_events_type ON events_mesh(event_type);
         "#,
     )?;
 
@@ -218,7 +265,7 @@ pub fn initialize_schema(conn: &Connection) -> Result<()> {
             tables_count = excluded.tables_count,
             status = excluded.status;
         "#,
-        rusqlite::params![CURRENT_SCHEMA_VERSION, "0.1.0", now, now, 13, "healthy"],
+        rusqlite::params![CURRENT_SCHEMA_VERSION, "0.1.0", now, now, 16, "healthy"],
     )?;
 
     info!("Database schema initialized (version {})", CURRENT_SCHEMA_VERSION);

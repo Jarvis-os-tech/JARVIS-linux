@@ -53,20 +53,22 @@ pub fn run(
                 let bytes_needed = data.len() * std::mem::size_of::<i16>();
                 let output_bytes = u8_slice_from_i16_mut(data);
 
-                let read = if let Ok(mut cons) = cb_consumer.try_lock() {
+                let raw_read = if let Ok(mut cons) = cb_consumer.try_lock() {
                     cons.pop_slice(&mut output_bytes[..bytes_needed])
                 } else {
                     0
                 };
 
-                if read < bytes_needed {
-                    for byte in &mut output_bytes[read..bytes_needed] {
-                        *byte = 0;
-                    }
-                    if read != 0 {
+                // Guarantee 16-bit integer boundary alignment (2 bytes per sample)
+                let even_bytes = (raw_read / 2) * 2;
+                let samples_read = even_bytes / 2;
+
+                if samples_read < data.len() {
+                    data[samples_read..].fill(0);
+                    if raw_read != 0 {
                         debug!(
                             "[Playback] Buffer underrun: got {} of {} bytes",
-                            read, bytes_needed
+                            raw_read, bytes_needed
                         );
                     }
                 }

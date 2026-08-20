@@ -11,7 +11,7 @@ export interface ToolDefinition {
   description: string;
   tier: ToolTier;
   parameters: {
-    type: 'OBJECT';
+    type: 'object' | 'OBJECT';
     properties: Record<string, any>;
     required?: string[];
   };
@@ -54,6 +54,10 @@ export class ToolRegistry {
 
   public getTool(name: string): ToolDefinition | undefined {
     return this.tools.get(name);
+  }
+
+  public getTools(): ToolDefinition[] {
+    return Array.from(this.tools.values());
   }
 
   public getAllTools(): ToolDefinition[] {
@@ -135,7 +139,7 @@ export class ToolRegistry {
       description: 'Set system audio volume percentage (0-100) or toggle mute.',
       tier: 'tier1_native_cpp',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           percent: { type: 'INTEGER', description: 'Volume percent (0-100)' },
           mute: { type: 'BOOLEAN', description: 'Whether to mute' },
@@ -155,7 +159,7 @@ export class ToolRegistry {
       description: 'Set display screen brightness percentage (0-100).',
       tier: 'tier1_native_cpp',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           percent: { type: 'INTEGER', description: 'Brightness percent (0-100)' },
         },
@@ -172,7 +176,7 @@ export class ToolRegistry {
       description: 'Fetch real-time CPU, RAM, Network, Battery, and Disk ground-truth telemetry.',
       tier: 'tier1_native_cpp',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {},
       },
       handler: async () => {
@@ -186,7 +190,7 @@ export class ToolRegistry {
       description: 'Run sub-millisecond memory engine diagnosis, SQLite schema inspection, and health status check.',
       tier: 'tier1_native_cpp',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           mode: { type: 'STRING', description: 'Inspection mode: "test", "inspect", or "ping"' },
         },
@@ -197,6 +201,21 @@ export class ToolRegistry {
       },
     });
 
+    this.register({
+      name: 'run_full_system_diagnostics',
+      featureSwitchId: 'system_control',
+      description: 'Execute an Iron Man Mark-style comprehensive pre-flight diagnostic sweep across ALL subsystems (C++ actuators, SQLite database, memory vault, 5 AI personas, audio DSP chain, skills registry, and cloud connectors). Use whenever the user asks to check if everything is working or requests a system check.',
+      tier: 'tier1_native_cpp',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+      handler: async () => {
+        const { suitDiagnosticsEngine } = await import('../core/suit_diagnostics');
+        return suitDiagnosticsEngine.runFullPreFlightSweep();
+      },
+    });
+
     // Tier 2: Linux Actuators & Shell
     this.register({
       name: 'execute_linux_command',
@@ -204,7 +223,7 @@ export class ToolRegistry {
       description: 'Execute a verified local Linux shell command or tool.',
       tier: 'tier2_system_shell',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           command: { type: 'STRING', description: 'Shell command string to execute' },
         },
@@ -221,7 +240,7 @@ export class ToolRegistry {
       description: 'Launch an installed desktop application on Ubuntu Linux.',
       tier: 'tier2_system_shell',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           appName: { type: 'STRING', description: 'Name of the application e.g. code, google-chrome, nautilus' },
         },
@@ -238,7 +257,7 @@ export class ToolRegistry {
       description: 'Retrieve the structured Obsidian Memory Vault Map of Content (MOC), domain subfolders, and indexed note counts.',
       tier: 'tier2_system_shell',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {},
       },
       handler: async () => {
@@ -253,7 +272,7 @@ export class ToolRegistry {
       description: 'Read the contents of a local file on the host filesystem with smart path and tilde resolution.',
       tier: 'tier2_system_shell',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           filePath: { type: 'STRING', description: 'Absolute or relative path to read' },
           maxLines: { type: 'INTEGER', description: 'Max lines to read' },
@@ -274,7 +293,7 @@ export class ToolRegistry {
       description: 'Perform deep autonomous internet research across 15+ verified channels with Rule of N>=2 fact triangulation, SQLite caching, and cited Markdown reports saved to Obsidian.',
       tier: 'tier2_system_shell',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           query: { type: 'STRING', description: 'The topic or research query.' },
           mode: { type: 'STRING', description: 'Research mode: "fast" (<1.5s voice mode) or "deep" (comprehensive multi-platform).' },
@@ -300,7 +319,7 @@ export class ToolRegistry {
       description: 'Fact-check and verify a specific claim against independent primary sources with confidence score, dispute detection, and verbatim citations.',
       tier: 'tier2_system_shell',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           claim: { type: 'STRING', description: 'The factual claim, version assertion, or statement to verify.' },
           context: { type: 'STRING', description: 'Optional extra context or domain keywords.' },
@@ -319,7 +338,7 @@ export class ToolRegistry {
       description: 'Ultra-fast sub-1.5s fact-check for live voice questions with early termination and high-confidence answer extraction.',
       tier: 'tier2_system_shell',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           query: { type: 'STRING', description: 'The factual question or lookup.' },
         },
@@ -336,7 +355,7 @@ export class ToolRegistry {
       description: 'Perform a grounded, multi-source internet research query across verified web channels to obtain real-time facts and prevent hallucination.',
       tier: 'tier2_system_shell',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           query: { type: 'STRING', description: 'The topic, research question, or search query to look up on the live internet.' },
         },
@@ -353,7 +372,7 @@ export class ToolRegistry {
       description: 'Fetch and read the complete, clean text content of any website or URL with zero ads, scripts, or hallucinations via Jina Reader.',
       tier: 'tier2_system_shell',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           url: { type: 'STRING', description: 'The complete HTTP/HTTPS URL of the web page to read.' },
         },
@@ -370,7 +389,7 @@ export class ToolRegistry {
       description: 'Search the live web for verified search results and factual references with titles, links, and snippets.',
       tier: 'tier2_system_shell',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           query: { type: 'STRING', description: 'Search term or query.' },
           numResults: { type: 'INTEGER', description: 'Number of results to return (default 5).' },
@@ -388,7 +407,7 @@ export class ToolRegistry {
       description: 'Extract ground-truth subtitles and transcripts from any YouTube video URL without hallucinating.',
       tier: 'tier2_system_shell',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           videoUrl: { type: 'STRING', description: 'YouTube video URL or video ID.' },
         },
@@ -407,7 +426,7 @@ export class ToolRegistry {
       description: 'Fetch the authenticated user\'s LinkedIn profile, name, headline, email, and URN.',
       tier: 'tier4_workspace_cloud',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {},
       },
       handler: async () => {
@@ -422,7 +441,7 @@ export class ToolRegistry {
       description: 'Publish a new text post or article update to the user\'s LinkedIn feed with custom visibility.',
       tier: 'tier4_workspace_cloud',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           text: { type: 'STRING', description: 'The text content to publish to LinkedIn.' },
           visibility: { type: 'STRING', description: 'Post visibility: "PUBLIC" (default) or "CONNECTIONS".', enum: ['PUBLIC', 'CONNECTIONS'] },
@@ -441,7 +460,7 @@ export class ToolRegistry {
       description: 'Fetch and extract comprehensive professional details from any LinkedIn user profile (experience, education, headline, about).',
       tier: 'tier4_workspace_cloud',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           profileUrlOrUsername: { type: 'STRING', description: 'LinkedIn profile URL (e.g. "https://www.linkedin.com/in/williamhgates") or username.' },
         },
@@ -459,7 +478,7 @@ export class ToolRegistry {
       description: 'Fetch and extract company details from LinkedIn: overview, industry, website, size, and headquarters.',
       tier: 'tier4_workspace_cloud',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           companyUrlOrName: { type: 'STRING', description: 'LinkedIn company URL or company vanity name (e.g. "google", "microsoft", "openai").' },
         },
@@ -477,7 +496,7 @@ export class ToolRegistry {
       description: 'Search professionals, recruiters, and talent on LinkedIn by keyword, position, and location.',
       tier: 'tier4_workspace_cloud',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           term: { type: 'STRING', description: 'Search term or keyword.' },
           position: { type: 'STRING', description: 'Filter by job position / title (e.g. "Software Engineer", "VP Engineering").' },
@@ -497,7 +516,7 @@ export class ToolRegistry {
       description: 'Search open job listings and roles on LinkedIn by keyword and location.',
       tier: 'tier4_workspace_cloud',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           keywords: { type: 'STRING', description: 'Job title or tech stack (e.g. "Rust Engineer", "AI Researcher").' },
           location: { type: 'STRING', description: 'Job location (e.g. "Remote", "London", "New York").' },
@@ -516,7 +535,7 @@ export class ToolRegistry {
       description: 'Send a direct message to a LinkedIn contact.',
       tier: 'tier4_workspace_cloud',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           personUrl: { type: 'STRING', description: 'LinkedIn profile URL of the recipient.' },
           message: { type: 'STRING', description: 'Message text to send.' },
@@ -535,7 +554,7 @@ export class ToolRegistry {
       description: 'Send a LinkedIn connection invitation request with an optional personalized note.',
       tier: 'tier4_workspace_cloud',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           personUrl: { type: 'STRING', description: 'LinkedIn profile URL of the target contact.' },
           note: { type: 'STRING', description: 'Optional personalized note for the invitation.' },
@@ -555,7 +574,7 @@ export class ToolRegistry {
       description: 'Fetch the authenticated GitHub user\'s profile, login, name, email, public repos, and bio.',
       tier: 'tier4_workspace_cloud',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {},
       },
       handler: async () => {
@@ -570,7 +589,7 @@ export class ToolRegistry {
       description: 'List the authenticated user\'s public and private GitHub repositories.',
       tier: 'tier4_workspace_cloud',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           limit: { type: 'INTEGER', description: 'Number of repositories to return (default 10).' },
           sort: { type: 'STRING', description: 'Sort by: "updated", "created", or "pushed".' },
@@ -588,7 +607,7 @@ export class ToolRegistry {
       description: 'Create a new issue on a GitHub repository.',
       tier: 'tier4_workspace_cloud',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           owner: { type: 'STRING', description: 'Repository owner (username or organization).' },
           repo: { type: 'STRING', description: 'Repository name.' },
@@ -610,7 +629,7 @@ export class ToolRegistry {
       description: 'Create a new public or secret GitHub Gist with code snippets.',
       tier: 'tier4_workspace_cloud',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           description: { type: 'STRING', description: 'Gist description.' },
           filename: { type: 'STRING', description: 'Name of the primary file.' },
@@ -631,7 +650,7 @@ export class ToolRegistry {
       description: 'Fetch detailed information about any GitHub repository (stars, forks, open issues, language, description).',
       tier: 'tier4_workspace_cloud',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           owner: { type: 'STRING', description: 'Repository owner.' },
           repo: { type: 'STRING', description: 'Repository name.' },
@@ -653,14 +672,14 @@ export class ToolRegistry {
       description: 'Store and persist a high-importance fact, architectural decision, user preference, or pattern in JARVIS universal memory (secret-scanned, written to SQLite WAL + Obsidian Vault + L0 buffer).',
       tier: 'tier2_system_shell',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           content: { type: 'STRING', description: 'The exact fact, decision, preference, or knowledge text to remember.' },
           title: { type: 'STRING', description: 'Optional short summary title for the memory note.' },
           kind: { type: 'STRING', description: 'Kind of memory: "fact", "decision", "preference", "pattern", "system".' },
           tier: { type: 'STRING', description: 'Memory tier: "persistent", "working", "ephemeral". Default is "working".' },
           importance: { type: 'NUMBER', description: 'Importance score from 0.1 to 1.0 (default 0.7).' },
-          tags: { type: 'ARRAY', description: 'Optional tags array for categorization.' },
+          tags: { type: 'ARRAY', description: 'Optional tags array for categorization.', items: { type: 'STRING' } },
         },
         required: ['content'],
       },
@@ -679,7 +698,7 @@ export class ToolRegistry {
       description: 'Recall and search across past memories, decisions, facts, and conversation history using 4-signal hybrid search (BM25 + Cosine Vector + Graph + Recency) with sub-50ms latency.',
       tier: 'tier2_system_shell',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           query: { type: 'STRING', description: 'The search query or topic to recall.' },
           top_k: { type: 'INTEGER', description: 'Max number of memory nodes to return (default 5).' },
@@ -699,7 +718,7 @@ export class ToolRegistry {
       description: 'Retrieve real-time telemetry and status of the JARVIS Memory Engine: total node count, connected edges, unsealed buffers, SQLite WAL metrics, and Obsidian vault index.',
       tier: 'tier2_system_shell',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {},
       },
       handler: async () => {
@@ -714,7 +733,7 @@ export class ToolRegistry {
       description: 'Drill down into hierarchical summary tree notes (L2 -> L1 -> L0) to retrieve full itemized source facts for an aggregated topic.',
       tier: 'tier2_system_shell',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           root_id: { type: 'STRING', description: 'Root summary node ID to inspect (e.g. tree-L1-xxxx).' },
         },
@@ -732,7 +751,7 @@ export class ToolRegistry {
       description: 'Explicitly flush and consolidate pending unsealed memory buffers into structured markdown summary notes.',
       tier: 'tier2_system_shell',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           stale_threshold_secs: { type: 'INTEGER', description: 'Flush buffers idle for this many seconds (default 0 for immediate flush).' },
         },
@@ -755,7 +774,7 @@ export class ToolRegistry {
       description: 'Dynamically harvest and match specialist execution patterns and principles from the 1,440+ skill catalog for any domain or task.',
       tier: 'tier2_system_shell',
       parameters: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
           query: {
             type: 'STRING',
@@ -783,6 +802,22 @@ export class ToolRegistry {
 }
 
 export const toolRegistry = ToolRegistry.getInstance();
+
+// =============================================================
+// Tier 8: Hermes-Grade Autonomous Intelligence Extensions
+// =============================================================
+import { registerDelegationTool } from './delegation_tool';
+import { registerCronTools } from './cron_tool';
+import { registerSkillsTools } from './skills_tool';
+import { registerPythonTools } from './python_plugin_tool';
+import { registerMemorySearchTools } from './memory_search_tool';
+
+registerDelegationTool();
+registerCronTools();
+registerSkillsTools();
+registerPythonTools();
+registerMemorySearchTools();
+
 
 
 

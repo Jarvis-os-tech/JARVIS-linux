@@ -23,3 +23,11 @@ JARVIS-MEMORY/**
 !JARVIS-MEMORY/README.md
 !JARVIS-MEMORY/.obsidian/
 !JARVIS-MEMORY/.obsidian/.gitkeep
+
+# Credentials & Cloud Service Configs
+firebase-applet-config.json
+google-services.json
+GoogleService-Info.plist
+client_secret*.json
+credentials.json
+test-results/

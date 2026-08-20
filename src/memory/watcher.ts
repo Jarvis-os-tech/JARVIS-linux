@@ -80,52 +80,68 @@ export class VaultWatcher {
   }
 
   private async processFileChange(relPath: string): Promise<void> {
-    const fullPath = path.join(this.vaultPath, relPath);
+    try {
+      const fullPath = path.join(this.vaultPath, relPath);
 
-    if (!fs.existsSync(fullPath)) {
-      // File removed
-      this.fileTimestamps.delete(relPath);
-      logOrchestrator.info(`[VaultWatcher] Detected removed file: ${relPath}`);
-      return;
+      if (!fs.existsSync(fullPath)) {
+        // File removed
+        this.fileTimestamps.delete(relPath);
+        logOrchestrator.info(`[VaultWatcher] Detected removed file: ${relPath}`);
+        return;
+      }
+
+      let stats: fs.Stats;
+      try {
+        stats = fs.statSync(fullPath);
+      } catch {
+        return;
+      }
+
+      const mtimeSecs = Math.floor(stats.mtimeMs / 1000);
+      const lastSeen = this.fileTimestamps.get(relPath);
+
+      if (lastSeen === mtimeSecs) {
+        // Unchanged mtime, skip duplicate trigger
+        return;
+      }
+
+      this.fileTimestamps.set(relPath, mtimeSecs);
+
+      let rawContent = '';
+      try {
+        rawContent = fs.readFileSync(fullPath, 'utf-8');
+      } catch {
+        return;
+      }
+
+      if (!rawContent || rawContent.trim().length === 0) return;
+
+      // Parse Frontmatter & Extract Metadata
+      const title = this.extractTitle(rawContent, relPath);
+      const kind = this.inferKind(relPath, rawContent);
+      const tags = this.extractTags(rawContent, relPath);
+      const links = this.extractWikilinks(rawContent);
+      const sourceId = `vault_watcher:${relPath}@${mtimeSecs}`;
+
+      logOrchestrator.info(`[VaultWatcher] Ingesting modified note: ${relPath} (source: ${sourceId})`);
+
+      // Ingest into Universal Memory Engine
+      await memoryClient.createNode({
+        id: `doc-${Buffer.from(relPath).toString('hex').slice(0, 16)}`,
+        title,
+        content: rawContent,
+        kind,
+        tier: relPath.startsWith('facts/') || relPath.startsWith('knowledge/') ? 'persistent' : 'working',
+        importance: 0.85,
+        tags,
+        links,
+        scope: 'global',
+      });
+
+      memoryContextBuilder.invalidateCache();
+    } catch (err: any) {
+      logOrchestrator.warn(`[VaultWatcher] Warning during file processing for ${relPath}: ${err.message}`);
     }
-
-    const stats = fs.statSync(fullPath);
-    const mtimeSecs = Math.floor(stats.mtimeMs / 1000);
-    const lastSeen = this.fileTimestamps.get(relPath);
-
-    if (lastSeen === mtimeSecs) {
-      // Unchanged mtime, skip duplicate trigger
-      return;
-    }
-
-    this.fileTimestamps.set(relPath, mtimeSecs);
-
-    const rawContent = fs.readFileSync(fullPath, 'utf-8');
-    if (!rawContent || rawContent.trim().length === 0) return;
-
-    // Parse Frontmatter & Extract Metadata
-    const title = this.extractTitle(rawContent, relPath);
-    const kind = this.inferKind(relPath, rawContent);
-    const tags = this.extractTags(rawContent, relPath);
-    const links = this.extractWikilinks(rawContent);
-    const sourceId = `vault_watcher:${relPath}@${mtimeSecs}`;
-
-    logOrchestrator.info(`[VaultWatcher] Ingesting modified note: ${relPath} (source: ${sourceId})`);
-
-    // Ingest into Universal Memory Engine
-    await memoryClient.createNode({
-      id: `doc-${Buffer.from(relPath).toString('hex').slice(0, 16)}`,
-      title,
-      content: rawContent,
-      kind,
-      tier: relPath.startsWith('facts/') || relPath.startsWith('knowledge/') ? 'persistent' : 'working',
-      importance: 0.85,
-      tags,
-      links,
-      scope: 'global',
-    });
-
-    memoryContextBuilder.invalidateCache();
   }
 
   private extractTitle(content: string, relPath: string): string {

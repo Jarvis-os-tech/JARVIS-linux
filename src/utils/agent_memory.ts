@@ -5,7 +5,7 @@ export interface MemoryFact {
   value: string;
   updatedAt: string;
   source: 'auto_extracted' | 'user_added' | 'agent_sync';
-  agentId?: 'jarvis' | 'friday' | 'ultron' | 'edith' | 'karen' | 'user' | string;
+  agentId?: 'jarvis' | 'hermes' | 'friday' | 'ultron' | 'edith' | 'karen' | 'user' | string;
   agentName?: string;
 }
 
@@ -76,6 +76,16 @@ export const DEFAULT_SEED_MEMORIES: MemoryFact[] = [
     source: 'agent_sync',
     agentId: 'jarvis',
     agentName: 'JARVIS Core'
+  },
+  {
+    id: 'mem-hermes-fleet',
+    category: 'work_context',
+    key: 'HERMES Autonomous Fleet & Orchestration Engine',
+    value: 'HERMES commands background agent swarms, live market/trading telemetry, cron pipelines, and proactive fleet health monitoring with Fenrir voice streaming.',
+    updatedAt: new Date().toISOString(),
+    source: 'agent_sync',
+    agentId: 'hermes',
+    agentName: 'HERMES Orchestrator'
   },
   {
     id: 'mem-edith-actuators',

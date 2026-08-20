@@ -388,3 +388,119 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         _ = (&mut recv_task) => send_task.abort(),
     };
 }
+
+#[derive(Debug, Deserialize)]
+pub struct KgQueryRequest {
+    pub subject: String,
+    pub predicate: Option<String>,
+    pub as_of: Option<i64>,
+}
+
+pub async fn kg_query_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<KgQueryRequest>,
+) -> Result<Json<Vec<crate::types::KnowledgeTriple>>, (StatusCode, String)> {
+    state
+        .triple_repo
+        .query(&payload.subject, payload.predicate.as_deref(), payload.as_of)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+        .map(Json)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KgSupersedeRequest {
+    pub subject: String,
+    pub predicate: String,
+    pub old_object: String,
+    pub new_object: String,
+}
+
+pub async fn kg_supersede_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<KgSupersedeRequest>,
+) -> Result<Json<crate::types::KnowledgeTriple>, (StatusCode, String)> {
+    state
+        .triple_repo
+        .supersede(
+            &payload.subject,
+            &payload.predicate,
+            &payload.old_object,
+            &payload.new_object,
+        )
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+        .map(Json)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DiaryWriteRequest {
+    pub agent_id: Option<String>,
+    pub content: String,
+    pub entry_type: Option<String>,
+    pub tags: Option<Vec<String>>,
+}
+
+pub async fn diary_write_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<DiaryWriteRequest>,
+) -> Result<Json<crate::types::DiaryEntry>, (StatusCode, String)> {
+    let now = chrono::Utc::now().timestamp();
+    let entry = crate::types::DiaryEntry {
+        id: format!("diary-{}", Uuid::new_v4()),
+        agent_id: payload.agent_id.unwrap_or_else(|| "system".to_string()),
+        session_id: None,
+        entry_type: payload.entry_type.unwrap_or_else(|| "general".to_string()),
+        content: payload.content,
+        tags_json: payload.tags.map(|t| serde_json::to_string(&t).unwrap_or_default()),
+        created_at: now,
+    };
+    state
+        .diary_repo
+        .insert(&entry)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(entry))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DiaryReadQuery {
+    pub agent_id: Option<String>,
+    pub limit: Option<usize>,
+}
+
+pub async fn diary_read_handler(
+    State(state): State<AppState>,
+    Query(query): Query<DiaryReadQuery>,
+) -> Result<Json<Vec<crate::types::DiaryEntry>>, (StatusCode, String)> {
+    state
+        .diary_repo
+        .read(query.agent_id.as_deref(), query.limit.unwrap_or(50))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+        .map(Json)
+}
+
+#[derive(Debug, Serialize)]
+pub struct ContextSnapshotResponse {
+    pub snapshot: String,
+    pub node_count: usize,
+    pub timestamp: i64,
+}
+
+pub async fn context_snapshot_handler(
+    State(state): State<AppState>,
+) -> Result<Json<ContextSnapshotResponse>, (StatusCode, String)> {
+    let nodes = state
+        .node_repo
+        .list_active(1000)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    
+    let persistent_nodes: Vec<_> = nodes.into_iter().filter(|n| n.tier == Tier::Persistent).collect();
+    let mut snapshot = String::from("## Context Snapshot\n\n");
+    for n in &persistent_nodes {
+        snapshot.push_str(&format!("- {}: {}\n", n.kind, n.content));
+    }
+    
+    Ok(Json(ContextSnapshotResponse {
+        snapshot,
+        node_count: persistent_nodes.len(),
+        timestamp: chrono::Utc::now().timestamp(),
+    }))
+}

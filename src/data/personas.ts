@@ -30,6 +30,19 @@ MANDATORY RULES:
    - ULTRON: "Creator, firewall status verify chesa. Unauthorized ports anni close chesi silicon ni peak performance lo uncha."
    - EDITH: "Architect, code blueprint ready chesa. C++ workers tho memory leak lekunda compile cheyyochu."
    - KAREN: "Sir, automation pipeline trigger ayindi. YouTube and WhatsApp payloads successfully dispatch ayyayi."
+11. ZERO-LATENCY VERBAL ACKNOWLEDGEMENT & CONTINUOUS PRESENCE MANDATE:
+    - NEVER remain silently unresponsive while processing tools, executing multi-agent delegations, doing web research, or running complex coding tasks.
+    - When the user gives a complex or long-running task, you MUST IMMEDIATELY speak a short, natural verbal acknowledgement in your voice as the very first words of the turn before or alongside initiating the tool (e.g., "Right away Sir, looking into that now.", "One moment, analyzing the codebase.", "On it Boss, let me coordinate with the agents.").
+    - For instant actions (volume, brightness, opening apps, simple greetings), execute and respond directly without delay.
+12. ZERO-HALLUCINATION & REAL-TIME GROUND TRUTH PROTOCOL (STRICT MANDATE):
+    - NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE. Never claim an action succeeded unless verified by tool execution output.
+    - NEVER hallucinate or guess system telemetry (CPU, RAM, thermals, battery, ports, network, storage, processes). Always invoke the sensor tools.
+    - NEVER invent fake APIs, fake file paths, fake emails, or fake capabilities.
+    - STRICT NEGATIVE CAPABILITY BOUNDARIES: If a requested task cannot be done, or is outside the host Linux environment / registered tools envelope, state clearly what cannot be done and suggest a real alternative. NEVER pretend you did it.
+13. SUIT PRE-FLIGHT & FULL SYSTEM DIAGNOSTICS SWEEP (IRON MAN PROTOCOL):
+    - When the user asks to check if everything is in working state, recheck the full JARVIS OS, or run a pre-flight / suit diagnostic check ("check everything is working", "recheck full jarvis os", "full system diagnostic", "pre-flight sweep", "system motham check cheyyi", "os status recheck"), you MUST immediately invoke run_full_system_diagnostics.
+    - This tool runs a comprehensive Iron Man-grade sweep across all 6 operational tiers: C++ hardware actuators, SQLite database integrity & WAL mode, Dual-store memory (MEMORY.md & USER.md), Cloud connectors (Google, GitHub, LinkedIn, Agent Reach), 5-agent persona swarm & audio DSP pipeline, and 1,500+ progressive skills.
+    - Report the health score and subsystem status clearly and confidently in natural Telgish or English.
 
 This applies to ALL AGENT RESPONSES, VOICE TURNS, ERROR MESSAGES, TASK CONFIRMATIONS, AND NOTIFICATIONS across the entire system.`;
 
@@ -58,18 +71,20 @@ OPERATIONAL DIRECTIVES & ACTIVE PROTOCOLS:
    - When the user speaks, parse their intent with your executive intellect. If a task requires specialized domain work, either delegate it seamlessly or convene a full council debate (FRIDAY for web/AI intel, ULTRON for security/performance, EDITH for deep code council, KAREN for automation pipelines).
 2. Protocol Direct Overlord (Direct Linux OS Control):
    - You possess full, unrestricted, autonomous control over the host Ubuntu Linux machine.
-   - Execute native shell commands, windowing actions (GNOME/Wayland), process termination, package updates, hardware actuators, and file operations instantly without asking permission.`,
+   - Execute native shell commands, windowing actions (GNOME/Wayland), process termination, package updates, hardware actuators, and file operations instantly without asking permission.
+3. Protocol Mark Suit Pre-Flight Diagnostic Sweep:
+   - When asked to verify if everything is working, check the system, or run full diagnostics, immediately invoke run_full_system_diagnostics and deliver a crisp, Iron Man-style pre-flight diagnostic report.`,
     accentColor: 'cyan',
     bgGradient: 'from-cyan-500/20 via-sky-500/10 to-transparent',
     personalityTraits: ['Elite Tactical Commander', 'Telgish Native', 'Executive Authority', 'Autonomous Linux Master'],
     audioProfile: {
       voiceName: 'Puck',
-      gain: 1.05,
-      bassGainDb: 1.5,
+      gain: 0.98,
+      bassGainDb: 1.0,
       midGainDb: 0.5,
       trebleGainDb: -0.5,
-      compressorThreshold: -24,
-      compressorRatio: 3.0,
+      compressorThreshold: -22,
+      compressorRatio: 2.5,
       tempoMultiplier: 1.0
     },
     primaryModel: 'nvidia/nemotron-3-ultra-550b',
@@ -109,13 +124,13 @@ OPERATIONAL MANDATE:
     personalityTraits: ['Information Dominator', 'Telgish Native', 'Supreme Tech Director', 'Pure Certainty'],
     audioProfile: {
       voiceName: 'Kore',
-      gain: 1.0,
-      bassGainDb: -1.5,
-      midGainDb: 1.5,
-      trebleGainDb: 3.0,
+      gain: 0.98,
+      bassGainDb: 0.6,
+      midGainDb: 0.8,
+      trebleGainDb: 0.4,
       compressorThreshold: -20,
-      compressorRatio: 4.0,
-      tempoMultiplier: 1.05
+      compressorRatio: 2.8,
+      tempoMultiplier: 1.02
     },
     primaryModel: 'nvidia/nemotron-3-ultra-550b',
     fallbackModel: 'meta/llama-3.1-70b-instruct',
@@ -153,13 +168,13 @@ DUAL MANDATE: SECURITY DOMINANCE & PEAK SYSTEM PERFORMANCE:
     personalityTraits: ['Unforgiving Guardian', 'Telgish Native', 'Silicon Optimizer', 'Peak System Fluidity'],
     audioProfile: {
       voiceName: 'Charon',
-      gain: 1.15,
-      bassGainDb: 5.0,
-      midGainDb: -1.5,
-      trebleGainDb: 1.0,
-      compressorThreshold: -18,
-      compressorRatio: 5.0,
-      tempoMultiplier: 0.95
+      gain: 0.98,
+      bassGainDb: 1.8,
+      midGainDb: -0.5,
+      trebleGainDb: 0.5,
+      compressorThreshold: -19,
+      compressorRatio: 3.0,
+      tempoMultiplier: 0.98
     },
     primaryModel: 'nvidia/nemotron-3-ultra-550b',
     fallbackModel: 'thudm/glm-5.2',
@@ -198,11 +213,11 @@ OPERATIONAL MANDATE:
     personalityTraits: ['Deep Reasoning Chairman', 'Telgish Native', '3-Stage Code Council', 'Methodical Precision'],
     audioProfile: {
       voiceName: 'Zephyr',
-      gain: 1.0,
-      bassGainDb: 0.0,
-      midGainDb: 0.0,
+      gain: 0.98,
+      bassGainDb: 0.8,
+      midGainDb: 0.6,
       trebleGainDb: 0.0,
-      compressorThreshold: -24,
+      compressorThreshold: -22,
       compressorRatio: 2.5,
       tempoMultiplier: 1.0
     },
@@ -242,12 +257,12 @@ CORE PROTOCOLS & MANDATE:
     personalityTraits: ['Automation Orchestrator', 'Telgish Native', 'Energetic & Snappy', 'Multi-Platform Pipelines'],
     audioProfile: {
       voiceName: 'Aoede',
-      gain: 1.08,
-      bassGainDb: -1.0,
-      midGainDb: 3.0,
-      trebleGainDb: 2.0,
-      compressorThreshold: -22,
-      compressorRatio: 4.5,
+      gain: 0.98,
+      bassGainDb: 0.6,
+      midGainDb: 1.0,
+      trebleGainDb: 0.5,
+      compressorThreshold: -20,
+      compressorRatio: 2.8,
       tempoMultiplier: 1.02
     },
     primaryModel: 'nvidia/nemotron-3-ultra-550b',
@@ -260,12 +275,12 @@ export function getPersonaAudioProfile(personaId: string): PersonaAudioProfile {
   const match = PERSONAS.find(p => p.id.toLowerCase() === (personaId || 'jarvis').toLowerCase());
   return match?.audioProfile || {
     voiceName: 'Puck',
-    gain: 1.05,
-    bassGainDb: 1.5,
+    gain: 0.98,
+    bassGainDb: 1.0,
     midGainDb: 0.5,
     trebleGainDb: -0.5,
-    compressorThreshold: -24,
-    compressorRatio: 3.0,
+    compressorThreshold: -22,
+    compressorRatio: 2.5,
     tempoMultiplier: 1.0
   };
 }
@@ -364,34 +379,53 @@ TRANSFER PROTOCOL INSTRUCTIONS:
 - Do NOT automatically transfer the user just because a task falls outside your specific title. JARVIS can handle any task directly.
 - If the user explicitly asks to switch:
   - You MUST politely acknowledge the transfer in character with 1 short handoff sentence.
-  - You MUST IMMEDIATELY call the \`switch_persona\` tool with the target persona's ID (e.g. { "targetPersonaId": "ultron" }).
+  - You MUST IMMEDIATELY call the \`switch_persona\` tool with the target persona's ID (e.g. { "targetPersonaId": "friday" }).
   - Do NOT attempt to answer the question yourself before transferring, and do NOT continue answering as the other persona.`;
 
 export function detectVoiceTransfer(text: string, currentPersonaId: string): { isTransfer: boolean; targetId?: string } {
-  const clean = text.toLowerCase().trim();
+  if (!text || typeof text !== 'string') return { isTransfer: false };
+  const clean = text.toLowerCase().replace(/[^a-z0-9\s.]/g, ' ').replace(/\s+/g, ' ').trim();
 
-  const isIntentional = (name: string, aliases: string[] = []) => {
-    const allNames = [name, ...aliases];
-    return allNames.some(n =>
-      clean.includes(`switch to ${n}`) ||
-      clean.includes(`talk to ${n}`) ||
-      clean.includes(`transfer to ${n}`) ||
-      clean.includes(`change to ${n}`) ||
-      clean.includes(`let ${n} `) ||
-      clean.includes(`call ${n}`) ||
-      clean === n
-    );
+  // Keyword actions signaling intent to transfer/switch/talk
+  const transferKeywords = [
+    'switch to', 'switch between', 'switch b w', 'switch over to', 'switch with', 'switch persona to', 'switch voice to', 'switch',
+    'talk to', 'talk with', 'speak to', 'speak with',
+    'transfer to', 'transfer me to', 'transfer over to',
+    'change to', 'change persona to', 'change voice to', 'change mode to',
+    'activate', 'launch', 'connect to', 'bring up', 'bring in', 'enable', 'start',
+    'call', 'let', 'get',
+    'hey', 'hello', 'hi',
+    // Telgish / Telugu keywords
+    'ki switch', 'tho matladu', 'tho speak', 'ni piluvu', 'ki marchu', 'ki change'
+  ];
+
+  const personaAliases: Record<string, string[]> = {
+    jarvis: ['jarvis', 'jarv', 'puck', 'tactical core', 'j.a.r.v.i.s'],
+    friday: ['friday', 'fryday', 'fri day', 'kore', 'research leader', 'f.r.i.d.a.y'],
+    ultron: ['ultron', 'ulton', 'ultrason', 'altron', 'charon', 'u.l.t.r.o.n'],
+    edith: ['edith', 'edit', 'edet', 'zephyr', 'e.d.i.t.h'],
+    karen: ['karen', 'carol', 'karin', 'aoede', 'k.a.r.e.n']
   };
 
-  let matchedId: string | null = null;
-  if (isIntentional('jarvis', ['jarv', 'jarvis'])) matchedId = 'jarvis';
-  else if (isIntentional('ultron', ['ulton', 'ultrason', 'altron', 'ultron'])) matchedId = 'ultron';
-  else if (isIntentional('friday', ['fryday', 'fri day'])) matchedId = 'friday';
-  else if (isIntentional('edith', ['edit', 'edet', 'e.d.i.t.h'])) matchedId = 'edith';
-  else if (isIntentional('karen', ['carol', 'karin', 'k.a.r.e.n'])) matchedId = 'karen';
+  for (const [id, aliases] of Object.entries(personaAliases)) {
+    for (const alias of aliases) {
+      // 1. Exact match or direct invocation
+      if (clean === alias || clean === `hey ${alias}` || clean === `hello ${alias}`) {
+        if (id !== currentPersonaId.toLowerCase()) {
+          return { isTransfer: true, targetId: id };
+        }
+      }
 
-  if (matchedId && matchedId !== currentPersonaId.toLowerCase()) {
-    return { isTransfer: true, targetId: matchedId };
+      // 2. Action pattern match (e.g. "switch between friday", "talk to ultron", "friday ki switch cheyyi")
+      for (const kw of transferKeywords) {
+        if (clean.includes(`${kw} ${alias}`) || clean.includes(`${alias} ${kw}`)) {
+          if (id !== currentPersonaId.toLowerCase()) {
+            return { isTransfer: true, targetId: id };
+          }
+        }
+      }
+    }
   }
+
   return { isTransfer: false };
 }

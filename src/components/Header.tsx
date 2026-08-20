@@ -87,14 +87,16 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header className="sticky top-0 z-30 w-full border-b border-white/10 bg-zinc-950/70 backdrop-blur-xl px-4 sm:px-6 py-3.5 flex items-center justify-between transition-all shadow-lg shadow-black/20">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-cyan-500 via-sky-500 to-indigo-600 p-0.5 shadow-lg shadow-cyan-500/20 flex items-center justify-center">
-          <div className="w-full h-full bg-zinc-950 rounded-[14px] flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-cyan-400" />
-          </div>
+        <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-cyan-500 via-sky-500 to-indigo-600 p-0.5 shadow-lg shadow-cyan-500/20 flex items-center justify-center overflow-hidden">
+          <img
+            src="/jarvis-logo.png"
+            alt="JARVIS OS"
+            className="w-full h-full object-cover rounded-[14px]"
+          />
         </div>
         <div>
           <h1 className="text-base font-semibold text-zinc-100 leading-none flex items-center gap-2">
-            JARVIS MCU AI Hub
+            JARVIS OS MCU AI Hub
             <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 bg-cyan-500/20 text-cyan-300 rounded-md border border-cyan-500/30">
               Live Voice AI
             </span>

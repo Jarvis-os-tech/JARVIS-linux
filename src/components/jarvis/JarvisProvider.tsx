@@ -24,13 +24,15 @@ import {
   type Notification,
   type ViewKey,
 } from "@/lib/jarvis-data";
-import { PERSONAS, VOICE_TRANSFER_SYSTEM_INSTRUCTION, TELGISH_LANGUAGE_SYSTEM_INSTRUCTION, detectVoiceTransfer, getPersonaAudioProfile } from "@/data/personas";
+import { PERSONAS, VOICE_TRANSFER_SYSTEM_INSTRUCTION, detectVoiceTransfer, getPersonaAudioProfile } from "@/data/personas";
 import { VoicePersona, ConnectionState, WorkspaceActionItem, AgentConfig } from "@/types";
 import { AudioQueuePlayer, float32ToInt16Base64, resampleTo16k, calculateVolume } from "@/utils/audio";
 import { assistantGreeterInstance } from "@/utils/automatic_greeting";
-import { loadAgentMemory, saveAgentMemory, formatMemoryForSystemInstruction, autoExtractMemoriesFromText, AgentMemoryState } from "@/utils/agent_memory";
+import { loadAgentMemory, saveAgentMemory, autoExtractMemoriesFromText, AgentMemoryState } from "@/utils/agent_memory";
 import { analyzeUtterance, NluAnalysisResult } from "@/utils/nlu_engine";
 import { PersonaMetadata, MutedRelayEvent } from "@/utils/multi_agent_orchestrator";
+import { clientSpeechQueue, ClientSpeechPriority } from "@/utils/client_speech_queue";
+import { WebRTCManager, isWebRTCSupported } from "@/utils/webrtc_manager";
 
 type Ctx = ReturnType<typeof useJarvisState>;
 
@@ -54,6 +56,23 @@ function useJarvisState(onSwitchToClassic?: () => void) {
   const [micPermissionState, setMicPermissionState] = useState<"prompt" | "granted" | "denied" | "unsupported">("prompt");
   const [latencyMs, setLatencyMs] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [liveSubtitle, setLiveSubtitle] = useState<string | null>(null);
+
+  // Wire client speech priority queue callbacks
+  useEffect(() => {
+    clientSpeechQueue.setCallbacks({
+      onSubtitleChange: (text) => {
+        setLiveSubtitle(text);
+      },
+      onSpeakingStateChange: (speaking) => {
+        if (speaking) {
+          setConnectionState((prev) => (prev === 'connected' || prev === 'listening' ? 'speaking' : prev));
+        } else {
+          setConnectionState((prev) => (prev === 'speaking' ? 'listening' : prev));
+        }
+      },
+    });
+  }, []);
 
   // Hardware Telemetry (Real ground truth from Linux /proc and Mutter/PulseAudio actuators)
   const [cpu, setCpu] = useState<number>(0);
@@ -65,9 +84,28 @@ function useJarvisState(onSwitchToClassic?: () => void) {
   const [volumeMuted, setVolumeMuted] = useState<boolean>(false);
   const [thermals, setThermals] = useState<any>(null);
 
-  // Audio meters
+  // Audio meters & Sensitivity Calibration
   const [inputVolume, setInputVolume] = useState<number>(0);
   const [outputVolume, setOutputVolume] = useState<number>(0);
+  const [micSensitivity, setMicSensitivityState] = useState<number>(() => {
+    const saved = typeof window !== "undefined" ? localStorage.getItem("jarvis_mic_sensitivity") : null;
+    return saved ? Math.max(1, Math.min(10, Number(saved))) : 7;
+  });
+  const micSensitivityRef = useRef(micSensitivity);
+  micSensitivityRef.current = micSensitivity;
+
+  const setMicSensitivity = useCallback((val: number) => {
+    const clamped = Math.max(1, Math.min(10, val));
+    setMicSensitivityState(clamped);
+    micSensitivityRef.current = clamped;
+    try {
+      localStorage.setItem("jarvis_mic_sensitivity", String(clamped));
+    } catch {}
+  }, []);
+
+  // WebRTC Dual Transport state
+  const [webrtcConnected, setWebrtcConnected] = useState<boolean>(false);
+  const webrtcManagerRef = useRef<WebRTCManager | null>(null);
 
   // Swarm & Orchestrator
   const [agents, setAgents] = useState<Agent[]>(() =>
@@ -75,7 +113,7 @@ function useJarvisState(onSwitchToClassic?: () => void) {
       id: p.id,
       name: p.name,
       desc: p.description,
-      icon: p.id === "jarvis" ? "◎" : p.id === "friday" ? "📡" : p.id === "edith" ? "🛡" : "🧠",
+      icon: p.id === "jarvis" ? "◎" : p.id === "friday" ? "🌐" : p.id === "ultron" ? "💀" : p.id === "edith" ? "🕶" : p.id === "karen" ? "⚡" : "🧠",
       accent: p.accentColor || (idx === 0 ? "var(--cyan-hud)" : idx === 1 ? "var(--violet-hud)" : idx === 2 ? "var(--blue-hud)" : "var(--pink-hud)"),
       status: "running",
       tasks: 0,
@@ -252,6 +290,10 @@ function useJarvisState(onSwitchToClassic?: () => void) {
   const isMutedRef = useRef(isMuted);
   const isStartingVisionRef = useRef(false);
   const lastAudioProcessTimeRef = useRef<number>(Date.now());
+  const isActiveSessionRef = useRef(false);
+  const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const bargeInCountRef = useRef(0);
 
   useEffect(() => {
     isMutedRef.current = isMuted;
@@ -341,20 +383,25 @@ function useJarvisState(onSwitchToClassic?: () => void) {
         .then((r) => r.json())
         .then((data) => {
           let currentCpu = 0;
-          if (data?.cpu?.usagePercent !== undefined) {
-            currentCpu = Math.round(data.cpu.usagePercent);
+          const cpuVal = data?.cpu?.usagePercent ?? data?.cpu_usage_percent;
+          if (cpuVal !== undefined) {
+            currentCpu = Math.min(100, Math.max(0, Math.round(cpuVal)));
             setCpu(currentCpu);
           }
-          if (data?.memory?.usagePercent !== undefined) {
-            setRam(Math.round(data.memory.usagePercent));
+          const ramVal = data?.memory?.usagePercent ?? data?.ram_usage_percent;
+          if (ramVal !== undefined) {
+            setRam(Math.min(100, Math.max(0, Math.round(ramVal))));
           }
-          if (data?.network?.rxSec !== undefined) {
-            setNet(Number(((data.network.rxSec + (data.network.txSec || 0)) / 1024).toFixed(1)));
+          const netRx = data?.network?.rxSec ?? 0;
+          const netTx = data?.network?.txSec ?? 0;
+          if (data?.network?.rxSec !== undefined || data?.network?.txSec !== undefined) {
+            setNet(Number(((netRx + netTx) / 1024).toFixed(1)));
           }
 
           // Update agent live telemetry (real system uptime and real host CPU allocation)
-          if (data?.uptimeSeconds !== undefined) {
-            const uptimeMinutes = Math.floor(data.uptimeSeconds / 60);
+          const uptimeSec = data?.uptimeSeconds ?? (typeof data?.uptime === "number" ? data.uptime : undefined);
+          if (uptimeSec !== undefined) {
+            const uptimeMinutes = Math.floor(uptimeSec / 60);
             setAgents((prev) =>
               prev.map((a) => ({
                 ...a,
@@ -368,7 +415,7 @@ function useJarvisState(onSwitchToClassic?: () => void) {
     };
 
     fetchHardware();
-    const interval = setInterval(fetchHardware, 3000);
+    const interval = setInterval(fetchHardware, 2000);
     return () => clearInterval(interval);
   }, [telemetryOn, activeOrchestratorPersonaId]);
 
@@ -434,13 +481,26 @@ function useJarvisState(onSwitchToClassic?: () => void) {
         throw new Error("Microphone capture (getUserMedia) is unsupported or blocked by browser security policy.");
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+      } catch (constraintErr: any) {
+        if (
+          constraintErr.name === "NotAllowedError" ||
+          constraintErr.name === "PermissionDeniedError"
+        ) {
+          throw constraintErr;
+        }
+        console.warn("[JarvisProvider] Standard audio constraints failed, trying basic audio stream:", constraintErr);
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+
       micStreamRef.current = stream;
       setMicPermissionState("granted");
       setErrorMsg(null);
@@ -498,14 +558,52 @@ function useJarvisState(onSwitchToClassic?: () => void) {
           setInputVolume(0);
           return;
         }
-        const inputBuffer = e.inputBuffer.getChannelData(0);
-        const vol = calculateVolume(inputBuffer);
+        const rawBuffer = e.inputBuffer.getChannelData(0);
+        
+        // Apply mic sensitivity scaling (Level 1 -> 0.36x, Level 7 -> 1.32x, Level 10 -> 1.8x)
+        const currentSensitivity = micSensitivityRef.current;
+        const gainMultiplier = 0.2 + (currentSensitivity * 0.16);
+        const scaledBuffer = new Float32Array(rawBuffer.length);
+        for (let i = 0; i < rawBuffer.length; i++) {
+          scaledBuffer[i] = Math.max(-1, Math.min(1, rawBuffer[i] * gainMultiplier));
+        }
+
+        const vol = calculateVolume(scaledBuffer);
         setInputVolume(vol);
 
+        // Acoustic Echo Suppression & Self-Voice Loopback Guard:
+        // When AI output audio is actively playing or dissipating (with 450ms tail buffer),
+        // suppress mic transmission back to Gemini Live to prevent the AI from hearing itself and cutting itself off.
+        if (audioQueuePlayerRef.current?.isEchoSuppressionActive(450)) {
+          // Sustained Barge-in Detection: Require deliberate user voice (>80%) across 3 consecutive frames
+          // to prevent speaker output, acoustic reflection, or background noise from triggering false cutoffs.
+          if (vol > 80) {
+            bargeInCountRef.current += 1;
+            if (bargeInCountRef.current >= 3) {
+              audioQueuePlayerRef.current?.stopAndClear();
+              bargeInCountRef.current = 0;
+              if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                wsRef.current.send(JSON.stringify({ type: "interrupt" }));
+              }
+              if (webrtcManagerRef.current) {
+                webrtcManagerRef.current.sendCommand({ type: "interrupt" } as any);
+              }
+            } else {
+              return;
+            }
+          } else {
+            bargeInCountRef.current = 0;
+            return;
+          }
+        } else {
+          bargeInCountRef.current = 0;
+        }
+
         // Cleanly resample Float32 buffer to exact 16kHz PCM mono for Gemini Live API
-        const resampled16k = resampleTo16k(inputBuffer, actualSampleRate);
+        const resampled16k = resampleTo16k(scaledBuffer, actualSampleRate);
         const base64Pcm = float32ToInt16Base64(resampled16k);
 
+        // WebRTC + WebSocket Dual Transport
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           wsRef.current.send(JSON.stringify({ type: "audio", audio: base64Pcm }));
         }
@@ -538,6 +636,7 @@ function useJarvisState(onSwitchToClassic?: () => void) {
   }, [stopMicStream]);
 
   const requestMicPermission = useCallback(async () => {
+    setErrorMsg(null);
     const success = await startMicStream();
     if (success) {
       toast.success("Microphone activated and calibrated successfully.");
@@ -721,15 +820,16 @@ function useJarvisState(onSwitchToClassic?: () => void) {
 
     ws.onopen = () => {
       setLatencyMs(Math.max(20, Date.now() - pingStart));
-      const langInst = TELGISH_LANGUAGE_SYSTEM_INSTRUCTION;
-      const memInst = formatMemoryForSystemInstruction(agentMemoryState);
-      const combined = `${selectedPersona.systemInstruction}\n${VOICE_TRANSFER_SYSTEM_INSTRUCTION}\n${langInst}\n${memInst}`;
+      reconnectAttemptsRef.current = 0;
+      // TELGISH is already embedded in persona.systemInstruction — no duplicate needed
+      // Memory is injected server-side from authoritative SQLite DB — no client duplicate needed
+      const combined = `${selectedPersona.systemInstruction}\n${VOICE_TRANSFER_SYSTEM_INSTRUCTION}`;
 
       ws.send(JSON.stringify({
         type: "init",
         voiceName: selectedPersona.voiceName,
         systemInstruction: combined,
-        model: "gemini-3.1-flash-live-preview",
+        model: "gemini-2.5-flash-native-audio-latest",
         googleAccessToken: localStorage.getItem("g_access_token") || googleAccessToken || "",
       }));
     };
@@ -738,8 +838,23 @@ function useJarvisState(onSwitchToClassic?: () => void) {
       try {
         const msg = JSON.parse(event.data);
 
+        // Keepalive heartbeat response
+        if (msg.type === "ping") {
+          if (ws.readyState === WebSocket.OPEN) {
+            try {
+              ws.send(JSON.stringify({ type: "pong", timestamp: Date.now() }));
+            } catch {}
+          }
+          return;
+        }
+
+        if (msg.type === "pong") {
+          return;
+        }
+
         if (msg.type === "connected") {
           setConnectionState("connected");
+          reconnectAttemptsRef.current = 0;
           const initialProfile = selectedPersona.audioProfile || getPersonaAudioProfile(selectedPersona.id);
           audioQueuePlayerRef.current?.setAudioProfile(initialProfile);
           startMicStream();
@@ -747,7 +862,7 @@ function useJarvisState(onSwitchToClassic?: () => void) {
           pushNotification("◎", `JARVIS connected with ${selectedPersona.name}`);
 
           const greetingContext = assistantGreeterInstance.getGreetingContext(selectedPersona.name);
-          const greetingPrompt = greetingContext.generateDynamicPrompt();
+          const greetingPrompt = `[GREETING]: ${greetingContext.generateDynamicPrompt()}`;
           ws.send(JSON.stringify({ type: "text", text: greetingPrompt }));
         }
 
@@ -842,7 +957,24 @@ function useJarvisState(onSwitchToClassic?: () => void) {
           pushNotification("🛡", `Relay Alert from ${msg.sourceManagerName}: ${msg.relayedSummary}`);
         }
 
+        if (msg.type === "voice_acknowledgement" && msg.text) {
+          pushLog(`⚡ Spoken Voice Acknowledgement: "${msg.text}"`);
+          clientSpeechQueue.speak(msg.text, ClientSpeechPriority.ACKNOWLEDGEMENT, {
+            personaVoiceName: selectedPersona.voiceName,
+            category: msg.category,
+          });
+        }
+
+        if (msg.type === "task_progress" && msg.text) {
+          pushLog(`⏳ Spoken Progress Update #${msg.updateIndex}: "${msg.text}"`);
+          clientSpeechQueue.speak(msg.text, ClientSpeechPriority.PROGRESS_UPDATE, {
+            personaVoiceName: selectedPersona.voiceName,
+          });
+        }
+
         if (msg.type === "audio" && (msg.audio || msg.data)) {
+          // Preemption: Final Gemini Live audio response arrived, immediately cancel any ongoing client acknowledgement/progress TTS
+          clientSpeechQueue.cancelAll("gemini_audio_started");
           setConnectionState("speaking");
           audioQueuePlayerRef.current?.enqueueChunk(msg.audio || msg.data);
         }
@@ -867,6 +999,8 @@ function useJarvisState(onSwitchToClassic?: () => void) {
 
         if (msg.type === "interrupted") {
           audioQueuePlayerRef.current?.stopAndClear();
+          clientSpeechQueue.cancelAll("interrupted");
+          setLiveSubtitle(null);
           setConnectionState("listening");
         }
 
@@ -884,26 +1018,83 @@ function useJarvisState(onSwitchToClassic?: () => void) {
     };
 
     ws.onclose = () => {
-      setConnectionState((prev) => (prev === "error" ? "error" : "disconnected"));
-      stopMicStream();
+      if (isActiveSessionRef.current) {
+        setConnectionState("connecting");
+        const attempt = reconnectAttemptsRef.current++;
+        const delay = Math.min(1000 * Math.pow(1.5, attempt), 5000);
+        pushLog(`Audio stream disconnected. Auto-reconnecting in ${Math.round(delay)}ms...`);
+        if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = setTimeout(() => {
+          if (isActiveSessionRef.current) {
+            connectWebSocket();
+          }
+        }, delay);
+      } else {
+        setConnectionState((prev) => (prev === "error" ? "error" : "disconnected"));
+        stopMicStream();
+      }
     };
 
     ws.onerror = () => {
-      setErrorMsg("Realtime session disconnected. Click Retry to reconnect.");
-      setConnectionState("error");
+      if (!isActiveSessionRef.current) {
+        setErrorMsg("Realtime session disconnected. Click Retry to reconnect.");
+        setConnectionState("error");
+      }
     };
   }, [closeWebSocket, selectedPersona, agentMemoryState, googleAccessToken, startMicStream, pushLog, pushNotification, appendTranscriptChunk, startVision, stopVision]);
 
   const handleStartSession = useCallback(async () => {
+    isActiveSessionRef.current = true;
+    reconnectAttemptsRef.current = 0;
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
     audioQueuePlayerRef.current?.getAudioContext();
     await startMicStream();
     connectWebSocket();
-  }, [connectWebSocket, startMicStream]);
+
+    // Initialize WebRTC Dual-Transport in parallel for sub-10ms latency
+    if (isWebRTCSupported()) {
+      try {
+        if (!webrtcManagerRef.current) {
+          const webrtc = new WebRTCManager({
+            signalingUrl: window.location.origin,
+            sampleRate: 16000,
+          });
+          webrtc.onConnectionState = (state) => {
+            setWebrtcConnected(state === "connected");
+            if (state === "connected") {
+              pushLog("WebRTC UDP DataChannel linked for ultra-low latency dispatch.");
+            }
+          };
+          webrtc.onDataMessage = (msg) => {
+            if (msg.type === "tool_result") {
+              pushNotification("⚡", `WebRTC tool: ${msg.toolName}`);
+            }
+          };
+          webrtcManagerRef.current = webrtc;
+        }
+        webrtcManagerRef.current.connect().catch((err) => {
+          console.warn("[WebRTC] Dual transport negotiation notice:", err);
+        });
+      } catch {}
+    }
+  }, [connectWebSocket, startMicStream, pushLog, pushNotification]);
 
   const handleStopSession = useCallback(() => {
+    isActiveSessionRef.current = false;
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
     audioQueuePlayerRef.current?.stopAndClear();
     closeWebSocket();
     stopMicStream();
+
+    if (webrtcManagerRef.current) {
+      webrtcManagerRef.current.disconnect();
+      webrtcManagerRef.current = null;
+      setWebrtcConnected(false);
+    }
+
     setConnectionState("disconnected");
     pushLog("Live voice session disconnected.");
   }, [closeWebSocket, stopMicStream, pushLog]);
@@ -925,15 +1116,15 @@ function useJarvisState(onSwitchToClassic?: () => void) {
     audioQueuePlayerRef.current?.setAudioProfile(profile);
 
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      const langInst = TELGISH_LANGUAGE_SYSTEM_INSTRUCTION;
-      const memInst = formatMemoryForSystemInstruction(agentMemoryState);
-      const combined = `${targetPersona.systemInstruction}\n${VOICE_TRANSFER_SYSTEM_INSTRUCTION}\n${langInst}\n${memInst}`;
+      // TELGISH already in persona.systemInstruction; memory injected server-side
+      const combined = `${targetPersona.systemInstruction}\n${VOICE_TRANSFER_SYSTEM_INSTRUCTION}`;
 
       wsRef.current.send(JSON.stringify({
         type: "reinit",
+        personaId: targetPersona.id,
         voiceName: targetPersona.voiceName,
         systemInstruction: combined,
-        model: "gemini-3.1-flash-live-preview",
+        model: "gemini-2.5-flash-native-audio-latest",
         googleAccessToken: localStorage.getItem("g_access_token") || googleAccessToken || "",
       }));
 
@@ -1216,6 +1407,9 @@ function useJarvisState(onSwitchToClassic?: () => void) {
     // Audio
     inputVolume,
     outputVolume,
+    micSensitivity,
+    setMicSensitivity,
+    webrtcConnected,
     // Vision
     isVisionActive,
     visionMode,
@@ -1263,6 +1457,7 @@ function useJarvisState(onSwitchToClassic?: () => void) {
     sendMessage,
     clearChat,
     thinking,
+    liveSubtitle,
     // Prefs
     autonomy,
     setAutonomy,

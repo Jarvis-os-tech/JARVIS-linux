@@ -44,38 +44,42 @@ class TestLinkedInOAuthFlow(unittest.TestCase):
         self.assertEqual(params.get("scope"), ["openid profile email w_member_social"])
 
     def test_sqlite_and_json_persistence(self):
-        test_payload = {
-            "accessToken": "AQV_mock_python_test_token",
-            "name": "Bruce Wayne",
-            "email": "bruce@wayneenterprises.com",
-            "userUrn": "urn:li:person:wayne777",
-            "scope": "openid profile email w_member_social",
-            "updatedAt": 1723812345000
-        }
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            test_db_path = Path(tmp_dir) / "test_jarvis.db"
+            test_json_path = Path(tmp_dir) / "test_linkedin_auth.json"
 
-        # Test SQLite saving
-        saved_db = save_to_jarvis_sqlite(test_payload)
-        self.assertTrue(saved_db, "Should save payload to data/jarvis.db SQLite database")
+            test_payload = {
+                "accessToken": "AQV_mock_python_test_token",
+                "name": "Bruce Wayne",
+                "email": "bruce@wayneenterprises.com",
+                "userUrn": "urn:li:person:wayne777",
+                "scope": "openid profile email w_member_social",
+                "updatedAt": 1723812345000
+            }
 
-        # Verify record in SQLite database
-        db_path = Path.cwd() / "data" / "jarvis.db"
-        conn = sqlite3.connect(str(db_path))
-        cursor = conn.cursor()
-        cursor.execute("SELECT value_json FROM configs WHERE key = 'linkedin_auth'")
-        row = cursor.fetchone()
-        conn.close()
+            # Test SQLite saving in isolated temp DB
+            saved_db = save_to_jarvis_sqlite(test_payload, target_db_path=test_db_path)
+            self.assertTrue(saved_db, "Should save payload to isolated SQLite database")
 
-        self.assertIsNotNone(row, "Should find linkedin_auth key in configs table")
-        parsed_db_value = json.loads(row[0])
-        self.assertEqual(parsed_db_value["accessToken"], "AQV_mock_python_test_token")
-        self.assertEqual(parsed_db_value["name"], "Bruce Wayne")
+            # Verify record in SQLite database
+            conn = sqlite3.connect(str(test_db_path))
+            cursor = conn.cursor()
+            cursor.execute("SELECT value_json FROM configs WHERE key = 'linkedin_auth'")
+            row = cursor.fetchone()
+            conn.close()
 
-        # Test JSON file saving
-        json_file = save_to_json_file(test_payload)
-        self.assertTrue(os.path.exists(json_file), "Should create JSON file")
-        with open(json_file, "r") as f:
-            data = json.load(f)
-        self.assertEqual(data["email"], "bruce@wayneenterprises.com")
+            self.assertIsNotNone(row, "Should find linkedin_auth key in configs table")
+            parsed_db_value = json.loads(row[0])
+            self.assertEqual(parsed_db_value["accessToken"], "AQV_mock_python_test_token")
+            self.assertEqual(parsed_db_value["name"], "Bruce Wayne")
+
+            # Test JSON file saving in isolated temp file
+            json_file = save_to_json_file(test_payload, target_json_path=test_json_path)
+            self.assertTrue(os.path.exists(json_file), "Should create JSON file")
+            with open(json_file, "r") as f:
+                data = json.load(f)
+            self.assertEqual(data["email"], "bruce@wayneenterprises.com")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
-export type MemoryKind = 'fact' | 'decision' | 'preference' | 'pattern' | 'system' | 'chunk';
-export type MemoryTier = 'ephemeral' | 'working' | 'persistent';
+export type MemoryKind = 'fact' | 'decision' | 'preference' | 'pattern' | 'system' | 'chunk' | 'conversation' | 'lesson';
+export type MemoryTier = 'ephemeral' | 'working' | 'persistent' | 'session';
 
 export interface MemoryNode {
   id: string;
@@ -111,4 +111,31 @@ export interface MemoryEvent {
   scope?: string;
   title?: string;
   timestamp: string;
+}
+
+export interface KnowledgeTriple {
+  id: string;
+  subject: string;
+  predicate: string;
+  object: string;
+  valid_from: number;
+  valid_to: number | null;
+  confidence: number;
+  source: string;
+}
+
+export interface DiaryEntry {
+  id: string;
+  agent_id: string;
+  session_id?: string;
+  entry_type: string;
+  content: string;
+  tags?: string[];
+  created_at: number;
+}
+
+export interface ContextSnapshot {
+  snapshot: string;
+  node_count: number;
+  timestamp: number;
 }

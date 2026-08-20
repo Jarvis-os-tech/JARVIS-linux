@@ -220,7 +220,7 @@ export function ClassicApp({ onSwitchToModern }: ClassicAppProps) {
     micSensitivity: 5,
     enableTranscription: true,
     enableNoiseFilter: true,
-    model: 'gemini-3.1-flash-live-preview'
+    model: 'gemini-2.5-flash-native-audio-latest'
   });
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -230,6 +230,7 @@ export function ClassicApp({ onSwitchToModern }: ClassicAppProps) {
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const isMutedRef = useRef(isMuted);
   const lastAudioProcessTimeRef = useRef<number>(Date.now());
+  const bargeInCountRef = useRef(0);
 
   // Keep refs in sync with state for event listeners
   useEffect(() => {
@@ -360,13 +361,25 @@ export function ClassicApp({ onSwitchToModern }: ClassicAppProps) {
       if (!navigator?.mediaDevices?.getUserMedia) {
         throw new Error("Microphone capture API is unsupported in this browser.");
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        });
+      } catch (constraintErr: any) {
+        if (
+          constraintErr.name === "NotAllowedError" ||
+          constraintErr.name === "PermissionDeniedError"
+        ) {
+          throw constraintErr;
         }
-      });
+        console.warn("[ClassicApp] Audio constraints failed, falling back to basic stream:", constraintErr);
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
       micStreamRef.current = stream;
 
       stream.getAudioTracks().forEach((track) => {
@@ -416,6 +429,30 @@ export function ClassicApp({ onSwitchToModern }: ClassicAppProps) {
         const inputBuffer = e.inputBuffer.getChannelData(0);
         const vol = calculateVolume(inputBuffer);
         setInputVolume(vol);
+
+        // Acoustic Echo Suppression & Self-Voice Loopback Guard:
+        // When AI output audio is actively playing or dissipating (with 450ms tail buffer),
+        // suppress mic transmission back to Gemini Live to prevent the AI from hearing itself and cutting itself off.
+        if (audioQueuePlayerRef.current?.isEchoSuppressionActive(450)) {
+          // Sustained Barge-in Detection: Require deliberate user voice (>80%) across 3 consecutive frames
+          if (vol > 80) {
+            bargeInCountRef.current += 1;
+            if (bargeInCountRef.current >= 3) {
+              audioQueuePlayerRef.current?.stopAndClear();
+              bargeInCountRef.current = 0;
+              if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                wsRef.current.send(JSON.stringify({ type: 'interrupt' }));
+              }
+            } else {
+              return;
+            }
+          } else {
+            bargeInCountRef.current = 0;
+            return;
+          }
+        } else {
+          bargeInCountRef.current = 0;
+        }
 
         // Convert Float32 PCM to 16kHz Int16 Base64 for Live API
         const resampled16k = resampleTo16k(inputBuffer, actualSampleRate);
@@ -480,7 +517,7 @@ export function ClassicApp({ onSwitchToModern }: ClassicAppProps) {
         type: 'init',
         voiceName: agentConfig.voiceName || selectedPersona.voiceName,
         systemInstruction: combinedInstruction,
-        model: 'gemini-3.1-flash-live-preview',
+        model: 'gemini-2.5-flash-native-audio-latest',
         googleAccessToken: localStorage.getItem('g_access_token') || googleAccessToken || ''
       }));
     };
@@ -694,6 +731,7 @@ export function ClassicApp({ onSwitchToModern }: ClassicAppProps) {
 
       wsRef.current.send(JSON.stringify({
         type: 'reinit',
+        personaId: targetPersona.id,
         voiceName: targetPersona.voiceName,
         systemInstruction: combinedInstruction,
         model: 'gemini-3.1-flash-live-preview',

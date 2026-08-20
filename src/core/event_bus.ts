@@ -52,6 +52,36 @@ export interface JarvisEventMap {
 
   // Conversation & Auto-Capture Events
   'conversation:turn_completed': (data: any) => void;
+
+  // Latency-Aware Voice Response & Acknowledgement Events
+  'voice:acknowledgement': (data: { taskId: string; text: string; category: string; priority: number; latencyMs?: number }) => void;
+  'task:progress_update': (data: { taskId: string; text: string; updateIndex: number; elapsedMs: number }) => void;
+  'task:lifecycle_change': (data: { taskId: string; fromState: string; toState: string; reason?: string }) => void;
+
+  // Subagent / Delegation Events
+  'subagent:spawned': (data: { subagentId: string; goal: string; role: string }) => void;
+  'subagent:progress': (data: { subagentId: string; api_calls: number; currentTool: string | null }) => void;
+  'subagent:completed': (data: { subagentId: string; result: any; success: boolean }) => void;
+  'subagent:failed': (data: { subagentId: string; error: string }) => void;
+  'delegation:async_completed': (data: { handle: string; results: Array<{ subagent_id: string; goal: string; result: any; success: boolean; error?: string }> }) => void;
+
+  // Cron & Autonomous Fleet Events
+  'cron:executed': (data: { jobId: string; jobName: string; status: string; output?: string; error?: string }) => void;
+  'cron:updated': (data: { jobId: string; action: string }) => void;
+
+  // Security & Threat Guard Events
+  'security:blocked': (data: { toolName: string; reason: string; risk: string }) => void;
+  'security:redacted': (data: { count: number; subsystem: string }) => void;
+
+  // Memory & Skills Hub Events
+  'memory:synced': (data: { source: string; factsCount: number }) => void;
+  'skill:harvested': (data: { name: string; category: string }) => void;
+  
+  // Advanced Memory & Knowledge Graph Events
+  'memory:node_created': (data: { nodeId: string; kind: string; tier: string }) => void;
+  'memory:kg_updated': (data: { subject: string; predicate: string; newObject: string }) => void;
+  'memory:tree_sealed': (data: { summaryId: string; nodeCount: number }) => void;
+  'memory:secret_blocked': (data: { attemptId: string; reason: string }) => void;
 }
 
 export class JarvisEventBus extends EventEmitter<JarvisEventMap> {

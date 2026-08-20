@@ -165,12 +165,78 @@ function getNetworkThroughput(): { rxSec: number; txSec: number } {
   }
 }
 
+// In-memory CPU delta tracker for instantaneous ground truth utilization
+let lastCpuSample = { time: 0, idle: 0, total: 0 };
+
+function getCpuUtilizationGroundTruth(): number {
+  try {
+    const data = fs.readFileSync('/proc/stat', 'utf8');
+    const firstLine = data.split('\n')[0];
+    if (!firstLine.startsWith('cpu ')) return 0;
+    const parts = firstLine.split(/\s+/).slice(1).map(x => parseInt(x, 10) || 0);
+    // parts: [user, nice, system, idle, iowait, irq, softirq, steal]
+    const idle = parts[3] + (parts[4] || 0); // idle + iowait
+    const total = parts.reduce((acc, val) => acc + val, 0);
+    const now = Date.now();
+
+    if (lastCpuSample.time === 0 || lastCpuSample.total === 0) {
+      lastCpuSample = { time: now, idle, total };
+      // Fallback to active fraction if initial sample
+      const active = total - idle;
+      return total > 0 ? Math.min(100, Math.max(0, Math.round((active / total) * 100))) : 0;
+    }
+
+    const deltaTotal = total - lastCpuSample.total;
+    const deltaIdle = idle - lastCpuSample.idle;
+    lastCpuSample = { time: now, idle, total };
+
+    if (deltaTotal <= 0) return 0;
+    const deltaActive = Math.max(0, deltaTotal - deltaIdle);
+    return Math.min(100, Math.max(0, Math.round((deltaActive / deltaTotal) * 100)));
+  } catch {
+    return 0;
+  }
+}
+
+function getMemoryGroundTruth(): { totalMb: number; usedMb: number; freeMb: number; usagePercent: number } {
+  try {
+    const data = fs.readFileSync('/proc/meminfo', 'utf8');
+    const lines = data.split('\n');
+    const mem: Record<string, number> = {};
+    for (const line of lines) {
+      const parts = line.split(':');
+      if (parts.length === 2) {
+        mem[parts[0].trim()] = parseInt(parts[1].trim().split(/\s+/)[0], 10) || 0;
+      }
+    }
+    const totalKb = mem['MemTotal'] || 0;
+    const freeKb = mem['MemFree'] || 0;
+    const availKb = mem['MemAvailable'] !== undefined ? mem['MemAvailable'] : (freeKb + (mem['Buffers'] || 0) + (mem['Cached'] || 0));
+    const usedKb = Math.max(0, totalKb - availKb);
+
+    const totalMb = Math.round(totalKb / 1024);
+    const usedMb = Math.round(usedKb / 1024);
+    const freeMb = Math.round(availKb / 1024);
+    const usagePercent = totalKb > 0 ? Math.min(100, Math.max(0, Math.round((usedKb / totalKb) * 100))) : 0;
+
+    return { totalMb, usedMb, freeMb, usagePercent };
+  } catch {
+    const total = os.totalmem();
+    const free = os.freemem();
+    const used = total - free;
+    return {
+      totalMb: Math.round(total / (1024 * 1024)),
+      usedMb: Math.round(used / (1024 * 1024)),
+      freeMb: Math.round(free / (1024 * 1024)),
+      usagePercent: Math.round((used / total) * 100)
+    };
+  }
+}
+
 export async function getSystemTelemetryGroundTruth() {
   const cpus = os.cpus();
-  const totalMem = os.totalmem();
-  const freeMem = os.freemem();
-  const usedMem = totalMem - freeMem;
-  const memUsagePercent = Math.round((usedMem / totalMem) * 100);
+  const memGroundTruth = getMemoryGroundTruth();
+  const cpuInstantUsage = getCpuUtilizationGroundTruth();
   const loadAvg = os.loadavg();
   const uptimeSeconds = Math.round(os.uptime());
   const network = getNetworkThroughput();
@@ -227,14 +293,9 @@ export async function getSystemTelemetryGroundTruth() {
       load1m: Math.round(loadAvg[0] * 100) / 100,
       load5m: Math.round(loadAvg[1] * 100) / 100,
       load15m: Math.round(loadAvg[2] * 100) / 100,
-      usagePercent: Math.min(100, Math.round((loadAvg[0] / Math.max(1, cpus.length)) * 100))
+      usagePercent: cpuInstantUsage
     },
-    memory: {
-      totalMb: Math.round(totalMem / (1024 * 1024)),
-      usedMb: Math.round(usedMem / (1024 * 1024)),
-      freeMb: Math.round(freeMem / (1024 * 1024)),
-      usagePercent: memUsagePercent
-    },
+    memory: memGroundTruth,
     disk: diskStats,
     network,
     battery,
@@ -243,7 +304,7 @@ export async function getSystemTelemetryGroundTruth() {
     powerProfile,
     thermals,
     uptimeSeconds,
-    uptimeHuman: formatUptime(uptimeSeconds),
+    uptimeHuman: cppTelemetry?.uptime || formatUptime(uptimeSeconds),
     timestamp: Date.now()
   };
 }
