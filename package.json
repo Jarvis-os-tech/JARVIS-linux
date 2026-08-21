@@ -14,10 +14,7 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test": "tsx tests/codebase_memory.test.ts",
-    "test:all": "tsx tests/codebase_memory.test.ts && tsx tests/research_engine.test.ts && tsx tests/github_engine.test.ts && tsx tests/linkedin_engine.test.ts",
-    "tauri": "tauri",
-    "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build"
+    "test:all": "tsx tests/codebase_memory.test.ts && tsx tests/research_engine.test.ts && tsx tests/github_engine.test.ts && tsx tests/linkedin_engine.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -45,8 +42,6 @@
     "ws": "^8.21.3"
   },
   "devDependencies": {
-    "@tauri-apps/api": "^2.11.1",
-    "@tauri-apps/cli": "^2.11.4",
     "@types/better-sqlite3": "^9.6.0",
     "@types/d3-force": "^3.0.10",
     "@types/express": "^4.17.21",

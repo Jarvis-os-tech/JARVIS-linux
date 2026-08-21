@@ -5,7 +5,7 @@ import './index.css';
 
 // Client-side console sanitizer: noop noisy console calls in production
 import './core/console_sanitizer';
-// Client-side API & WebSocket routing configuration for Tauri/Browser
+// Client-side API & WebSocket routing configuration
 import './lib/api-config';
 
 createRoot(document.getElementById('root')!).render(

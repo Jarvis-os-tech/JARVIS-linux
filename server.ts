@@ -8,6 +8,21 @@ import { logServer } from './src/core/logger';
 import { createApiRouter } from './src/server/routes';
 import { attachWebSocketServer } from './src/server/ws_handler';
 
+import fs from 'fs';
+
+// Robust .env loading for CLI, direct Node, and Tauri packaged bundle
+const envCandidates = [
+  path.join(process.cwd(), '.env'),
+  path.join(__dirname, '.env'),
+  path.join(__dirname, '..', '.env'),
+  '/home/gopi/Downloads/JARVIS-V0/.env'
+];
+for (const envPath of envCandidates) {
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+    break;
+  }
+}
 dotenv.config();
 
 // Sanitize console usage early in startup: route server console.* through the pino logger
@@ -25,7 +40,7 @@ process.on('unhandledRejection', (reason: any) => {
 });
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
-const HOST = process.env.HOST || 'localhost';
+const HOST = process.env.HOST || '0.0.0.0';
 
 async function bootstrapJarvisServer() {
   const app = express();
@@ -82,8 +97,8 @@ async function bootstrapJarvisServer() {
     const url = `http://${HOST}:${PORT}`;
     logServer.info(`J.A.R.V.I.S. OS Prime Orchestrator Server running on ${url}`);
 
-    const isTauriDesktop = !!(process.env.IS_TAURI || process.env.JARVIS_DESKTOP || process.env.TAURI_ENV_PLATFORM || process.env.JARVIS_NO_BROWSER);
-    if (process.env.NODE_ENV !== 'production' && !isTauriDesktop) {
+    const isNoBrowser = !!(process.env.JARVIS_NO_BROWSER || process.env.CI);
+    if (process.env.NODE_ENV !== 'production' && !isNoBrowser) {
       try {
         const { exec } = await import('child_process');
         const startCommand =

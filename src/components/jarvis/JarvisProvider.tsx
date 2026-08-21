@@ -1036,9 +1036,24 @@ function useJarvisState() {
     isActiveSessionRef.current = true;
     reconnectAttemptsRef.current = 0;
     if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
-    audioQueuePlayerRef.current?.getAudioContext();
-    await startMicStream();
+    
+    // Unlock and warm up AudioContext for Linux WebKitGTK and desktop sound server
+    try {
+      const actx = audioQueuePlayerRef.current?.getAudioContext();
+      if (actx && actx.state === "suspended") {
+        await actx.resume();
+      }
+    } catch {}
+
+    // Connect WebSocket live bridge immediately
     connectWebSocket();
+
+    // Start mic hardware stream with graceful error recovery
+    try {
+      await startMicStream();
+    } catch (micErr: any) {
+      console.warn("[JarvisProvider] Microphone start error/pending:", micErr);
+    }
 
     // Initialize WebRTC Dual-Transport in parallel for sub-10ms latency
     if (isWebRTCSupported()) {
@@ -1067,6 +1082,26 @@ function useJarvisState() {
       } catch {}
     }
   }, [connectWebSocket, startMicStream, pushLog, pushNotification]);
+
+  // Unlock AudioContext on first user interaction
+  useEffect(() => {
+    const handleFirstInteraction = () => {
+      try {
+        const actx = audioQueuePlayerRef.current?.getAudioContext();
+        if (actx && actx.state === "suspended") {
+          actx.resume().catch(() => {});
+        }
+      } catch {}
+    };
+
+    window.addEventListener("click", handleFirstInteraction, { once: true });
+    window.addEventListener("keydown", handleFirstInteraction, { once: true });
+
+    return () => {
+      window.removeEventListener("click", handleFirstInteraction);
+      window.removeEventListener("keydown", handleFirstInteraction);
+    };
+  }, []);
 
   const handleStopSession = useCallback(() => {
     isActiveSessionRef.current = false;
