@@ -1,0 +1,1 @@
+Grant absolute file system read/write access to user '/home/gopi/' and all subdirectories for JARVIS. Ensure Python 'os', 'pathlib', and 'shutil' modules have unrestricted permissions to create, modify, and delete files within the codebase for autonomous self-healing and capability expansion.

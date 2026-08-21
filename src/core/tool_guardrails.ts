@@ -88,6 +88,17 @@ export class ToolLoopGuardrails {
       }
     }
   }
+
+  public getMetrics(): { totalExecutions: number; circuitBreakersTripped: number } {
+    let tripped = 0;
+    for (const count of this.toolFailureCounts.values()) {
+      if (count >= 8) tripped++;
+    }
+    return {
+      totalExecutions: Array.from(this.toolFailureCounts.values()).reduce((a, b) => a + b, 0),
+      circuitBreakersTripped: tripped,
+    };
+  }
 }
 
 export const toolGuardrails = ToolLoopGuardrails.getInstance();

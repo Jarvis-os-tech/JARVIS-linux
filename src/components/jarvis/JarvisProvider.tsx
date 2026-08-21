@@ -33,6 +33,7 @@ import { analyzeUtterance, NluAnalysisResult } from "@/utils/nlu_engine";
 import { PersonaMetadata, MutedRelayEvent } from "@/utils/multi_agent_orchestrator";
 import { clientSpeechQueue, ClientSpeechPriority } from "@/utils/client_speech_queue";
 import { WebRTCManager, isWebRTCSupported } from "@/utils/webrtc_manager";
+import { getWsUrl } from "@/lib/api-config";
 
 type Ctx = ReturnType<typeof useJarvisState>;
 
@@ -41,14 +42,12 @@ const JarvisContext = createContext<Ctx | null>(null);
 const VIEWS: ViewKey[] = [
   "dashboard",
   "memory",
-  "agents",
   "connectors",
   "mission",
-  "workflows",
   "settings",
 ];
 
-function useJarvisState(onSwitchToClassic?: () => void) {
+function useJarvisState() {
   const [view, setView] = useState<ViewKey>("dashboard");
   const [selectedPersona, setSelectedPersona] = useState<VoicePersona>(PERSONAS[0]);
   const [connectionState, setConnectionState] = useState<ConnectionState>("disconnected");
@@ -107,14 +106,14 @@ function useJarvisState(onSwitchToClassic?: () => void) {
   const [webrtcConnected, setWebrtcConnected] = useState<boolean>(false);
   const webrtcManagerRef = useRef<WebRTCManager | null>(null);
 
-  // Swarm & Orchestrator
+  // Sovereign Operating Agent State
   const [agents, setAgents] = useState<Agent[]>(() =>
-    PERSONAS.map((p, idx) => ({
+    PERSONAS.map((p) => ({
       id: p.id,
       name: p.name,
       desc: p.description,
-      icon: p.id === "jarvis" ? "◎" : p.id === "friday" ? "🌐" : p.id === "ultron" ? "💀" : p.id === "edith" ? "🕶" : p.id === "karen" ? "⚡" : "🧠",
-      accent: p.accentColor || (idx === 0 ? "var(--cyan-hud)" : idx === 1 ? "var(--violet-hud)" : idx === 2 ? "var(--blue-hud)" : "var(--pink-hud)"),
+      icon: "◎",
+      accent: p.accentColor || "var(--cyan-hud)",
       status: "running",
       tasks: 0,
       uptimeMin: 0,
@@ -465,7 +464,12 @@ function useJarvisState(onSwitchToClassic?: () => void) {
     }
     if (micStreamRef.current) {
       try {
-        micStreamRef.current.getTracks().forEach((track) => track.stop());
+        micStreamRef.current.getTracks().forEach((track) => {
+          track.onended = null;
+          track.onmute = null;
+          track.onunmute = null;
+          track.stop();
+        });
       } catch {}
       micStreamRef.current = null;
     }
@@ -474,6 +478,13 @@ function useJarvisState(onSwitchToClassic?: () => void) {
 
   const startMicStream = useCallback(async () => {
     try {
+      if (
+        micStreamRef.current &&
+        micStreamRef.current.active &&
+        micStreamRef.current.getAudioTracks().some((t) => t.readyState === "live")
+      ) {
+        return true;
+      }
       stopMicStream();
 
       if (!navigator?.mediaDevices?.getUserMedia) {
@@ -544,7 +555,7 @@ function useJarvisState(onSwitchToClassic?: () => void) {
       }
 
       const source = inputAudioCtx.createMediaStreamSource(stream);
-      const processor = inputAudioCtx.createScriptProcessor(4096, 1, 1);
+      const processor = inputAudioCtx.createScriptProcessor(2048, 1, 1);
       processorRef.current = processor;
 
       source.connect(processor);
@@ -571,39 +582,18 @@ function useJarvisState(onSwitchToClassic?: () => void) {
         const vol = calculateVolume(scaledBuffer);
         setInputVolume(vol);
 
-        // Acoustic Echo Suppression & Self-Voice Loopback Guard:
-        // When AI output audio is actively playing or dissipating (with 450ms tail buffer),
-        // suppress mic transmission back to Gemini Live to prevent the AI from hearing itself and cutting itself off.
-        if (audioQueuePlayerRef.current?.isEchoSuppressionActive(450)) {
-          // Sustained Barge-in Detection: Require deliberate user voice (>80%) across 3 consecutive frames
-          // to prevent speaker output, acoustic reflection, or background noise from triggering false cutoffs.
-          if (vol > 80) {
-            bargeInCountRef.current += 1;
-            if (bargeInCountRef.current >= 3) {
-              audioQueuePlayerRef.current?.stopAndClear();
-              bargeInCountRef.current = 0;
-              if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                wsRef.current.send(JSON.stringify({ type: "interrupt" }));
-              }
-              if (webrtcManagerRef.current) {
-                webrtcManagerRef.current.sendCommand({ type: "interrupt" } as any);
-              }
-            } else {
-              return;
-            }
-          } else {
-            bargeInCountRef.current = 0;
-            return;
-          }
-        } else {
-          bargeInCountRef.current = 0;
+        // Strict Acoustic Echo Suppression & Self-Voice Loopback Guard:
+        // When AI output audio is actively playing or in tail decay, NEVER send mic audio back to Gemini Live
+        // This guarantees the AI will NEVER hear itself through speakers and interrupt itself mid-sentence.
+        if (audioQueuePlayerRef.current?.isEchoSuppressionActive(300)) {
+          return;
         }
 
         // Cleanly resample Float32 buffer to exact 16kHz PCM mono for Gemini Live API
         const resampled16k = resampleTo16k(scaledBuffer, actualSampleRate);
         const base64Pcm = float32ToInt16Base64(resampled16k);
 
-        // WebRTC + WebSocket Dual Transport
+        // Continuous streaming to Gemini Live WebSocket
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           wsRef.current.send(JSON.stringify({ type: "audio", audio: base64Pcm }));
         }
@@ -810,8 +800,7 @@ function useJarvisState(onSwitchToClassic?: () => void) {
     setErrorMsg(null);
     setConnectionState("connecting");
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/live`;
+    const wsUrl = getWsUrl("/live");
 
     closeWebSocket();
     const ws = new WebSocket(wsUrl);
@@ -1470,18 +1459,15 @@ function useJarvisState(onSwitchToClassic?: () => void) {
     confirmDestructive,
     setConfirmDestructive,
     clock,
-    onSwitchToClassic,
   };
 }
 
 export function JarvisProvider({
   children,
-  onSwitchToClassic,
 }: {
   children: ReactNode;
-  onSwitchToClassic?: () => void;
 }) {
-  const value = useJarvisState(onSwitchToClassic);
+  const value = useJarvisState();
   return <JarvisContext.Provider value={value}>{children}</JarvisContext.Provider>;
 }
 

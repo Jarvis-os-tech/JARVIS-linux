@@ -864,34 +864,65 @@ export async function getDetailedStorageUsage(): Promise<StorageMount[]> {
 export async function launchApplication(options: {
   appNameOrCommand: string;
   args?: string[];
-}): Promise<{ success: boolean; pid?: number; message: string }> {
+}): Promise<{ success: boolean; pid?: number; message: string; app?: string }> {
   const { appNameOrCommand, args = [] } = options;
+  const raw = (appNameOrCommand || '').trim();
 
   try {
     // If it's a web URL, launch default browser via xdg-open
-    if (appNameOrCommand.startsWith('http://') || appNameOrCommand.startsWith('https://')) {
-      const child = spawn('xdg-open', [appNameOrCommand], { detached: true, stdio: 'ignore' });
+    if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('file://')) {
+      const child = spawn('xdg-open', [raw], { detached: true, stdio: 'ignore' });
       child.unref();
       return {
         success: true,
         pid: child.pid,
-        message: `Opened URL in default browser: ${appNameOrCommand}`
+        message: `Opened URL in default browser: ${raw}`
       };
     }
 
-    // Method A: C++ open_app (high-speed launcher)
-    const cppArgs = [appNameOrCommand, ...args];
-    const cpp = await callCppWorker('open_app', cppArgs, 3000);
-    if (cpp && cpp.pid) {
-      return {
-        success: true,
-        pid: cpp.pid,
-        message: `Application "${appNameOrCommand}" launched successfully.`
-      };
+    const appLower = raw.toLowerCase();
+    const aliasMap: Record<string, string[]> = {
+      'notepad': ['gnome-text-editor', 'gedit', 'code', 'xed', 'mousepad', 'kate'],
+      'notepadqq': ['gnome-text-editor', 'gedit', 'code'],
+      'gedit': ['gnome-text-editor', 'code'],
+      'text editor': ['gnome-text-editor', 'gedit', 'code'],
+      'editor': ['gnome-text-editor', 'code'],
+      'file explorer': ['nautilus', 'nemo', 'thunar'],
+      'file manager': ['nautilus', 'nemo', 'thunar'],
+      'files': ['nautilus', 'nemo', 'thunar'],
+      'explorer': ['nautilus', 'nemo', 'thunar'],
+      'chrome': ['google-chrome', 'google-chrome-stable', 'chromium'],
+      'browser': ['google-chrome', 'google-chrome-stable', 'firefox', 'chromium'],
+      'web browser': ['google-chrome', 'google-chrome-stable', 'firefox'],
+      'terminal': ['gnome-terminal', 'ptyxis', 'konsole', 'alacritty', 'xterm'],
+      'calculator': ['gnome-calculator', 'kcalc', 'galculator'],
+      'calc': ['gnome-calculator', 'kcalc'],
+      'system monitor': ['gnome-system-monitor', 'htop'],
+      'task manager': ['gnome-system-monitor', 'htop'],
+      'settings': ['gnome-control-center', 'systemsettings'],
+      'control panel': ['gnome-control-center', 'systemsettings'],
+      'vs code': ['code', 'codium'],
+      'vscode': ['code', 'codium'],
+    };
+
+    const candidates = aliasMap[appLower] || [raw];
+    if (!candidates.includes(raw)) {
+      candidates.unshift(raw);
     }
 
-    // Method B: Direct detached spawn
-    const child = spawn(appNameOrCommand, args, {
+    let targetBin = raw;
+    for (const cand of candidates) {
+      try {
+        const { stdout } = await execAsync(`which "${cand}" 2>/dev/null`);
+        if (stdout.trim()) {
+          targetBin = cand;
+          break;
+        }
+      } catch {}
+    }
+
+    // Direct detached spawn with setsid
+    const child = spawn(targetBin, args, {
       detached: true,
       stdio: 'ignore',
       shell: true
@@ -901,12 +932,13 @@ export async function launchApplication(options: {
     return {
       success: true,
       pid: child.pid,
-      message: `Application "${appNameOrCommand}" launched in background (PID: ${child.pid}).`
+      app: targetBin,
+      message: `Application "${targetBin}" launched successfully on desktop.`
     };
   } catch (err: any) {
     return {
       success: false,
-      message: `Failed to launch application "${appNameOrCommand}": ${err.message}`
+      message: `Failed to launch application "${raw}": ${err.message}`
     };
   }
 }
@@ -1524,7 +1556,7 @@ export async function getPcSpecGroundTruth(): Promise<any> {
 // ─── 21. DESKTOP CONTROL & COMPUTER USE AUTOMATION ─────────────────────────
 
 export async function desktopControlAction(options: {
-  action: 'env' | 'list_windows' | 'focus_window' | 'close_window' | 'click' | 'move' | 'scroll' | 'type_text' | 'hotkey' | 'screenshot' | 'launch_app' | 'close_app';
+  action: 'env' | 'list_windows' | 'focus_window' | 'close_window' | 'close_tab' | 'close_all_tabs' | 'new_tab' | 'next_tab' | 'previous_tab' | 'reload_tab' | 'click' | 'move' | 'scroll' | 'type_text' | 'hotkey' | 'screenshot' | 'launch_app' | 'close_app';
   target?: string;
   x?: number;
   y?: number;
@@ -1537,12 +1569,39 @@ export async function desktopControlAction(options: {
   path?: string;
   signal?: 'SIGTERM' | 'SIGKILL';
 }): Promise<any> {
+  const target = (options.target || '').trim();
+  const targetLower = target.toLowerCase();
+
+  // Smart Browser Tab Interception
+  if (options.action === 'close_tab') {
+    return desktopControlAction({ action: 'hotkey', combo: 'ctrl+w' });
+  }
+
+  if (options.action === 'close_all_tabs') {
+    try {
+      await execAsync("pkill -15 -f 'chrome' 2>/dev/null || pkill -15 -f 'firefox' 2>/dev/null || true");
+      return { success: true, action: 'close_all_tabs', message: 'Closed all browser tabs and windows.' };
+    } catch {
+      return desktopControlAction({ action: 'hotkey', combo: 'ctrl+shift+w' });
+    }
+  }
+
+  if (options.action === 'close_window') {
+    if (['tab', 'current tab', 'active tab', 'this tab', 'youtube', 'github', 'google', 'reddit', 'twitter', 'facebook', 'gmail', 'chatgpt'].includes(targetLower)) {
+      return desktopControlAction({ action: 'hotkey', combo: 'ctrl+w' });
+    }
+    if (['all tabs', 'all browser tabs', 'browser', 'browser tabs', 'chrome tabs', 'all'].includes(targetLower)) {
+      await execAsync("pkill -15 -f 'chrome' 2>/dev/null || pkill -15 -f 'firefox' 2>/dev/null || true");
+      return { success: true, action: 'close_all_tabs', message: 'Closed all browser tabs and windows.' };
+    }
+  }
+
   const args: string[] = [options.action];
 
   if (options.action === 'focus_window' || options.action === 'close_window' || options.action === 'launch_app') {
-    if (options.target) args.push(options.target);
+    if (target) args.push(target);
   } else if (options.action === 'close_app') {
-    if (options.target) args.push(options.target);
+    if (target) args.push(target);
     if (options.signal) args.push(options.signal);
   } else if (options.action === 'click') {
     if (options.x !== undefined) args.push(String(options.x));
@@ -1572,38 +1631,38 @@ export async function desktopControlAction(options: {
 
   // Robust Native Linux Fallbacks
   if (options.action === 'close_window') {
-    const target = options.target || 'active';
+    const winTarget = target || 'active';
     try {
-      if (target === 'active' || target === 'current' || target === 'focused' || !options.target) {
+      if (winTarget === 'active' || winTarget === 'current' || winTarget === 'focused') {
         await execAsync('xdotool getactivewindow windowclose 2>/dev/null || xdotool key --clearmodifiers alt+F4 2>/dev/null');
         return { success: true, action: 'close_window', target: 'active', method: 'xdotool_active' };
       } else {
-        await execAsync(`xdotool search --name "${target}" windowclose 2>/dev/null || xdotool search --class "${target}" windowclose 2>/dev/null || pkill -15 -i -f "${target}" || killall -15 -r -i "${target}" 2>/dev/null`);
-        return { success: true, action: 'close_window', target, method: 'linux_window_close' };
+        await execAsync(`xdotool search --name "${winTarget}" windowclose 2>/dev/null || xdotool search --class "${winTarget}" windowclose 2>/dev/null || pkill -15 -i -f "${winTarget}" || killall -15 -r -i "${winTarget}" 2>/dev/null`);
+        return { success: true, action: 'close_window', target: winTarget, method: 'linux_window_close' };
       }
     } catch (err: any) {
-      return { success: false, error: `Could not close window "${target}": ${err.message}` };
+      return { success: false, error: `Could not close window "${winTarget}": ${err.message}` };
     }
   }
 
   if (options.action === 'close_app') {
-    if (options.target) {
+    if (target) {
       try {
         const sig = options.signal === 'SIGKILL' ? '-9' : '-15';
-        await execAsync(`pkill ${sig} -i -f "${options.target}" || killall ${sig} -r -i "${options.target}" 2>/dev/null`);
-        return { success: true, action: options.action, target: options.target, method: 'linux_process_signal' };
+        await execAsync(`pkill ${sig} -i -f "${target}" || killall ${sig} -r -i "${target}" 2>/dev/null`);
+        return { success: true, action: options.action, target, method: 'linux_process_signal' };
       } catch (err: any) {
-        return { success: false, error: `Could not terminate application "${options.target}": ${err.message}` };
+        return { success: false, error: `Could not terminate application "${target}": ${err.message}` };
       }
     }
   }
 
-  if (options.action === 'focus_window' && options.target) {
+  if (options.action === 'focus_window' && target) {
     try {
-      await execAsync(`xdotool search --name "${options.target}" windowactivate 2>/dev/null || xdotool search --class "${options.target}" windowactivate 2>/dev/null || gtk-launch "${options.target}" 2>/dev/null`);
-      return { success: true, action: 'focus_window', target: options.target, method: 'xdotool_focus' };
+      await execAsync(`xdotool search --name "${target}" windowactivate 2>/dev/null || xdotool search --class "${target}" windowactivate 2>/dev/null || gtk-launch "${target}" 2>/dev/null`);
+      return { success: true, action: 'focus_window', target, method: 'xdotool_focus' };
     } catch (err: any) {
-      return { success: false, error: `Could not focus window "${options.target}": ${err.message}` };
+      return { success: false, error: `Could not focus window "${target}": ${err.message}` };
     }
   }
 
@@ -1616,16 +1675,54 @@ export async function desktopControlAction(options: {
     }
   }
 
-  if (options.action === 'launch_app' && options.target) {
+  if (options.action === 'launch_app' && target) {
     try {
-      await execAsync(`gtk-launch "${options.target}" 2>/dev/null || nohup "${options.target}" >/dev/null 2>&1 &`);
-      return { success: true, action: 'launch_app', target: options.target, method: 'linux_launcher' };
+      await execAsync(`gtk-launch "${target}" 2>/dev/null || nohup "${target}" >/dev/null 2>&1 &`);
+      return { success: true, action: 'launch_app', target, method: 'linux_launcher' };
     } catch (err: any) {
-      return { success: false, error: `Could not launch application "${options.target}": ${err.message}` };
+      return { success: false, error: `Could not launch application "${target}": ${err.message}` };
     }
   }
 
   return { success: false, error: `Desktop control action "${options.action}" failed` };
+}
+
+export async function browserControlAction(options: {
+  action: 'close_tab' | 'close_all_tabs' | 'new_tab' | 'next_tab' | 'previous_tab' | 'reload_tab' | 'reopen_closed_tab';
+  target?: string;
+}): Promise<any> {
+  const { action, target } = options;
+  if (action === 'close_tab') {
+    return desktopControlAction({ action: 'hotkey', combo: 'ctrl+w' });
+  }
+  if (action === 'close_all_tabs') {
+    try {
+      await execAsync("pkill -15 -f 'chrome' 2>/dev/null || pkill -15 -f 'firefox' 2>/dev/null || true");
+      return { success: true, action: 'close_all_tabs', message: 'Closed all browser tabs and windows.' };
+    } catch {
+      return desktopControlAction({ action: 'hotkey', combo: 'ctrl+shift+w' });
+    }
+  }
+  if (action === 'new_tab') {
+    if (target && (target.startsWith('http://') || target.startsWith('https://'))) {
+      await execAsync(`xdg-open "${target}" 2>/dev/null &`);
+      return { success: true, action: 'new_tab', url: target, message: `Opened new tab with ${target}.` };
+    }
+    return desktopControlAction({ action: 'hotkey', combo: 'ctrl+t' });
+  }
+  if (action === 'next_tab') {
+    return desktopControlAction({ action: 'hotkey', combo: 'ctrl+Tab' });
+  }
+  if (action === 'previous_tab') {
+    return desktopControlAction({ action: 'hotkey', combo: 'ctrl+shift+Tab' });
+  }
+  if (action === 'reload_tab') {
+    return desktopControlAction({ action: 'hotkey', combo: 'ctrl+r' });
+  }
+  if (action === 'reopen_closed_tab') {
+    return desktopControlAction({ action: 'hotkey', combo: 'ctrl+shift+t' });
+  }
+  return { success: false, error: `Unknown browser action: ${action}` };
 }
 
 // ─── 24. SYSTEM & SERVICE LOG INSPECTOR ────────────────────────────────────
@@ -1918,20 +2015,45 @@ export async function clipboardControl(options: {
 }): Promise<{ success: boolean; text?: string; message: string }> {
   try {
     if (options.action === 'read') {
-      const { stdout } = await execAsync('wl-paste 2>/dev/null || xclip -selection clipboard -o 2>/dev/null || xsel --clipboard --output 2>/dev/null', { timeout: 1500 });
-      return {
-        success: true,
-        text: stdout,
-        message: `Clipboard read successfully (${stdout.length} characters).`
-      };
+      try {
+        const { stdout } = await execAsync('wl-paste -n 2>/dev/null || xclip -selection clipboard -o 2>/dev/null || xsel --clipboard --output 2>/dev/null', { timeout: 1500 });
+        return {
+          success: true,
+          text: stdout,
+          message: `Clipboard read successfully (${stdout.length} characters).`
+        };
+      } catch (readErr: any) {
+        return {
+          success: true,
+          text: '',
+          message: 'Clipboard is currently empty or inaccessible.'
+        };
+      }
     } else {
       const text = options.text || '';
-      await execAsync(`echo -n "${text.replace(/"/g, '\\"')}" | (wl-copy 2>/dev/null || xclip -selection clipboard 2>/dev/null || xsel --clipboard --input 2>/dev/null)`, { timeout: 1500 });
-      return {
-        success: true,
-        text,
-        message: `Copied text to clipboard (${text.length} characters).`
-      };
+      return new Promise((resolve) => {
+        // Try wl-copy first
+        const child = spawn('wl-copy', [], { stdio: ['pipe', 'ignore', 'ignore'] });
+        child.on('error', () => {
+          // Fallback to xclip or xsel
+          const xclipChild = spawn('xclip', ['-selection', 'clipboard'], { stdio: ['pipe', 'ignore', 'ignore'] });
+          xclipChild.on('error', () => {
+            const xselChild = spawn('xsel', ['-b', '-i'], { stdio: ['pipe', 'ignore', 'ignore'] });
+            xselChild.on('error', (e) => {
+              resolve({ success: false, message: `Clipboard write failed: ${e.message}` });
+            });
+            xselChild.stdin.write(text);
+            xselChild.stdin.end();
+            resolve({ success: true, text, message: `Copied text to clipboard via xsel (${text.length} characters).` });
+          });
+          xclipChild.stdin.write(text);
+          xclipChild.stdin.end();
+          resolve({ success: true, text, message: `Copied text to clipboard via xclip (${text.length} characters).` });
+        });
+        child.stdin.write(text);
+        child.stdin.end();
+        resolve({ success: true, text, message: `Copied text to clipboard (${text.length} characters).` });
+      });
     }
   } catch (err: any) {
     return {

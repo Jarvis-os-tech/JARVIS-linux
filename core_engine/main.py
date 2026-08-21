@@ -69,8 +69,9 @@ async def run_orchestrator(args):
     )
     server = uvicorn.Server(config)
 
-    # Automatically open the UI in the default browser unless disabled
-    if not getattr(args, "no_browser", False):
+    # Automatically open the UI in the default browser unless disabled or running in desktop app
+    is_desktop_env = bool(os.environ.get("IS_TAURI") or os.environ.get("JARVIS_DESKTOP") or os.environ.get("JARVIS_NO_BROWSER"))
+    if not getattr(args, "no_browser", False) and not is_desktop_env:
         def open_browser():
             import time
             import webbrowser

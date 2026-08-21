@@ -10,8 +10,10 @@
 
 import { toolRegistry, ToolDefinition } from '../tools/tool_registry';
 import { WORKSPACE_FUNCTION_DECLARATIONS, executeWorkspaceTool } from '../utils/workspace_tools';
+import { capabilityForge } from './capability_forge';
 import { skillHarvester } from './skill_harvester';
 import { logOrchestrator } from './logger';
+import { eventBus } from './event_bus';
 
 export interface CapabilityCheckResult {
   isSupported: boolean;
@@ -69,6 +71,18 @@ export class GroundTruthRegistry {
 
   constructor() {
     logOrchestrator.info('🛡 Ground Truth & Capability Registry initialized (Zero-Hallucination Mode active).');
+    
+    // Invalidate caches when dynamic tools are forged, deleted, or feature switches change
+    eventBus.on('tool:registered', () => this.invalidateCache());
+    eventBus.on('tool:unregistered', () => this.invalidateCache());
+    eventBus.on('forge:tool_created', () => this.invalidateCache());
+    eventBus.on('forge:tool_deleted', () => this.invalidateCache());
+    eventBus.on('switch:changed', () => this.invalidateCache());
+  }
+
+  public invalidateCache(): void {
+    this.cachedFunctionDeclarations = null;
+    this.cachedOpenAiTools = null;
   }
 
   /**
@@ -175,6 +189,17 @@ export class GroundTruthRegistry {
         category: tool.tier.includes('workspace') ? 'workspace_cloud' : 'system_os',
         confidence: 1.0,
         reason: `Direct tool available: ${tool.name} (${tool.description})`
+      };
+    }
+
+    const forged = capabilityForge.getTool(query);
+    if (forged) {
+      return {
+        isSupported: true,
+        toolName: forged.name,
+        category: 'system_os',
+        confidence: 1.0,
+        reason: `Direct dynamic forged tool available: ${forged.name} (${forged.description})`
       };
     }
 

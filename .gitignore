@@ -31,3 +31,5 @@ GoogleService-Info.plist
 client_secret*.json
 credentials.json
 test-results/
+.voice_state
+

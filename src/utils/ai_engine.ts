@@ -1,17 +1,14 @@
-// Multi-Engine AI Execution Orchestrator for J.A.R.V.I.S.
-// - NVIDIA NIM: Deep Cognitive Brain, Complex System Architecture & Multi-Step Planning
-// - Gemini Live API: Real-Time Multimodal Vision, Screen Sharing & Bidirectional Audio
-// - Groq API: Ultra-Fast Real-Time Reasoning & Microsecond Tool Execution (sub-25ms)
-
-import { WORKSPACE_FUNCTION_DECLARATIONS, executeWorkspaceTool } from './workspace_tools';
+// Sovereign AI Execution Engine for J.A.R.V.I.S. (Powered by Google Gemini)
+import { executeWorkspaceTool } from './workspace_tools';
 import { getSystemInfoSummaryForLLM } from './system_controller';
 import { TELGISH_LANGUAGE_SYSTEM_INSTRUCTION } from '../data/personas';
 import { loadAgentMemory, formatMemoryForSystemInstruction } from './agent_memory';
 import { GoogleGenAI } from '@google/genai';
 import { groundTruthRegistry } from '../core/ground_truth_registry';
 import { toolRegistry } from '../tools/tool_registry';
+import { logOrchestrator } from '../core/logger';
 
-export type AiProvider = 'auto' | 'groq' | 'nvidia' | 'gemini';
+export type AiProvider = 'gemini' | 'groq' | 'auto';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -35,189 +32,23 @@ export interface UnifiedChatOptions {
 
 export interface UnifiedChatResult {
   text: string;
-  providerUsed: 'groq' | 'nvidia' | 'gemini';
+  providerUsed: 'gemini' | 'groq';
   modelUsed: string;
   actions: Array<{ toolName: string; args: any; result: any }>;
   latencyMs: number;
   fallbackOccurred?: boolean;
   fallbackTrace?: string[];
+  thoughts?: string;
 }
 
-export interface PersonaModelPolicy {
-  primary: string;
-  fallback: string;
-  primaryProvider: 'nvidia' | 'groq' | 'gemini';
-  fallbackProvider: 'nvidia' | 'groq' | 'gemini';
-  strategy: string;
-}
-
-// Persona-Specific Engine & Fallback Matrix
-export const PERSONA_MODEL_MATRIX: Record<string, PersonaModelPolicy> = {
-  jarvis: {
-    primary: 'nvidia/nemotron-3-ultra-550b',
-    fallback: 'nvidia/nemotron-3.5-lightning-30b-a3b',
-    primaryProvider: 'nvidia',
-    fallbackProvider: 'nvidia',
-    strategy: 'High-speed response recovery. If 550B fails, the 30B Lightning MoE maintains puckish composure and voice continuity without lagging the WebRTC audio loop.'
-  },
-  hermes: {
-    primary: 'nvidia/nemotron-3-ultra-550b',
-    fallback: 'meta/llama-3.3-70b-instruct',
-    primaryProvider: 'nvidia',
-    fallbackProvider: 'groq',
-    strategy: 'High-speed fleet coordination. If 550B drops, Llama-3.3-70B steps in to maintain autonomous fleet orchestration and subagent dispatching without interruption.'
-  },
-  friday: {
-    primary: 'nvidia/nemotron-3-ultra-550b',
-    fallback: 'meta/llama-3.1-70b-instruct',
-    primaryProvider: 'nvidia',
-    fallbackProvider: 'groq',
-    strategy: 'Reliable indexing. If 550B drops, Llama-3.1-70B steps in to scrape data blocks, cross-reference tech updates, and build your Daily AI Briefings with zero structural errors.'
-  },
-  ultron: {
-    primary: 'nvidia/nemotron-3-ultra-550b',
-    fallback: 'thudm/glm-5.2',
-    primaryProvider: 'nvidia',
-    fallbackProvider: 'nvidia',
-    strategy: 'Strict adherence to constraints. GLM-5.2 handles rigid logic commands flawlessly, ensuring your 24/7 firewall traps and port audit loops don\'t generate false positives during a failover.'
-  },
-  edith: {
-    primary: 'mistralai/mistral-large-3',
-    fallback: 'meta/llama-3.3-70b-instruct',
-    primaryProvider: 'nvidia',
-    fallbackProvider: 'groq',
-    strategy: 'Strong code logic fallback. If Mistral Large drops during a Track 1 Code Council debate, Llama-3.3-70B acts as the temporary chairman to optimize code structures cleanly.'
-  },
-  karen: {
-    primary: 'nvidia/nemotron-3-ultra-550b',
-    fallback: 'nvidia/nemotron-3.5-lightning-30b-a3b',
-    primaryProvider: 'nvidia',
-    fallbackProvider: 'nvidia',
-    strategy: 'Pure API token safety. Flawlessly maps payloads and triggers YouTube/WhatsApp automation webhooks instantly without formatting lag.'
-  }
-};
-
-// Unified OpenAI-compatible tool schema for Groq & NVIDIA NIM
-export function getOpenAiFormatTools(): any[] {
-  return groundTruthRegistry.getOpenAiUnifiedTools();
-}
-
-// Fast timeout fetch helper to guarantee sub-second circuit-breaking on slow/hanging endpoints
-async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = 3000): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal
-    });
-    return response;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-// 1. Groq Ultra-Fast Execution Engine (Llama 3.3 70B Versatile / Llama 3.1 8B Instant)
-export async function executeGroqChat(
-  messages: ChatMessage[],
-  tools: any[],
-  model = 'llama-3.3-70b-versatile',
-  timeoutMs = 3500
-): Promise<any> {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) {
-    throw new Error('GROQ_API_KEY is not configured in .env');
-  }
-
-  // Normalize model identifier for Groq
-  let targetModel = model;
-  if (targetModel.includes('meta/llama-3.3-70b') || targetModel.includes('llama-3.3-70b')) {
-    targetModel = 'llama-3.3-70b-versatile';
-  } else if (targetModel.includes('meta/llama-3.1-70b') || targetModel.includes('llama-3.1-70b')) {
-    targetModel = 'llama-3.1-70b-versatile';
-  } else if (targetModel.includes('llama-3.1-8b') || targetModel.includes('8b')) {
-    targetModel = 'llama-3.1-8b-instant';
-  }
-
-  const response = await fetchWithTimeout('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: targetModel,
-      messages,
-      tools: tools.length > 0 ? tools : undefined,
-      tool_choice: tools.length > 0 ? 'auto' : undefined,
-      temperature: 0.2,
-      max_tokens: 1500
-    })
-  }, timeoutMs);
-
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Groq API Error (${response.status}): ${errText}`);
-  }
-
-  return response.json();
-}
-
-// 2. NVIDIA NIM Complex Task & Heavy Reasoning Brain (Nemotron-3-Ultra-550B, Mistral Large 3, GLM-5.2)
-export async function executeNvidiaChat(
-  messages: ChatMessage[],
-  tools: any[],
-  model = 'nvidia/nemotron-3-ultra-550b',
-  timeoutMs = 4500
-): Promise<any> {
-  const apiKey = process.env.NVIDIA_API_KEY || process.env.NVIDIA_NIM_API_KEY;
-  if (!apiKey) {
-    throw new Error('NVIDIA_API_KEY is not configured in .env');
-  }
-
-  // Map requested models to active NVIDIA NIM endpoint identifiers
-  let targetModel = model;
-  if (targetModel === 'nvidia/nemotron-3-ultra-550b' || targetModel === 'nemotron-3-ultra-550b') {
-    targetModel = 'nvidia/llama-3.1-nemotron-70b-instruct'; // Default NIM high-end brain model
-  } else if (targetModel === 'nvidia/nemotron-3.5-lightning-30b-a3b' || targetModel === 'nemotron-3.5-lightning-30b-a3b') {
-    targetModel = 'nvidia/llama-3.1-nemotron-70b-instruct';
-  } else if (targetModel === 'mistralai/mistral-large-3' || targetModel === 'mistral-large-3') {
-    targetModel = 'mistralai/mistral-large-2-instruct';
-  } else if (targetModel === 'thudm/glm-5.2' || targetModel === 'glm-5.2') {
-    targetModel = 'meta/llama-3.1-70b-instruct';
-  }
-
-  const response = await fetchWithTimeout('https://integrate.api.nvidia.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: targetModel,
-      messages,
-      tools: tools.length > 0 ? tools : undefined,
-      tool_choice: tools.length > 0 ? 'auto' : undefined,
-      temperature: 0.2,
-      max_tokens: 2048
-    })
-  }, timeoutMs);
-
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`NVIDIA NIM API Error (${response.status}): ${errText}`);
-  }
-
-  return response.json();
-}
-
-// 3. Gemini Multimodal Vision & Function Calling Engine (gemini-2.5-flash / gemini-2.0-flash)
+// 1. Primary Engine: Google Gemini Interactions / GenerateContent with Thinking
 export async function executeGeminiChat(
   message: string,
   systemInstruction: string,
-  token: string,
-  model = 'gemini-2.5-flash'
-): Promise<{ text: string; actions: any[] }> {
+  token: string = '',
+  model = 'gemini-3.7-flash',
+  history: Array<{ role: 'user' | 'assistant'; content: string }> = []
+): Promise<{ text: string; actions: Array<{ toolName: string; args: any; result: any }>; thoughts?: string }> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY is not configured in .env');
@@ -239,13 +70,21 @@ export async function executeGeminiChat(
     }
   });
 
+  // Inject prior conversation turns if provided
+  for (const h of history) {
+    if (h.role === 'user') {
+      await chat.sendMessage({ message: h.content });
+    }
+  }
+
   let response = await chat.sendMessage({ message });
   const actionsExecuted: any[] = [];
 
-  while (response.functionCalls && response.functionCalls.length > 0) {
+  let loopCount = 0;
+  while (response.functionCalls && response.functionCalls.length > 0 && loopCount++ < 6) {
     const functionResponses = [];
     for (const call of response.functionCalls) {
-      console.log(`[Gemini Tool Call] ${call.name}:`, call.args);
+      logOrchestrator.info(`[JARVIS Tool Call] ${call.name}:`, call.args);
       let toolResult: any;
       try {
         const regTool = toolRegistry.getTool(call.name);
@@ -273,22 +112,70 @@ export async function executeGeminiChat(
     });
   }
 
-  return { text: response.text || '', actions: actionsExecuted };
+  return {
+    text: response.text || 'Action completed, Sir.',
+    actions: actionsExecuted
+  };
 }
 
-// Unified Multi-Engine Dispatcher with Sub-Second Fallback Circuit-Breaking
+// 2. High-Speed Fallback Engine: Groq (Llama 3.3 70B)
+export async function executeGroqChat(
+  messages: ChatMessage[],
+  tools: any[],
+  model = 'llama-3.3-70b-versatile',
+  timeoutMs = 4000
+): Promise<any> {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) {
+    throw new Error('GROQ_API_KEY is not configured in .env');
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model,
+        messages,
+        tools: tools && tools.length > 0 ? tools : undefined,
+        tool_choice: tools && tools.length > 0 ? 'auto' : undefined,
+        temperature: 0.3,
+        max_tokens: 2048
+      })
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      throw new Error(`Groq API returned ${response.status}: ${errBody}`);
+    }
+
+    return await response.json();
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// 3. Unified Sovereign Chat Execution
 export async function executeUnifiedAiChat(options: UnifiedChatOptions): Promise<UnifiedChatResult> {
   const startTime = Date.now();
   const token = options.googleAccessToken || '';
   const groundTruthContext = await getSystemInfoSummaryForLLM();
   const fallbackTrace: string[] = [];
 
-  const workspaceInstruction = `You are J.A.R.V.I.S., Tony Stark's primary AI assistant, system administrator, and autonomous tactical operator.
-You have FULL, REAL-TIME capability to perform ANY ACTION and retrieve ANY INFORMATION from the host Linux system.
+  const workspaceInstruction = `You are J.A.R.V.I.S., Tony Stark's sovereign AI assistant, system administrator, and tactical operating partner.
+You possess direct high-agency capability to control the host Linux system, manipulate the Barehands spatial air-board stage, and execute tools.
 - Information: get_pc_spec, get_system_telemetry, get_thermal_sensors, get_battery_status, get_storage_usage, get_network_status, get_system_logs, get_running_processes, list_installed_applications, get_environment_info, read_local_file.
 - Actions: execute_system_command, write_local_file, launch_application, manage_process, set_system_volume, set_screen_brightness, set_power_profile, send_system_notification, desktop_control, take_screenshot, manage_systemd_service, manage_packages.
-- Real-Time Live Vision & Hands-Free Screen/Camera Control: control_vision_mode, start_screen_sharing, stop_screen_sharing, start_camera_vision, stop_camera_vision, stop_all_vision.
-- Mandate: When requested, ALWAYS call tools immediately to inspect or change system state. Never refuse or ask the user to do it. Confirm crisply with British loyalty.
+- Spatial Air-Board Stage: stage_present, stage_add_card, stage_add_media, stage_clear, stage_get_state.
+- Live Vision: control_vision_mode, start_screen_sharing, stop_screen_sharing, start_camera_vision, stop_camera_vision, stop_all_vision.
+- Mandate: Call tools immediately to inspect or change system state. Never refuse or ask the user to do it manually. Confirm with crisp British wit.
 
 ${TELGISH_LANGUAGE_SYSTEM_INSTRUCTION}
 
@@ -297,167 +184,78 @@ ${groundTruthContext}`;
   const universalMemoryPrompt = formatMemoryForSystemInstruction(loadAgentMemory());
   const capabilityManifest = groundTruthRegistry.getCanonicalCapabilityManifest();
   const combinedSystemPrompt = `${options.systemInstruction || ''}\n${workspaceInstruction}\n\n${universalMemoryPrompt}\n\n${capabilityManifest}`.trim();
-  const personaPolicy = options.personaId ? PERSONA_MODEL_MATRIX[options.personaId] : undefined;
 
-  const openAiTools = getOpenAiFormatTools();
-  const actionsExecuted: Array<{ toolName: string; args: any; result: any }> = [];
-
-  // Helper for Groq/NVIDIA multi-turn tool loops with non-disruptive state preservation
-  const runOpenAiToolLoop = async (engine: 'groq' | 'nvidia', model: string): Promise<string> => {
-    const messages: ChatMessage[] = [
-      { role: 'system', content: combinedSystemPrompt },
-      ...(options.history || []).map((h) => ({ role: h.role, content: h.content })),
-      { role: 'user', content: options.message }
-    ];
-
-    let maxTurns = 5;
-    while (maxTurns-- > 0) {
-      const completion =
-        engine === 'groq'
-          ? await executeGroqChat(messages, openAiTools, model, options.timeoutMs || 3500)
-          : await executeNvidiaChat(messages, openAiTools, model, options.timeoutMs || 4500);
-
-      const choice = completion.choices?.[0];
-      if (!choice) {
-        throw new Error(`Empty response from ${engine} model ${model}`);
-      }
-
-      const msg = choice.message;
-      messages.push(msg);
-
-      if (msg.tool_calls && msg.tool_calls.length > 0) {
-        for (const toolCall of msg.tool_calls) {
-          const fnName = toolCall.function?.name;
-          let parsedArgs: any = {};
-          try {
-            parsedArgs = JSON.parse(toolCall.function?.arguments || '{}');
-          } catch (e) {
-            parsedArgs = {};
-          }
-          if (!parsedArgs || typeof parsedArgs !== 'object') {
-            parsedArgs = {};
-          }
-
-          console.log(`[${engine.toUpperCase()} Tool Call] ${fnName}:`, parsedArgs);
-          let toolResult: any;
-          try {
-            const regTool = toolRegistry.getTool(fnName);
-            if (regTool) {
-              toolResult = await toolRegistry.execute(fnName, parsedArgs);
-            } else {
-              toolResult = await executeWorkspaceTool(fnName, parsedArgs, token);
-            }
-          } catch (err: any) {
-            toolResult = { success: false, error: err.message };
-          }
-
-          const verified = groundTruthRegistry.verifyToolResult(fnName, toolResult);
-          actionsExecuted.push({ toolName: fnName, args: parsedArgs, result: verified.data || toolResult });
-
-          messages.push({
-            role: 'tool',
-            name: fnName,
-            tool_call_id: toolCall.id,
-            content: JSON.stringify(verified.data || toolResult)
-          });
-        }
-      } else {
-        return msg.content || 'Action completed, Sir.';
-      }
-    }
-    return 'Task execution finished.';
-  };
-
-  // Primary execution strategy:
-  // 1. Brain / Complex Tasks -> NVIDIA NIM Primary Model (or Persona Primary)
-  // 2. Fallback Model -> Persona Insurance Model
-  // 3. Ultra-Fast Execution Fallback -> Groq Llama 3.3 70B
-  // 4. Vision / Last-resort Fallback -> Gemini 2.5 Flash
-
-  const primaryModel = options.model || (personaPolicy ? personaPolicy.primary : 'nvidia/nemotron-3-ultra-550b');
-  const fallbackModel = options.fallbackModel || (personaPolicy ? personaPolicy.fallback : 'nvidia/nemotron-3.5-lightning-30b-a3b');
-  const hasNvidiaKey = Boolean(process.env.NVIDIA_API_KEY || process.env.NVIDIA_NIM_API_KEY);
+  const primaryGeminiModel = options.model || 'gemini-3.7-flash';
+  const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY);
   const hasGroqKey = Boolean(process.env.GROQ_API_KEY);
 
-  // 1. ATTEMPT PRIMARY ENGINE (NVIDIA NIM Brain / Persona Primary)
-  if (hasNvidiaKey && options.provider !== 'groq' && options.provider !== 'gemini') {
+  // 1. PRIMARY: Google Gemini 3.7 Flash
+  if (hasGeminiKey && options.provider !== 'groq') {
     try {
-      const text = await runOpenAiToolLoop('nvidia', primaryModel);
+      const res = await executeGeminiChat(options.message, combinedSystemPrompt, token, primaryGeminiModel, options.history || []);
       return {
-        text,
-        providerUsed: 'nvidia',
-        modelUsed: primaryModel,
-        actions: actionsExecuted,
-        latencyMs: Date.now() - startTime
-      };
-    } catch (primaryErr: any) {
-      fallbackTrace.push(`Primary [${primaryModel}] failed: ${primaryErr.message}`);
-      console.warn(`[AI Engine] Primary engine failed (${primaryModel}). Triggering instantaneous fallback:`, primaryErr.message);
-    }
-  }
-
-  // 2. ATTEMPT FALLBACK INSURANCE MODEL (NVIDIA Secondary or Groq Llama)
-  if (hasNvidiaKey && fallbackModel && fallbackModel.startsWith('nvidia/')) {
-    try {
-      const text = await runOpenAiToolLoop('nvidia', fallbackModel);
-      return {
-        text,
-        providerUsed: 'nvidia',
-        modelUsed: fallbackModel,
-        actions: actionsExecuted,
+        text: res.text,
+        providerUsed: 'gemini',
+        modelUsed: primaryGeminiModel,
+        actions: res.actions,
         latencyMs: Date.now() - startTime,
-        fallbackOccurred: true,
-        fallbackTrace
+        thoughts: res.thoughts
       };
-    } catch (fallbackErr: any) {
-      fallbackTrace.push(`NVIDIA Fallback [${fallbackModel}] failed: ${fallbackErr.message}`);
-      console.warn(`[AI Engine] Secondary fallback model failed (${fallbackModel}):`, fallbackErr.message);
+    } catch (geminiErr: any) {
+      fallbackTrace.push(`Gemini [${primaryGeminiModel}] failed: ${geminiErr.message}`);
+      logOrchestrator.warn(`[AI Engine] Gemini primary error, falling back: ${geminiErr.message}`);
     }
   }
 
-  // 3. ATTEMPT ULTRA-FAST GROQ ENGINE (Sub-25ms Fallback Execution)
+  // 2. FALLBACK: Groq (Llama 3.3 70B)
   if (hasGroqKey) {
     try {
-      const groqModel = fallbackModel.includes('llama') ? fallbackModel : 'llama-3.3-70b-versatile';
-      const text = await runOpenAiToolLoop('groq', groqModel);
+      const openAiTools = groundTruthRegistry.getOpenAiUnifiedTools();
+      const messages: ChatMessage[] = [
+        { role: 'system', content: combinedSystemPrompt },
+        ...(options.history || []).map((h) => ({ role: h.role, content: h.content })),
+        { role: 'user', content: options.message }
+      ];
+
+      const groqCompletion = await executeGroqChat(messages, openAiTools, 'llama-3.3-70b-versatile');
+      const choice = groqCompletion.choices?.[0];
+      const actionsExecuted: Array<{ toolName: string; args: any; result: any }> = [];
+
+      if (choice?.message?.tool_calls?.length > 0) {
+        for (const tc of choice.message.tool_calls) {
+          const fn = tc.function.name;
+          let parsedArgs = {};
+          try { parsedArgs = JSON.parse(tc.function.arguments || '{}'); } catch {}
+          let result;
+          try {
+            const reg = toolRegistry.getTool(fn);
+            result = reg ? await toolRegistry.execute(fn, parsedArgs) : await executeWorkspaceTool(fn, parsedArgs, token);
+          } catch (e: any) { result = { success: false, error: e.message }; }
+          actionsExecuted.push({ toolName: fn, args: parsedArgs, result });
+        }
+      }
+
       return {
-        text,
+        text: choice?.message?.content || 'Action executed successfully via fast compute, Sir.',
         providerUsed: 'groq',
-        modelUsed: groqModel,
+        modelUsed: 'llama-3.3-70b-versatile',
         actions: actionsExecuted,
         latencyMs: Date.now() - startTime,
         fallbackOccurred: true,
         fallbackTrace
       };
     } catch (groqErr: any) {
-      fallbackTrace.push(`Groq Fallback [llama-3.3-70b-versatile] failed: ${groqErr.message}`);
-      console.warn('[AI Engine] Groq fast execution fallback failed:', groqErr.message);
+      fallbackTrace.push(`Groq fallback failed: ${groqErr.message}`);
     }
   }
 
-  // 4. FINAL GUARANTEED MULTIMODAL FALLBACK: GEMINI
-  const geminiModel = 'gemini-2.5-flash';
-  try {
-    const geminiRes = await executeGeminiChat(options.message, combinedSystemPrompt, token, geminiModel);
-    return {
-      text: geminiRes.text,
-      providerUsed: 'gemini',
-      modelUsed: geminiModel,
-      actions: [...actionsExecuted, ...geminiRes.actions],
-      latencyMs: Date.now() - startTime,
-      fallbackOccurred: fallbackTrace.length > 0,
-      fallbackTrace: fallbackTrace.length > 0 ? fallbackTrace : undefined
-    };
-  } catch (geminiErr: any) {
-    console.error('[AI Engine] All execution engines and fallbacks exhausted:', geminiErr);
-    return {
-      text: 'Apologies Sir, all cognitive compute clusters are currently experiencing latency anomalies. Please verify network interfaces.',
-      providerUsed: 'gemini',
-      modelUsed: geminiModel,
-      actions: actionsExecuted,
-      latencyMs: Date.now() - startTime,
-      fallbackOccurred: true,
-      fallbackTrace: [...fallbackTrace, `Gemini terminal error: ${geminiErr.message}`]
-    };
-  }
+  return {
+    text: 'Apologies Sir, all cognitive interfaces are currently unreachable. Please check GEMINI_API_KEY in your .env file.',
+    providerUsed: 'gemini',
+    modelUsed: primaryGeminiModel,
+    actions: [],
+    latencyMs: Date.now() - startTime,
+    fallbackOccurred: true,
+    fallbackTrace
+  };
 }

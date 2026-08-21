@@ -1,13 +1,11 @@
-import React, { Component, useState } from "react";
+import React, { Component } from "react";
 import { JarvisProvider } from "./components/jarvis/JarvisProvider";
 import { JarvisApp } from "./components/jarvis/JarvisApp";
-import { ClassicApp } from "./components/ClassicApp";
 import { Toaster } from "./components/ui/sonner";
-import { AlertTriangle, RefreshCw, LayoutGrid } from "lucide-react";
+import { AlertTriangle, RefreshCw } from "lucide-react";
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
-  onFallbackToClassic: () => void;
 }
 
 interface ErrorBoundaryState {
@@ -55,11 +53,11 @@ class ModernUiErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryS
                 <span>Retry MK-VII</span>
               </button>
               <button
-                onClick={this.props.onFallbackToClassic}
+                onClick={() => window.location.reload()}
                 className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold shadow-lg shadow-cyan-600/30 transition-all cursor-pointer"
               >
-                <LayoutGrid className="w-3.5 h-3.5" />
-                <span>Revert to Classic</span>
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Reload App</span>
               </button>
             </div>
           </div>
@@ -72,37 +70,18 @@ class ModernUiErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryS
 }
 
 export default function App() {
-  const [uiMode, setUiMode] = useState<"modern" | "classic">(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const queryUi = params.get("ui");
-      if (queryUi === "classic" || queryUi === "modern") {
-        return queryUi;
-      }
-      const saved = localStorage.getItem("jarvis_ui_version");
-      if (saved === "classic" || saved === "modern") {
-        return saved;
-      }
-    }
-    return "modern";
-  });
-
-  const handleSwitchMode = (mode: "modern" | "classic") => {
-    setUiMode(mode);
-    localStorage.setItem("jarvis_ui_version", mode);
-  };
+  // Prevent infinite recursive rendering if embedded in an iframe (e.g. visualizer stage)
+  if (typeof window !== "undefined" && window.self !== window.top) {
+    return null;
+  }
 
   return (
     <>
-      {uiMode === "modern" ? (
-        <ModernUiErrorBoundary onFallbackToClassic={() => handleSwitchMode("classic")}>
-          <JarvisProvider onSwitchToClassic={() => handleSwitchMode("classic")}>
-            <JarvisApp />
-          </JarvisProvider>
-        </ModernUiErrorBoundary>
-      ) : (
-        <ClassicApp onSwitchToModern={() => handleSwitchMode("modern")} />
-      )}
+      <ModernUiErrorBoundary>
+        <JarvisProvider>
+          <JarvisApp />
+        </JarvisProvider>
+      </ModernUiErrorBoundary>
       <Toaster richColors position="bottom-right" />
     </>
   );

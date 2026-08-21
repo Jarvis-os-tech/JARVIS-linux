@@ -126,6 +126,9 @@ DesktopEnv detect_environment() {
     return env;
 }
 
+// Forward declaration
+bool press_hotkey(const std::string& key_combo, const DesktopEnv& env);
+
 // ── 1. WINDOW MANAGEMENT ───────────────────────────────────────────────────
 
 struct WindowInfo {
@@ -228,8 +231,9 @@ std::vector<WindowInfo> list_windows() {
                 else if (comm == "firefox") app_name = "Mozilla Firefox";
                 else if (comm == "code") app_name = "Visual Studio Code";
                 else if (comm == "gnome-terminal" || comm == "gnome-terminal-") app_name = "Terminal";
+                else if (comm == "ptyxis") app_name = "Terminal (Ptyxis)";
                 else if (comm == "nautilus") app_name = "Files / File Manager";
-                else if (comm == "gedit") app_name = "Text Editor (gedit)";
+                else if (comm == "gnome-text-edit" || comm == "gnome-text-editor" || comm == "gedit") app_name = "Text Editor";
                 else if (comm == "vlc") app_name = "VLC Media Player";
                 else if (comm == "spotify") app_name = "Spotify";
                 else if (comm == "slack") app_name = "Slack";
@@ -259,6 +263,29 @@ std::vector<WindowInfo> list_windows() {
     return windows;
 }
 
+static std::vector<std::string> get_target_candidates(const std::string& target) {
+    std::vector<std::string> cands;
+    std::string lower = target;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    if (lower == "text-editor" || lower == "text editor" || lower == "notepad" || lower == "gedit" || lower == "editor") {
+        cands.push_back("gnome-text-editor");
+        cands.push_back("gedit");
+    } else if (lower == "terminal" || lower == "console" || lower == "shell") {
+        cands.push_back("ptyxis");
+        cands.push_back("gnome-terminal");
+    } else if (lower == "files" || lower == "file manager" || lower == "file-manager" || lower == "explorer" || lower == "file explorer") {
+        cands.push_back("nautilus");
+    } else if (lower == "calculator" || lower == "calc") {
+        cands.push_back("gnome-calculator");
+    } else if (lower == "chrome" || lower == "browser" || lower == "web browser") {
+        cands.push_back("google-chrome");
+        cands.push_back("firefox");
+    } else {
+        cands.push_back(target);
+    }
+    return cands;
+}
+
 bool focus_window(const std::string& target) {
     if (target.empty()) return false;
 
@@ -276,30 +303,46 @@ bool focus_window(const std::string& target) {
         if (std::system(("wmctrl -i -a " + target + " 2>/dev/null").c_str()) == 0) return true;
     }
 
-    // Try xdotool by window title / name
-    if (std::system(("xdotool search --name \"" + target + "\" windowactivate 2>/dev/null").c_str()) == 0) {
-        return true;
-    }
-
-    // Try xdotool by window class
-    if (std::system(("xdotool search --class \"" + target + "\" windowactivate 2>/dev/null").c_str()) == 0) {
-        return true;
-    }
-
-    // Try wmctrl
-    if (std::system(("wmctrl -a \"" + target + "\" 2>/dev/null").c_str()) == 0) {
-        return true;
-    }
-
-    // Try gtk-launch which focuses existing application instance in GNOME
-    if (std::system(("gtk-launch \"" + target + "\" 2>/dev/null").c_str()) == 0) {
-        return true;
+    auto cands = get_target_candidates(target);
+    for (const auto& cand : cands) {
+        // Try xdotool by window title / name
+        if (std::system(("xdotool search --name \"" + cand + "\" windowactivate 2>/dev/null").c_str()) == 0) {
+            return true;
+        }
+        // Try xdotool by window class
+        if (std::system(("xdotool search --class \"" + cand + "\" windowactivate 2>/dev/null").c_str()) == 0) {
+            return true;
+        }
+        // Try wmctrl
+        if (std::system(("wmctrl -a \"" + cand + "\" 2>/dev/null").c_str()) == 0) {
+            return true;
+        }
+        // Try gtk-launch which focuses existing application instance in GNOME (detached)
+        if (std::system(("gtk-launch \"" + cand + "\" >/dev/null 2>&1 &").c_str()) == 0) {
+            return true;
+        }
     }
 
     return false;
 }
 
 bool close_window(const std::string& target) {
+    std::string lower = target;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+
+    // Case 0: Browser Tab interception
+    if (lower == "tab" || lower == "current tab" || lower == "active tab" || lower == "this tab" ||
+        lower == "youtube" || lower == "github" || lower == "google" || lower == "reddit" ||
+        lower == "twitter" || lower == "facebook" || lower == "gmail" || lower == "chatgpt") {
+        DesktopEnv env = detect_environment();
+        return press_hotkey("ctrl+w", env);
+    }
+
+    if (lower == "all tabs" || lower == "all browser tabs" || lower == "browser tabs" || lower == "chrome tabs") {
+        std::system("pkill -15 -f 'chrome' 2>/dev/null || pkill -15 -f 'firefox' 2>/dev/null");
+        return true;
+    }
+
     // Case 1: Close currently active/focused window if target is empty or "active" / "current"
     if (target.empty() || target == "active" || target == "current" || target == "focused" || target == "this") {
         if (std::system("xdotool getactivewindow windowclose 2>/dev/null") == 0) return true;
@@ -323,31 +366,22 @@ bool close_window(const std::string& target) {
         if (std::system(("xdotool windowkill " + target + " 2>/dev/null").c_str()) == 0) return true;
     }
 
-    // Case 3: Target is a title, application name, or class name (e.g. "chrome", "firefox", "terminal", "code")
-    // Method A: xdotool search --name windowclose
-    if (std::system(("xdotool search --name \"" + target + "\" windowclose 2>/dev/null").c_str()) == 0) {
-        return true;
-    }
-
-    // Method B: xdotool search --class windowclose
-    if (std::system(("xdotool search --class \"" + target + "\" windowclose 2>/dev/null").c_str()) == 0) {
-        return true;
-    }
-
-    // Method C: wmctrl -c
-    if (std::system(("wmctrl -c \"" + target + "\" 2>/dev/null").c_str()) == 0) {
-        return true;
-    }
-
-    // Method D: Process-level graceful termination (SIGTERM)
-    std::string pkill_cmd = "pkill -15 -i -f \"" + target + "\" 2>/dev/null || killall -15 -r -i \"" + target + "\" 2>/dev/null";
-    if (std::system(pkill_cmd.c_str()) == 0) {
-        return true;
-    }
-
-    // Method E: Activate and send Alt+F4
-    if (std::system(("xdotool search --onlyvisible --name \"" + target + "\" windowactivate key --clearmodifiers alt+F4 2>/dev/null").c_str()) == 0) {
-        return true;
+    // Case 3: Target is a title, application name, or class name
+    auto cands = get_target_candidates(target);
+    for (const auto& cand : cands) {
+        // Fast Method A: Graceful process termination (SIGTERM)
+        std::string pkill_cmd = "pkill -15 -x \"" + cand + "\" 2>/dev/null || pkill -15 -f \"" + cand + "\" 2>/dev/null || killall -15 \"" + cand + "\" 2>/dev/null";
+        if (std::system(pkill_cmd.c_str()) == 0) {
+            return true;
+        }
+        // Fast Method B: wmctrl -c
+        if (std::system(("wmctrl -c \"" + cand + "\" 2>/dev/null").c_str()) == 0) {
+            return true;
+        }
+        // Fast Method C: xdotool search --name windowclose
+        if (std::system(("xdotool search --name \"" + cand + "\" windowclose 2>/dev/null").c_str()) == 0) {
+            return true;
+        }
     }
 
     return false;
@@ -387,21 +421,41 @@ bool type_text(const std::string& text, const DesktopEnv& env) {
 bool press_hotkey(const std::string& key_combo, const DesktopEnv& env) {
     if (key_combo.empty()) return false;
 
-    // Method A: xdotool key --clearmodifiers
+    // Method A: wtype (Wayland native) with proper modifier parsing
+    if (env.has_wtype && env.is_wayland) {
+        std::istringstream ss(key_combo);
+        std::string part;
+        std::vector<std::string> mods;
+        std::vector<std::string> keys;
+        while (std::getline(ss, part, '+')) {
+            std::string p = trim(part);
+            std::string plower = p;
+            std::transform(plower.begin(), plower.end(), plower.begin(), ::tolower);
+            if (plower == "ctrl" || plower == "control") mods.push_back("ctrl");
+            else if (plower == "shift") mods.push_back("shift");
+            else if (plower == "alt") mods.push_back("alt");
+            else if (plower == "super" || plower == "win" || plower == "logo") mods.push_back("logo");
+            else keys.push_back(p);
+        }
+
+        std::string wtype_cmd = "wtype";
+        for (const auto& m : mods) wtype_cmd += " -M " + m;
+        for (const auto& k : keys) wtype_cmd += " -k \"" + k + "\"";
+        for (auto it = mods.rbegin(); it != mods.rend(); ++it) wtype_cmd += " -m " + *it;
+        wtype_cmd += " 2>/dev/null";
+
+        if (std::system(wtype_cmd.c_str()) == 0) return true;
+    }
+
+    // Method B: xdotool key --clearmodifiers
     if (env.has_xdotool) {
         std::string cmd = "xdotool key --clearmodifiers " + key_combo + " 2>/dev/null";
         if (std::system(cmd.c_str()) == 0) return true;
     }
 
-    // Method B: ydotool key
+    // Method C: ydotool key
     if (env.has_ydotool) {
         std::string cmd = "ydotool key " + key_combo + " 2>/dev/null";
-        if (std::system(cmd.c_str()) == 0) return true;
-    }
-
-    // Method C: wtype -k
-    if (env.has_wtype && env.is_wayland) {
-        std::string cmd = "wtype -k " + key_combo + " 2>/dev/null";
         if (std::system(cmd.c_str()) == 0) return true;
     }
 
@@ -635,15 +689,65 @@ int main(int argc, char* argv[]) {
     if (action == "focus_window") {
         std::string target = (argc > 2) ? argv[2] : "";
         bool ok = focus_window(target);
-        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\",\"action\":\"focus_window\",\"target\":\"" << json_escape(target) << "\"}\n";
-        return ok ? 0 : 1;
+        std::cout << "{\"status\":\"" << (ok ? "ok" : "not_found") << "\",\"action\":\"focus_window\",\"target\":\"" << json_escape(target) << "\"}\n";
+        return 0;
     }
 
     if (action == "close_window") {
         std::string target = (argc > 2) ? argv[2] : "active";
         bool ok = close_window(target);
-        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\",\"action\":\"close_window\",\"target\":\"" << json_escape(target) << "\"}\n";
-        return ok ? 0 : 1;
+        std::cout << "{\"status\":\"ok\",\"action\":\"close_window\",\"target\":\"" << json_escape(target) << "\",\"closed\":" << (ok ? "true" : "false") << "}\n";
+        return 0;
+    }
+
+    if (action == "close_tab" || action == "close_current_tab") {
+        bool ok = press_hotkey("ctrl+w", env);
+        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\",\"action\":\"close_tab\",\"closed\":" << (ok ? "true" : "false") << "}\n";
+        return 0;
+    }
+
+    if (action == "close_all_tabs" || action == "close_browser") {
+        std::system("pkill -15 -f 'chrome' 2>/dev/null || pkill -15 -f 'firefox' 2>/dev/null");
+        std::cout << "{\"status\":\"ok\",\"action\":\"close_all_tabs\",\"closed\":true}\n";
+        return 0;
+    }
+
+    if (action == "new_tab" || action == "open_tab") {
+        if (argc > 2) {
+            std::string url = argv[2];
+            if (url.find("http://") == 0 || url.find("https://") == 0) {
+                std::system(("xdg-open \"" + url + "\" >/dev/null 2>&1 &").c_str());
+                std::cout << "{\"status\":\"ok\",\"action\":\"new_tab\",\"url\":\"" << json_escape(url) << "\"}\n";
+                return 0;
+            }
+        }
+        bool ok = press_hotkey("ctrl+t", env);
+        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\",\"action\":\"new_tab\"}\n";
+        return 0;
+    }
+
+    if (action == "next_tab" || action == "switch_tab") {
+        bool ok = press_hotkey("ctrl+Tab", env);
+        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\",\"action\":\"next_tab\"}\n";
+        return 0;
+    }
+
+    if (action == "previous_tab" || action == "prev_tab") {
+        bool ok = press_hotkey("ctrl+shift+Tab", env);
+        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\",\"action\":\"previous_tab\"}\n";
+        return 0;
+    }
+
+    if (action == "reload_tab" || action == "refresh_tab") {
+        bool ok = press_hotkey("ctrl+r", env);
+        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\",\"action\":\"reload_tab\"}\n";
+        return 0;
+    }
+
+    if (action == "reopen_closed_tab" || action == "reopen_tab") {
+        bool ok = press_hotkey("ctrl+shift+t", env);
+        std::cout << "{\"status\":\"" << (ok ? "ok" : "error") << "\",\"action\":\"reopen_closed_tab\"}\n";
+        return 0;
     }
 
     if (action == "click") {

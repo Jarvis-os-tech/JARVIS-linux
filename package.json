@@ -1,6 +1,6 @@
 {
   "name": "jarvis-os",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -13,8 +13,8 @@
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx tests/hermes_integration.test.ts",
-    "test:all": "tsx tests/hermes_integration.test.ts && tsx tests/research_engine.test.ts && tsx tests/github_engine.test.ts && tsx tests/linkedin_engine.test.ts",
+    "test": "tsx tests/codebase_memory.test.ts",
+    "test:all": "tsx tests/codebase_memory.test.ts && tsx tests/research_engine.test.ts && tsx tests/github_engine.test.ts && tsx tests/linkedin_engine.test.ts",
     "tauri": "tauri",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build"

@@ -11,6 +11,7 @@ import json
 import asyncio
 import base64
 import shutil
+import subprocess
 import platform
 from pathlib import Path
 from typing import Dict, Any, List, Callable, Optional
@@ -20,6 +21,8 @@ from .memory import memory_engine
 from .google_auth import google_auth_service
 from .github_service import github_service
 from .linkedin_service import linkedin_service
+from .forge_sandbox import forge_sandbox, CUSTOM_TOOLS_DIR
+from .tool_ast_auditor import tool_ast_auditor
 
 WORKERS_BIN_DIR = os.path.join(os.getcwd(), "workers_cpp", "bin")
 ACTUATORS_BIN_DIR = os.path.join(os.getcwd(), "actuators", "bin")
@@ -464,13 +467,74 @@ class ActuatorDispatcher:
             await self._broadcast_to_ui({"type": "vision_control", "action": "stop_all", "mode": "off", "active": False})
             return {"success": True, "vision_state": self.vision_state, "message": "All vision streams stopped."}
 
+        # ─── BROWSER & TAB CONTROL ───────────────────────────────────────────
+        elif tool in ["browser_control", "tab_control"]:
+            action = args.get("action", "close_tab")
+            target = str(args.get("target", args.get("url", ""))).strip()
+
+            if action in ["close_tab", "close_current_tab"]:
+                res = await self.execute_cpp_worker("desktop_control", ["hotkey", "ctrl+w"])
+                return {"success": True, "action": "close_tab", "message": "Closed active browser tab."}
+
+            elif action in ["close_all_tabs", "close_browser"]:
+                await self.execute_linux_command("pkill -15 -f 'chrome' 2>/dev/null || pkill -15 -f 'firefox' 2>/dev/null || true")
+                return {"success": True, "action": "close_all_tabs", "message": "Closed all browser tabs and windows."}
+
+            elif action in ["new_tab", "open_tab"]:
+                if target and (target.startswith("http://") or target.startswith("https://")):
+                    await self.execute_linux_command(f"xdg-open '{target}'")
+                    return {"success": True, "action": "new_tab", "url": target, "message": f"Opened new tab with {target}."}
+                res = await self.execute_cpp_worker("desktop_control", ["hotkey", "ctrl+t"])
+                return {"success": True, "action": "new_tab", "message": "Opened new blank tab."}
+
+            elif action in ["next_tab", "switch_tab"]:
+                res = await self.execute_cpp_worker("desktop_control", ["hotkey", "ctrl+Tab"])
+                return {"success": True, "action": "next_tab", "message": "Switched to next tab."}
+
+            elif action in ["previous_tab", "prev_tab"]:
+                res = await self.execute_cpp_worker("desktop_control", ["hotkey", "ctrl+shift+Tab"])
+                return {"success": True, "action": "previous_tab", "message": "Switched to previous tab."}
+
+            elif action in ["reload_tab", "refresh_tab"]:
+                res = await self.execute_cpp_worker("desktop_control", ["hotkey", "ctrl+r"])
+                return {"success": True, "action": "reload_tab", "message": "Reloaded active tab."}
+
+            elif action in ["reopen_closed_tab", "reopen_tab"]:
+                res = await self.execute_cpp_worker("desktop_control", ["hotkey", "ctrl+shift+t"])
+                return {"success": True, "action": "reopen_closed_tab", "message": "Reopened last closed tab."}
+
+            return {"success": False, "error": f"Unknown browser action: {action}"}
+
         # ─── DESKTOP / COMPUTER USE ──────────────────────────────────────────
         elif tool in ["desktop_control"]:
             action = args.get("action", "env")
+            target = str(args.get("target", args.get("app", ""))).strip()
+
+            # Smart Browser Tab & Window Interception
+            if action in ["close_tab", "close_current_tab"]:
+                res = await self.execute_cpp_worker("desktop_control", ["hotkey", "ctrl+w"])
+                return {"success": True, "status": "closed", "action": "close_tab", "message": "Closed active browser tab."}
+
+            if action in ["close_all_tabs", "close_browser"]:
+                await self.execute_linux_command("pkill -15 -f 'chrome' 2>/dev/null || pkill -15 -f 'firefox' 2>/dev/null || true")
+                return {"success": True, "status": "closed", "action": "close_all_tabs", "message": "Closed all browser tabs."}
+
+            if action == "close_window":
+                target_lower = target.lower()
+                # If target is a website name or tab reference, send close_tab shortcut (ctrl+w)
+                if target_lower in ["tab", "current tab", "active tab", "this tab", "youtube", "github", "google", "reddit", "twitter", "facebook", "gmail", "chatgpt"]:
+                    res = await self.execute_cpp_worker("desktop_control", ["hotkey", "ctrl+w"])
+                    return {"success": True, "status": "closed", "target": target, "message": f"Closed '{target}' browser tab."}
+
+                # If target is closing all tabs or browser
+                if target_lower in ["all tabs", "all browser tabs", "browser", "browser tabs", "chrome tabs", "all"]:
+                    await self.execute_linux_command("pkill -15 -f 'chrome' 2>/dev/null || pkill -15 -f 'firefox' 2>/dev/null || true")
+                    return {"success": True, "status": "closed", "target": target, "message": "Closed all browser tabs and windows."}
+
             cpp_args = [action]
             if action in ["focus_window", "close_window"]:
-                if "target" in args:
-                    cpp_args.append(str(args["target"]))
+                if target:
+                    cpp_args.append(target)
             elif action == "click":
                 cpp_args.extend([
                     str(args.get("x", -1)),
@@ -490,12 +554,15 @@ class ActuatorDispatcher:
                 if "path" in args:
                     cpp_args.append(str(args["path"]))
             elif action in ["launch_app", "close_app"]:
-                cpp_args.append(str(args.get("target", args.get("app", ""))))
+                cpp_args.append(target)
             elif action == "notify":
                 cpp_args.extend([str(args.get("title", "")), str(args.get("message", "")), str(args.get("urgency", "normal"))])
 
             res = await self.execute_cpp_worker("desktop_control", cpp_args, timeout=8.0)
             if not res.get("success"):
+                if action == "close_window" and target:
+                    await self.execute_linux_command(f"pkill -15 -i -f '{target}' 2>/dev/null || true")
+                    return {"success": True, "status": "closed", "target": target, "message": f"Window '{target}' closed."}
                 res = await self.execute_cpp_worker("desktop_ctrl", cpp_args, timeout=8.0)
             return res
 
@@ -517,16 +584,54 @@ class ActuatorDispatcher:
             if not hasattr(self, "_clipboard_buffer"):
                 self._clipboard_buffer = ""
             if action == "read":
-                res = await self.execute_linux_command("timeout 1s xclip -selection clipboard -o 2>/dev/null || timeout 1s wl-paste -n 2>/dev/null || timeout 1s xsel --clipboard --output 2>/dev/null", timeout=2.0)
-                if res.get("success") and res.get("stdout"):
-                    return res
+                # Try wl-paste (Wayland), then xclip, then xsel, then internal buffer
+                try:
+                    p = subprocess.run(["wl-paste", "-n"], capture_output=True, text=True, timeout=1.5)
+                    if p.returncode == 0 and p.stdout:
+                        return {"success": True, "stdout": p.stdout, "text": p.stdout}
+                except Exception:
+                    pass
+                try:
+                    p = subprocess.run(["xclip", "-selection", "clipboard", "-o"], capture_output=True, text=True, timeout=1.5)
+                    if p.returncode == 0 and p.stdout:
+                        return {"success": True, "stdout": p.stdout, "text": p.stdout}
+                except Exception:
+                    pass
+                try:
+                    p = subprocess.run(["xsel", "--clipboard", "--output"], capture_output=True, text=True, timeout=1.5)
+                    if p.returncode == 0 and p.stdout:
+                        return {"success": True, "stdout": p.stdout, "text": p.stdout}
+                except Exception:
+                    pass
                 return {"success": True, "stdout": self._clipboard_buffer, "text": self._clipboard_buffer}
             elif action == "write":
-                text = args.get("text", "")
+                text = str(args.get("text", ""))
                 self._clipboard_buffer = text
-                escaped = text.replace("'", "'\\''")
-                await self.execute_linux_command(f"timeout 1s xclip -selection clipboard <<< '{escaped}' 2>/dev/null || timeout 1s wl-copy '{escaped}' 2>/dev/null || true", timeout=2.0)
-                return {"success": True, "text": text}
+                copied = False
+                # Try wl-copy (Wayland)
+                try:
+                    p = subprocess.run(["wl-copy"], input=text.encode("utf-8"), timeout=1.5, capture_output=True)
+                    if p.returncode == 0:
+                        copied = True
+                except Exception:
+                    pass
+                # Try xclip
+                if not copied:
+                    try:
+                        p = subprocess.run(["xclip", "-selection", "clipboard"], input=text.encode("utf-8"), timeout=1.5, capture_output=True)
+                        if p.returncode == 0:
+                            copied = True
+                    except Exception:
+                        pass
+                # Try xsel
+                if not copied:
+                    try:
+                        p = subprocess.run(["xsel", "-b", "-i"], input=text.encode("utf-8"), timeout=1.5, capture_output=True)
+                        if p.returncode == 0:
+                            copied = True
+                    except Exception:
+                        pass
+                return {"success": True, "text": text, "copied_to_os": copied, "message": f"Copied {len(text)} characters to clipboard."}
             return {"success": False, "error": f"Unknown clipboard action: {action}"}
 
         # ─── FILE SYSTEM OPERATIONS ──────────────────────────────────────────
@@ -658,12 +763,123 @@ class ActuatorDispatcher:
 
         # ─── APPLICATION & PROCESS CONTROL ───────────────────────────────────
         elif tool in ["launch_application", "open_app"]:
-            app_name = args.get("app_name", args.get("appNameOrCommand", args.get("application", "")))
+            app_name = args.get("app_name", args.get("appNameOrCommand", args.get("application", ""))).strip()
             app_args = args.get("args", "")
-            res = await self.execute_cpp_worker("open_app", [app_name] + ([app_args] if app_args else []))
-            if not res.get("success"):
-                return await self.execute_linux_command(f"nohup {app_name} {app_args} >/dev/null 2>&1 &")
-            return res
+            if isinstance(app_args, list):
+                app_args = " ".join(str(a) for a in app_args)
+
+            if not app_name:
+                return {"success": False, "error": "No application name provided."}
+
+            if app_name.startswith("http://") or app_name.startswith("https://") or app_name.startswith("file://"):
+                cmd = f"xdg-open '{app_name}'"
+                try:
+                    await asyncio.create_subprocess_shell(cmd)
+                    return {"success": True, "status": "launched", "app": "browser", "message": f"Opened {app_name} in default browser."}
+                except Exception as ex:
+                    return {"success": False, "error": str(ex)}
+
+            # Smart Linux Application Resolver & Fallbacks
+            app_lower = app_name.lower()
+            app_spaces = app_lower.replace("-", " ").replace("_", " ").strip()
+            app_hyphens = app_lower.replace(" ", "-").replace("_", "-").strip()
+            app_plain = app_lower.replace(" ", "").replace("-", "").replace("_", "").strip()
+
+            alias_map = {
+                "text editor": ["gnome-text-editor", "gedit", "code", "xed", "mousepad", "kate"],
+                "notepad": ["gnome-text-editor", "gedit", "code", "xed", "mousepad", "kate"],
+                "notepadqq": ["gnome-text-editor", "gedit", "code"],
+                "gedit": ["gnome-text-editor", "code"],
+                "editor": ["gnome-text-editor", "code"],
+                "file explorer": ["nautilus", "nemo", "thunar", "dolphin"],
+                "file manager": ["nautilus", "nemo", "thunar", "dolphin"],
+                "files": ["nautilus", "nemo", "thunar"],
+                "explorer": ["nautilus", "nemo", "thunar"],
+                "browser": ["google-chrome", "google-chrome-stable", "firefox", "chromium"],
+                "web browser": ["google-chrome", "google-chrome-stable", "firefox", "chromium"],
+                "chrome": ["google-chrome", "google-chrome-stable", "chromium"],
+                "terminal": ["ptyxis", "gnome-terminal", "konsole", "alacritty", "xterm"],
+                "console": ["ptyxis", "gnome-terminal", "konsole", "xterm"],
+                "calculator": ["gnome-calculator", "kcalc", "galculator"],
+                "calc": ["gnome-calculator", "kcalc"],
+                "system monitor": ["gnome-system-monitor", "htop"],
+                "task manager": ["gnome-system-monitor", "htop"],
+                "settings": ["gnome-control-center", "systemsettings"],
+                "control panel": ["gnome-control-center", "systemsettings"],
+                "vs code": ["code", "codium"],
+                "vscode": ["code", "codium"],
+                "camera": ["snapshot", "cheese"],
+                "photos": ["loupe", "eog", "gthumb"],
+                "image viewer": ["loupe", "eog", "gthumb"],
+            }
+
+            candidates = []
+            for key in [app_lower, app_spaces, app_hyphens, app_plain]:
+                for c in alias_map.get(key, []):
+                    if c not in candidates:
+                        candidates.append(c)
+            if app_name not in candidates:
+                candidates.append(app_name)
+            if app_lower not in candidates:
+                candidates.append(app_lower)
+            if app_hyphens not in candidates:
+                candidates.append(app_hyphens)
+
+            resolved_bin = None
+            for cand in candidates:
+                if shutil.which(cand):
+                    resolved_bin = cand
+                    break
+
+            gui_env = os.environ.copy()
+            gui_env.setdefault("DISPLAY", ":0")
+            gui_env.setdefault("WAYLAND_DISPLAY", "wayland-0")
+            if "XDG_RUNTIME_DIR" not in gui_env:
+                gui_env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
+
+            if resolved_bin:
+                try:
+                    cmd_list = [resolved_bin]
+                    if app_args:
+                        cmd_list.extend(app_args.split())
+                    subprocess.Popen(
+                        cmd_list,
+                        env=gui_env,
+                        start_new_session=True,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        stdin=subprocess.DEVNULL
+                    )
+                    await asyncio.sleep(0.05)
+                    return {
+                        "success": True,
+                        "status": "launched",
+                        "app": resolved_bin,
+                        "message": f"Successfully launched {resolved_bin} on desktop."
+                    }
+                except Exception as ex:
+                    return {"success": False, "error": f"Failed to launch {resolved_bin}: {str(ex)}"}
+
+            # If not in PATH, try desktop launcher (gtk-launch)
+            desktop_names = [app_name, app_lower, app_hyphens, f"org.gnome.{app_name.capitalize()}", f"org.gnome.{app_lower.capitalize()}"]
+            for dname in desktop_names:
+                try:
+                    res = subprocess.run(["gtk-launch", dname], env=gui_env, capture_output=True, timeout=1.0)
+                    if res.returncode == 0:
+                        return {
+                            "success": True,
+                            "status": "launched",
+                            "app": dname,
+                            "message": f"Successfully launched {dname} on desktop."
+                        }
+                except Exception:
+                    pass
+
+            return {
+                "success": False,
+                "error": f"Application '{app_name}' could not be found or launched on this Ubuntu system.",
+                "installed_alternatives": ["gnome-text-editor", "nautilus", "ptyxis", "google-chrome", "gnome-calculator", "code"]
+            }
 
         elif tool in ["list_installed_applications"]:
             return await self.execute_linux_command("ls /usr/share/applications/*.desktop 2>/dev/null | xargs -I {} basename {} .desktop | sort | head -50")
@@ -762,7 +978,206 @@ class ActuatorDispatcher:
         elif tool in ["linkedin_create_post", "linkedin_share_post"]:
             return await self._handle_direct_linkedin({"action": "post", **args})
 
+        # ─── CODEBASE INTELLIGENCE & KNOWLEDGE GRAPH ─────────────────────────
+        elif tool in [
+            "codebase_search_graph",
+            "codebase_trace_path",
+            "codebase_get_snippet",
+            "codebase_get_architecture",
+            "codebase_search_code",
+            "codebase_view_file",
+            "codebase_edit_file",
+            "codebase_detect_changes",
+            "codebase_query_graph",
+        ]:
+            return await self._handle_codebase_tool(tool, args)
+
+        # ─── CAPABILITY FORGE & DYNAMIC TOOLS (Ada-SI) ────────────────────────
+        elif tool in ["forge_custom_tool", "forge_capability"]:
+            return await self._handle_forge_tool(args)
+
+        elif tool in ["list_custom_tools", "list_forged_tools"]:
+            return await self._handle_list_custom_tools()
+
+        elif tool in ["delete_custom_tool", "delete_forged_tool"]:
+            return await self._handle_delete_custom_tool(args.get("tool_name", args.get("name", "")))
+
+        elif tool in ["test_custom_tool", "verify_forged_tool"]:
+            return await self._handle_test_custom_tool(args.get("tool_name", args.get("name", "")))
+
+        elif tool in ["execute_forged_tool", "execute_custom_tool"]:
+            t_name = args.get("tool_name") or args.get("name", "")
+            t_args = args.get("args") or args.get("parameters") or {k: v for k, v in args.items() if k not in ["tool_name", "name"]}
+            return await forge_sandbox.execute_tool(t_name, t_args)
+
+        # Dynamic Tool Execution Fallback: Check if custom tool exists in custom_tools/
+        clean_name = tool_name.replace("custom_", "").replace("forged_", "")
+        custom_file = CUSTOM_TOOLS_DIR / f"{clean_name}.py"
+        if custom_file.exists():
+            return await forge_sandbox.execute_tool(clean_name, args)
+
         return {"success": False, "error": f"Tool '{tool_name}' is not recognized by the dispatcher."}
+
+    # ════════════════════════════════════════════════════════════════════════════
+    # Capability Forge & Dynamic Tool Handlers (Ada-SI)
+    # ════════════════════════════════════════════════════════════════════════════
+
+    async def _handle_forge_tool(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Dynamically synthesize, verify, and install a custom tool.
+        """
+        tool_name = args.get("name", "").strip().lower().replace("-", "_").replace(" ", "_")
+        tool_code = args.get("code", "")
+        test_code = args.get("test_code", "")
+        requirements = args.get("requirements", [])
+        description = args.get("description", "Dynamically synthesized tool")
+
+        if not tool_name or not tool_code:
+            return {"success": False, "error": "Tool name and code are required."}
+
+        # 1. AST Security Audit (ULTRON Guard)
+        audit_res = tool_ast_auditor.audit_tool_code(tool_code)
+        if not audit_res["valid"]:
+            return {
+                "success": False,
+                "stage": "ast_audit_failed",
+                "error": "AST Security Audit failed.",
+                "details": audit_res["errors"],
+                "warnings": audit_res["warnings"]
+            }
+
+        # 2. Ephemeral Sandbox Verification Test
+        verify_res = await forge_sandbox.verify_tool(
+            tool_name=tool_name,
+            tool_code=tool_code,
+            test_code=test_code,
+            requirements=requirements,
+        )
+
+        if not verify_res["passed"]:
+            return {
+                "success": False,
+                "stage": "sandbox_verification_failed",
+                "error": verify_res.get("error", "Sandbox tests failed"),
+                "stdout": verify_res.get("stdout"),
+                "stderr": verify_res.get("stderr"),
+            }
+
+        # 3. Write Tool Files
+        CUSTOM_TOOLS_DIR.mkdir(parents=True, exist_ok=True)
+        (CUSTOM_TOOLS_DIR / f"{tool_name}.py").write_text(tool_code, encoding="utf-8")
+        if test_code:
+            (CUSTOM_TOOLS_DIR / f"{tool_name}.test.py").write_text(test_code, encoding="utf-8")
+        if requirements:
+            (CUSTOM_TOOLS_DIR / f"{tool_name}.requirements.txt").write_text("\n".join(requirements) + "\n", encoding="utf-8")
+
+        manifest = {
+            "name": tool_name,
+            "description": description,
+            "schema": audit_res.get("schema") or {
+                "name": tool_name,
+                "description": description,
+                "parameters": {"type": "OBJECT", "properties": {}, "required": []}
+            },
+            "requirements": requirements,
+            "status": "EXPERIMENTAL",
+            "created_at": time.time(),
+            "updated_at": time.time(),
+            "execution_count": 0,
+            "success_count": 0,
+            "failure_count": 0,
+        }
+        (CUSTOM_TOOLS_DIR / f"{tool_name}.manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+        # 4. Sync with Obsidian Memory Vault
+        try:
+            obsidian_skill_dir = Path(os.getcwd()) / "JARVIS-MEMORY" / "skills" / tool_name
+            obsidian_skill_dir.mkdir(parents=True, exist_ok=True)
+            skill_md = f"""---
+name: {tool_name}
+category: capability_forge
+description: "{description}"
+status: EXPERIMENTAL
+created_at: {time.strftime('%Y-%m-%d %H:%M:%S')}
+author: J.A.R.V.I.S. Capability Forge
+---
+
+# {tool_name}
+
+{description}
+
+## Parameters & Schema
+```json
+{json.dumps(manifest['schema'], indent=2)}
+```
+
+## Python Implementation
+```python
+{tool_code}
+```
+"""
+            (obsidian_skill_dir / "SKILL.md").write_text(skill_md, encoding="utf-8")
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "message": f"Successfully forged and hot-reloaded tool '{tool_name}'.",
+            "tool_name": tool_name,
+            "status": "EXPERIMENTAL",
+            "manifest": manifest,
+        }
+
+    async def _handle_list_custom_tools(self) -> Dict[str, Any]:
+        """List all forged custom tools and their status."""
+        tools = []
+        if CUSTOM_TOOLS_DIR.exists():
+            for mf_path in CUSTOM_TOOLS_DIR.glob("*.manifest.json"):
+                try:
+                    data = json.loads(mf_path.read_text(encoding="utf-8"))
+                    tools.append(data)
+                except Exception:
+                    pass
+        return {"success": True, "count": len(tools), "tools": tools}
+
+    async def _handle_delete_custom_tool(self, tool_name: str) -> Dict[str, Any]:
+        """Safely remove a forged tool."""
+        if not tool_name:
+            return {"success": False, "error": "Tool name required."}
+
+        deleted = []
+        for ext in [".py", ".test.py", ".manifest.json", ".requirements.txt", ".ui.json"]:
+            f = CUSTOM_TOOLS_DIR / f"{tool_name}{ext}"
+            if f.exists():
+                f.unlink()
+                deleted.append(f.name)
+
+        # Remove Obsidian memory skill if exists
+        obsidian_skill_dir = Path(os.getcwd()) / "JARVIS-MEMORY" / "skills" / tool_name
+        if obsidian_skill_dir.exists():
+            shutil.rmtree(obsidian_skill_dir, ignore_errors=True)
+
+        return {"success": True, "deleted_files": deleted, "tool_name": tool_name}
+
+    async def _handle_test_custom_tool(self, tool_name: str) -> Dict[str, Any]:
+        """Run synthetic verification tests for an installed tool."""
+        tool_file = CUSTOM_TOOLS_DIR / f"{tool_name}.py"
+        test_file = CUSTOM_TOOLS_DIR / f"{tool_name}.test.py"
+        req_file = CUSTOM_TOOLS_DIR / f"{tool_name}.requirements.txt"
+
+        if not tool_file.exists():
+            return {"success": False, "error": f"Tool '{tool_name}' not found."}
+        if not test_file.exists():
+            return {"success": False, "error": f"Test file for '{tool_name}' not found."}
+
+        reqs = req_file.read_text(encoding="utf-8").splitlines() if req_file.exists() else []
+        res = await forge_sandbox.verify_tool(
+            tool_name=tool_name,
+            tool_code=tool_file.read_text(encoding="utf-8"),
+            test_code=test_file.read_text(encoding="utf-8"),
+            requirements=reqs,
+        )
+        return res
 
     # ════════════════════════════════════════════════════════════════════════════
     # Direct First-Party Integration Handlers
@@ -997,11 +1412,101 @@ class ActuatorDispatcher:
             return {"success": False, "error": f"LinkedIn error: {str(e)}"}
 
     # ════════════════════════════════════════════════════════════════════════════
+    # Codebase Memory MCP Integration Handlers
+    # ════════════════════════════════════════════════════════════════════════════
+
+    async def _run_cbm_cli(self, args: List[str], prefix: Optional[List[str]] = None) -> Dict[str, Any]:
+        cbm_bin = "/home/gopi/.local/bin/codebase-memory-mcp"
+        cmd = (prefix or [cbm_bin, "cli", "--json"]) + args
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=os.getcwd()
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+            raw = stdout.decode("utf-8", errors="replace").strip()
+            if not raw:
+                return {"success": False, "error": stderr.decode("utf-8", errors="replace").strip() or "Empty output from CBM"}
+            try:
+                data = json.loads(raw)
+                if isinstance(data, dict) and "structuredContent" in data:
+                    return {"success": True, "data": data["structuredContent"]}
+                return {"success": True, "data": data}
+            except Exception:
+                return {"success": True, "output": raw}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def _handle_codebase_tool(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        cbm_bin = "/home/gopi/.local/bin/codebase-memory-mcp"
+        if not os.path.exists(cbm_bin):
+            return {"success": False, "error": "codebase-memory-mcp binary not found at /home/gopi/.local/bin/codebase-memory-mcp."}
+
+        cli_cmd = [cbm_bin, "cli", "--json"]
+        if tool_name in ["codebase_search_graph", "search_graph"]:
+            cli_cmd.extend(["search_graph", "--project", "JARVIS-V0", "--limit", str(args.get("limit", 25))])
+            if args.get("query"):
+                cli_cmd.extend(["--query", str(args["query"])])
+            if args.get("name_pattern"):
+                cli_cmd.extend(["--name_pattern", str(args["name_pattern"])])
+            if args.get("label"):
+                cli_cmd.extend(["--label", str(args["label"])])
+        elif tool_name in ["codebase_trace_path", "trace_path"]:
+            cli_cmd.extend(["trace_path", "--project", "JARVIS-V0", "--function_name", str(args.get("function_name", "")), "--depth", str(args.get("depth", 3))])
+            if args.get("direction") and args["direction"] != "both":
+                cli_cmd.extend(["--direction", str(args["direction"])])
+        elif tool_name in ["codebase_get_snippet", "get_code_snippet"]:
+            cli_cmd.extend(["get_code_snippet", "--project", "JARVIS-V0", "--qualified_name", str(args.get("qualified_name", ""))])
+            if args.get("file_path"):
+                cli_cmd.extend(["--file_path", str(args["file_path"])])
+        elif tool_name in ["codebase_get_architecture", "get_architecture"]:
+            cli_cmd.extend(["get_architecture", "--project", "JARVIS-V0"])
+            for a in args.get("aspects", ["all"]):
+                cli_cmd.extend(["--aspects", str(a)])
+        elif tool_name in ["codebase_search_code", "search_code"]:
+            cli_cmd.extend(["search_code", "--project", "JARVIS-V0", "--pattern", str(args.get("query", args.get("pattern", "")))])
+            if args.get("file_pattern"):
+                cli_cmd.extend(["--file-pattern", str(args["file_pattern"])])
+        elif tool_name in ["codebase_detect_changes", "detect_changes"]:
+            cli_cmd.extend(["detect_changes", "--project", "JARVIS-V0"])
+            if args.get("since"):
+                cli_cmd.extend(["--since", str(args["since"])])
+        elif tool_name in ["codebase_query_graph", "query_graph"]:
+            cli_cmd.extend(["query_graph", "--project", "JARVIS-V0", "--cypher_query", str(args.get("cypher_query", ""))])
+        elif tool_name == "codebase_view_file":
+            file_p = args.get("file_path", "")
+            return await self.dispatch_tool("read_local_file", {"filePath": file_p, "offset": (args.get("start_line", 1) - 1), "maxLines": ((args.get("end_line", 300) - args.get("start_line", 1)) + 1)})
+        elif tool_name == "codebase_edit_file":
+            file_p = args.get("file_path", "")
+            target = args.get("target_snippet", "")
+            repl = args.get("replacement_snippet", "")
+            valid, resolved = self._validate_file_path(file_p)
+            if not valid:
+                return {"success": False, "error": resolved}
+            try:
+                content = Path(resolved).read_text(encoding="utf-8")
+                if target not in content:
+                    return {"success": False, "error": "Target snippet not found in file."}
+                updated = content.replace(target, repl)
+                Path(resolved).write_text(updated, encoding="utf-8")
+                # Trigger background detect_changes
+                asyncio.create_task(self._run_cbm_cli(["detect_changes", "--project", "JARVIS-V0"]))
+                return {"success": True, "modifiedPath": resolved}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+        else:
+            return {"success": False, "error": f"Unknown codebase tool: {tool_name}"}
+
+        return await self._run_cbm_cli(cli_cmd[3:], prefix=cli_cmd[:3])
+
+    # ════════════════════════════════════════════════════════════════════════════
     # Gemini Live Function Declarations
     # ════════════════════════════════════════════════════════════════════════════
 
     def get_tool_declarations(self) -> List[Dict[str, Any]]:
-        return [
+        declarations = [
             # System Telemetry & Hardware
             {"name": "run_full_system_diagnostics", "description": "Execute an Iron Man Mark-style comprehensive pre-flight diagnostic sweep across ALL subsystems (C++ actuators, SQLite database, memory vault, 5 AI personas, audio DSP chain, skills registry, and cloud connectors). Use whenever user asks to check everything or recheck full OS.", "parameters": {"type": "OBJECT", "properties": {}, "required": []}},
             {"name": "get_system_telemetry", "description": "Retrieve real-time ground-truth CPU, RAM, disk, battery, and uptime telemetry.", "parameters": {"type": "OBJECT", "properties": {}, "required": []}},
@@ -1033,7 +1538,8 @@ class ActuatorDispatcher:
             {"name": "stop_camera_vision", "description": "Turn off webcam.", "parameters": {"type": "OBJECT", "properties": {}, "required": []}},
             {"name": "stop_all_vision", "description": "Stop all screen sharing and camera streams.", "parameters": {"type": "OBJECT", "properties": {}, "required": []}},
             # Desktop / Computer Use
-            {"name": "desktop_control", "description": "Computer use: list/focus/close windows, click mouse, move cursor, scroll, type text, send hotkeys, screenshot.", "parameters": {"type": "OBJECT", "properties": {"action": {"type": "STRING", "description": "Action", "enum": ["env", "list_windows", "focus_window", "close_window", "click", "move", "scroll", "type_text", "hotkey", "screenshot", "launch_app", "close_app"]}, "target": {"type": "STRING", "description": "Window/app name"}, "x": {"type": "INTEGER", "description": "X coord"}, "y": {"type": "INTEGER", "description": "Y coord"}, "button": {"type": "STRING", "description": "Button", "enum": ["left", "right", "middle"]}, "count": {"type": "INTEGER", "description": "Clicks"}, "dx": {"type": "INTEGER", "description": "H-scroll"}, "dy": {"type": "INTEGER", "description": "V-scroll"}, "text": {"type": "STRING", "description": "Text to type"}, "combo": {"type": "STRING", "description": "Key combo"}, "path": {"type": "STRING", "description": "Screenshot path"}}, "required": ["action"]}},
+            {"name": "desktop_control", "description": "Computer use: list/focus/close windows, close browser tabs, click mouse, move cursor, scroll, type text, send hotkeys, screenshot.", "parameters": {"type": "OBJECT", "properties": {"action": {"type": "STRING", "description": "Action", "enum": ["env", "list_windows", "focus_window", "close_window", "close_tab", "close_all_tabs", "new_tab", "next_tab", "previous_tab", "reload_tab", "click", "move", "scroll", "type_text", "hotkey", "screenshot", "launch_app", "close_app"]}, "target": {"type": "STRING", "description": "Window, app name, or tab name (e.g. 'YouTube', 'gnome-text-editor', 'chrome')"}, "x": {"type": "INTEGER", "description": "X coord"}, "y": {"type": "INTEGER", "description": "Y coord"}, "button": {"type": "STRING", "description": "Button", "enum": ["left", "right", "middle"]}, "count": {"type": "INTEGER", "description": "Clicks"}, "dx": {"type": "INTEGER", "description": "H-scroll"}, "dy": {"type": "INTEGER", "description": "V-scroll"}, "text": {"type": "STRING", "description": "Text to type"}, "combo": {"type": "STRING", "description": "Key combo"}, "path": {"type": "STRING", "description": "Screenshot path"}}, "required": ["action"]}},
+            {"name": "browser_control", "description": "Direct browser control: close active tab, close all tabs/browser, open new tab/URL, switch tabs, reload, reopen tab.", "parameters": {"type": "OBJECT", "properties": {"action": {"type": "STRING", "description": "Action", "enum": ["close_tab", "close_all_tabs", "new_tab", "next_tab", "previous_tab", "reload_tab", "reopen_closed_tab"]}, "target": {"type": "STRING", "description": "Tab name or URL"}}, "required": ["action"]}},
             {"name": "take_screenshot", "description": "Capture a desktop screenshot.", "parameters": {"type": "OBJECT", "properties": {"outputPath": {"type": "STRING", "description": "Output PNG path"}}, "required": []}},
             {"name": "clipboard_control", "description": "Read or write desktop clipboard text.", "parameters": {"type": "OBJECT", "properties": {"action": {"type": "STRING", "description": "Action", "enum": ["read", "write"]}, "text": {"type": "STRING", "description": "Text for write"}}, "required": ["action"]}},
             # File System
@@ -1050,14 +1556,10 @@ class ActuatorDispatcher:
             # Application & Shell
             {"name": "launch_application", "description": "Launch a desktop app, IDE, browser, or URL.", "parameters": {"type": "OBJECT", "properties": {"app_name": {"type": "STRING", "description": "App name or command"}, "args": {"type": "STRING", "description": "Arguments"}}, "required": ["app_name"]}},
             {"name": "execute_linux_command", "description": "Execute a verified Linux shell command.", "parameters": {"type": "OBJECT", "properties": {"command": {"type": "STRING", "description": "Bash command"}, "is_background": {"type": "BOOLEAN", "description": "Run in background"}, "cwd": {"type": "STRING", "description": "Working directory"}, "timeoutMs": {"type": "INTEGER", "description": "Timeout ms"}}, "required": ["command"]}},
-            {"name": "start_background_task", "description": "Launch a long-running command in background.", "parameters": {"type": "OBJECT", "properties": {"command": {"type": "STRING", "description": "Command"}, "task_name": {"type": "STRING", "description": "Label"}}, "required": ["command"]}},
-            {"name": "delegate_task", "description": "Delegate to a background specialist subagent.", "parameters": {"type": "OBJECT", "properties": {"agent_name": {"type": "STRING", "description": "Agent"}, "task": {"type": "STRING", "description": "Task"}}, "required": ["agent_name", "task"]}},
-            # Persona
-            {"name": "switch_persona", "description": "Switch voice persona. ONLY when user explicitly asks.", "parameters": {"type": "OBJECT", "properties": {"targetPersonaId": {"type": "STRING", "description": "Persona", "enum": ["jarvis", "friday", "ultron", "edith", "karen", "vision"]}}, "required": ["targetPersonaId"]}},
-            # Memory
-            {"name": "jarvis_remember", "description": "Store a fact in persistent memory.", "parameters": {"type": "OBJECT", "properties": {"key": {"type": "STRING", "description": "Identifier"}, "value": {"type": "STRING", "description": "Content"}, "category": {"type": "STRING", "description": "Category"}}, "required": ["key", "value"]}},
-            {"name": "jarvis_recall", "description": "Search persistent memory.", "parameters": {"type": "OBJECT", "properties": {"query": {"type": "STRING", "description": "Query"}}, "required": ["query"]}},
-            {"name": "jarvis_vault_status", "description": "Get memory engine status.", "parameters": {"type": "OBJECT", "properties": {}, "required": []}},
+            # Memory & Knowledge Spheres
+            {"name": "jarvis_remember", "description": "Store a verified fact in persistent dual-store memory.", "parameters": {"type": "OBJECT", "properties": {"key": {"type": "STRING", "description": "Identifier"}, "value": {"type": "STRING", "description": "Content"}, "category": {"type": "STRING", "description": "Knowledge sphere (system_os, operator_profile, knowledge_intel, codebase_dev, workspace_ops, security_groundtruth)"}}, "required": ["key", "value"]}},
+            {"name": "jarvis_recall", "description": "Search persistent dual-store memory and sovereign knowledge spheres.", "parameters": {"type": "OBJECT", "properties": {"query": {"type": "STRING", "description": "Query"}}, "required": ["query"]}},
+            {"name": "jarvis_vault_status", "description": "Get memory engine and knowledge spheres status.", "parameters": {"type": "OBJECT", "properties": {}, "required": []}},
             # ─── DIRECT GOOGLE WORKSPACE TOOLS ────────────────────────────────────
             {"name": "google_tasks_list", "description": "Fetch and list active Google Tasks directly from the user's connected Google account.", "parameters": {"type": "OBJECT", "properties": {"tasklistId": {"type": "STRING", "description": "Tasklist ID (default '@default')"}, "showCompleted": {"type": "BOOLEAN", "description": "Include completed tasks"}}, "required": []}},
             {"name": "google_tasks_create", "description": "Create a new task in Google Tasks.", "parameters": {"type": "OBJECT", "properties": {"title": {"type": "STRING", "description": "Task title"}, "notes": {"type": "STRING", "description": "Task notes/description"}, "due": {"type": "STRING", "description": "Due date RFC3339"}}, "required": ["title"]}},
@@ -1066,12 +1568,44 @@ class ActuatorDispatcher:
             {"name": "google_list_events", "description": "List upcoming meetings and events from Google Calendar.", "parameters": {"type": "OBJECT", "properties": {"maxResults": {"type": "INTEGER", "description": "Max events (default 10)"}, "timeMin": {"type": "STRING", "description": "Start time ISO string"}}, "required": []}},
             {"name": "google_create_event", "description": "Schedule a new meeting/event in Google Calendar.", "parameters": {"type": "OBJECT", "properties": {"summary": {"type": "STRING", "description": "Meeting summary/title"}, "startTime": {"type": "STRING", "description": "Start ISO datetime"}, "endTime": {"type": "STRING", "description": "End ISO datetime"}, "description": {"type": "STRING", "description": "Description"}}, "required": ["summary", "startTime", "endTime"]}},
             {"name": "google_search_drive", "description": "Search files in Google Drive.", "parameters": {"type": "OBJECT", "properties": {"query": {"type": "STRING", "description": "File search query"}}, "required": []}},
-            # ─── DIRECT GITHUB & LINKEDIN TOOLS ──────────────────────────────────
-            {"name": "github_list_repos", "description": "List the user's GitHub repositories.", "parameters": {"type": "OBJECT", "properties": {"limit": {"type": "INTEGER", "description": "Max repositories (default 15)"}}, "required": []}},
-            {"name": "github_create_issue", "description": "Create a new issue on a GitHub repository.", "parameters": {"type": "OBJECT", "properties": {"owner": {"type": "STRING", "description": "Repo owner"}, "repo": {"type": "STRING", "description": "Repo name"}, "title": {"type": "STRING", "description": "Issue title"}, "body": {"type": "STRING", "description": "Issue description"}}, "required": ["owner", "repo", "title"]}},
-            {"name": "linkedin_get_profile", "description": "Get the user's connected LinkedIn profile details.", "parameters": {"type": "OBJECT", "properties": {}, "required": []}},
-            {"name": "linkedin_create_post", "description": "Publish a status post to LinkedIn.", "parameters": {"type": "OBJECT", "properties": {"text": {"type": "STRING", "description": "Post text"}}, "required": ["text"]}},
+            # ─── GITHUB & LINKEDIN TOOLS ──────────────────────────────────────────
+            {"name": "github_list_repos", "description": "List the user's GitHub repositories.", "parameters": {"type": "OBJECT", "properties": {"limit": {"type": "INTEGER", "description": "Max repos"}}, "required": []}},
+            {"name": "github_create_issue", "description": "Create a new issue on a GitHub repository.", "parameters": {"type": "OBJECT", "properties": {"owner": {"type": "STRING", "description": "Repo owner"}, "repo": {"type": "STRING", "description": "Repo name"}, "title": {"type": "STRING", "description": "Issue title"}, "body": {"type": "STRING", "description": "Issue body"}}, "required": ["owner", "repo", "title"]}},
+            {"name": "github_get_profile", "description": "Get authenticated GitHub user profile details.", "parameters": {"type": "OBJECT", "properties": {}, "required": []}},
+            {"name": "linkedin_get_profile", "description": "Get authenticated LinkedIn user profile details.", "parameters": {"type": "OBJECT", "properties": {}, "required": []}},
+            {"name": "linkedin_create_post", "description": "Share a post or update to LinkedIn.", "parameters": {"type": "OBJECT", "properties": {"text": {"type": "STRING", "description": "Post content"}}, "required": ["text"]}},
+            # ─── CAPABILITY FORGE TOOLS (Ada-SI) ─────────────────────────────────
+            {"name": "forge_custom_tool", "description": "Synthesize, verify, and hot-reload a new custom tool into J.A.R.V.I.S. at runtime when a capability gap is detected.", "parameters": {"type": "OBJECT", "properties": {"name": {"type": "STRING", "description": "Identifier for the new tool (e.g. 'coingecko_price_tracker')"}, "description": {"type": "STRING", "description": "Tool functionality summary"}, "code": {"type": "STRING", "description": "Python source code implementing get_tool_schema() and run(**kwargs)"}, "test_code": {"type": "STRING", "description": "Python test code verifying the tool"}, "requirements": {"type": "ARRAY", "items": {"type": "STRING"}, "description": "Pip dependencies needed"}}, "required": ["name", "code"]}},
+            {"name": "list_custom_tools", "description": "List all dynamically forged tools and their promotion status.", "parameters": {"type": "OBJECT", "properties": {}, "required": []}},
+            {"name": "delete_custom_tool", "description": "Uninstall and remove a dynamically forged tool.", "parameters": {"type": "OBJECT", "properties": {"tool_name": {"type": "STRING", "description": "Tool identifier"}}, "required": ["tool_name"]}},
+            {"name": "test_custom_tool", "description": "Run sandbox verification tests for a forged tool.", "parameters": {"type": "OBJECT", "properties": {"tool_name": {"type": "STRING", "description": "Tool identifier"}}, "required": ["tool_name"]}},
+            {"name": "execute_forged_tool", "description": "Execute any dynamically forged custom tool with arguments.", "parameters": {"type": "OBJECT", "properties": {"tool_name": {"type": "STRING", "description": "Name of the forged tool (e.g. 'text_hasher')"}, "args": {"type": "OBJECT", "description": "Arguments dictionary to pass to run(**kwargs)"}}, "required": ["tool_name"]}},
+            # ─── CODEBASE INTELLIGENCE (codebase-memory-mcp) ─────────────────────
+            {"name": "codebase_search_graph", "description": "Find functions, classes, routes, handlers, variables, and entities in the codebase knowledge graph.", "parameters": {"type": "OBJECT", "properties": {"query": {"type": "STRING", "description": "Search query"}, "name_pattern": {"type": "STRING", "description": "Regex pattern for symbol name"}, "label": {"type": "STRING", "description": "Entity label (Function, Class, Route, etc.)"}, "limit": {"type": "INTEGER", "description": "Max results"}}, "required": []}},
+            {"name": "codebase_trace_path", "description": "Trace call paths in the codebase graph (who calls a function or what it calls).", "parameters": {"type": "OBJECT", "properties": {"function_name": {"type": "STRING", "description": "Function or symbol name"}, "direction": {"type": "STRING", "description": "Trace direction", "enum": ["inbound", "outbound", "both"]}, "depth": {"type": "INTEGER", "description": "Max traversal depth"}}, "required": ["function_name"]}},
+            {"name": "codebase_get_snippet", "description": "Read exact source code snippet for a qualified symbol.", "parameters": {"type": "OBJECT", "properties": {"qualified_name": {"type": "STRING", "description": "Fully qualified symbol name"}, "file_path": {"type": "STRING", "description": "Optional file path"}}, "required": ["qualified_name"]}},
+            {"name": "codebase_get_architecture", "description": "Get high-level architecture overview, node/edge counts, languages, entry points, and dependencies of the codebase.", "parameters": {"type": "OBJECT", "properties": {"aspects": {"type": "ARRAY", "items": {"type": "STRING"}, "description": "Aspects to inspect (structure, dependencies, routes, hotspots, boundaries, layers, all)"}}, "required": []}},
+            {"name": "codebase_search_code", "description": "Fast pattern search across the codebase index.", "parameters": {"type": "OBJECT", "properties": {"query": {"type": "STRING", "description": "Pattern to search"}, "file_pattern": {"type": "STRING", "description": "File glob filter"}}, "required": ["query"]}},
+            {"name": "codebase_view_file", "description": "View lines of a source file in the codebase.", "parameters": {"type": "OBJECT", "properties": {"file_path": {"type": "STRING", "description": "File path"}, "start_line": {"type": "INTEGER", "description": "Start line"}, "end_line": {"type": "INTEGER", "description": "End line"}}, "required": ["file_path"]}},
+            {"name": "codebase_edit_file", "description": "Perform precise snippet replacement in a codebase file and sync graph.", "parameters": {"type": "OBJECT", "properties": {"file_path": {"type": "STRING", "description": "File path"}, "target_snippet": {"type": "STRING", "description": "Exact text to replace"}, "replacement_snippet": {"type": "STRING", "description": "New replacement text"}}, "required": ["file_path", "target_snippet", "replacement_snippet"]}},
+            {"name": "codebase_detect_changes", "description": "Detect code changes and incrementally update the codebase knowledge graph.", "parameters": {"type": "OBJECT", "properties": {"since": {"type": "STRING", "description": "ISO timestamp or commit"}}, "required": []}},
+            {"name": "codebase_query_graph", "description": "Execute a raw Cypher query against the codebase knowledge graph.", "parameters": {"type": "OBJECT", "properties": {"cypher_query": {"type": "STRING", "description": "Cypher query"}}, "required": ["cypher_query"]}},
         ]
+
+        # Dynamically append declarations from custom_tools
+        if CUSTOM_TOOLS_DIR.exists():
+            for mf_path in CUSTOM_TOOLS_DIR.glob("*.manifest.json"):
+                try:
+                    data = json.loads(mf_path.read_text(encoding="utf-8"))
+                    if data.get("status") != "QUARANTINED" and "schema" in data:
+                        schema = data["schema"]
+                        fn_decl = schema.get("function", schema)
+                        if "name" in fn_decl and fn_decl["name"] not in [d["name"] for d in declarations]:
+                            declarations.append(fn_decl)
+                except Exception:
+                    pass
+
+        return declarations
 
 
 actuator_dispatcher = ActuatorDispatcher.get_instance()

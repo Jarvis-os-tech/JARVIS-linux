@@ -1,12 +1,11 @@
 import {
   Boxes,
-  Bot,
+  Layers,
   Brain,
   LayoutDashboard,
   Plug,
   Settings2,
   Target,
-  Workflow,
 } from "lucide-react";
 import { useJarvis, useStats } from "./JarvisProvider";
 import { cn } from "@/lib/utils";
@@ -14,11 +13,9 @@ import type { ViewKey } from "@/lib/jarvis-data";
 
 const items: { key: ViewKey; label: string; sub: string; Icon: typeof Boxes }[] = [
   { key: "dashboard", label: "Dashboard", sub: "Command Deck", Icon: LayoutDashboard },
-  { key: "memory", label: "Memory", sub: "Knowledge Hub", Icon: Brain },
-  { key: "agents", label: "AI Agents", sub: "Live Swarm", Icon: Bot },
-  { key: "connectors", label: "Connectors", sub: "Plugins & MCPs", Icon: Plug },
+  { key: "memory", label: "Memory", sub: "Knowledge Vault", Icon: Brain },
+  { key: "connectors", label: "Connectors", sub: "Plugins & Sensors", Icon: Plug },
   { key: "mission", label: "Mission Control", sub: "Tasks & Ops", Icon: Target },
-  { key: "workflows", label: "Workflow Forge", sub: "Design & Automate", Icon: Workflow },
   { key: "settings", label: "Settings", sub: "System Prefs", Icon: Settings2 },
 ];
 
@@ -70,16 +67,16 @@ export function Sidebar() {
           </span>
           <div className="min-w-0">
             <p className="truncate text-xs font-bold text-foreground">JARVIS OS Core</p>
-            <p className="truncate font-mono text-[10px] text-cyan-hud/80">MK-VII · Online</p>
+            <p className="truncate font-mono text-[10px] text-cyan-hud/80">Sovereign MK-VII</p>
           </div>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 text-center">
           <div className="neu-sm rounded-lg py-1.5">
-            <p className="font-mono text-sm font-bold text-emerald-hud">{stats.running}</p>
-            <p className="text-[9px] uppercase tracking-[0.14em] text-muted-foreground">Agents</p>
+            <p className="font-mono text-sm font-bold text-cyan-hud">1</p>
+            <p className="text-[9px] uppercase tracking-[0.14em] text-muted-foreground">Sovereign</p>
           </div>
           <div className="neu-sm rounded-lg py-1.5">
-            <p className="font-mono text-sm font-bold text-cyan-hud">{stats.active}</p>
+            <p className="font-mono text-sm font-bold text-emerald-hud">{stats.active}</p>
             <p className="text-[9px] uppercase tracking-[0.14em] text-muted-foreground">Missions</p>
           </div>
         </div>

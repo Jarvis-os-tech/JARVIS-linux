@@ -362,20 +362,27 @@ async def desktop_endpoint(req: Dict[str, Any]):
     return await actuator_dispatcher.dispatch_tool("desktop_control", req)
 
 
-# ─── Multi-Agent Orchestrator & Chat Endpoints ────────────────────────────────
+# ─── Sovereign Orchestrator & Knowledge Spheres Endpoints ─────────────────────
 
 @app.get("/api/orchestrator/status")
 async def orchestrator_status():
     return {
         "status": "online",
         "active_persona": "jarvis",
-        "personas": [
-            {"id": "jarvis", "name": "JARVIS", "specialty": "Tactical & Systems", "status": "active"},
-            {"id": "hermes", "name": "HERMES", "specialty": "Autonomous Fleet & Orchestration", "status": "standby"},
-            {"id": "friday", "name": "FRIDAY", "specialty": "Research & Workspace", "status": "standby"},
-            {"id": "ultron", "name": "ULTRON", "specialty": "Forensics & Security", "status": "standby"},
-            {"id": "edith", "name": "EDITH", "specialty": "Defense & Network", "status": "standby"},
-            {"id": "karen", "name": "KAREN", "specialty": "Assistant & Hardware", "status": "standby"},
+        "total_agents": 1,
+        "persona": {
+            "id": "jarvis",
+            "name": "JARVIS",
+            "role": "Sovereign AI Chief of Staff & Tactical Operating Partner",
+            "status": "active"
+        },
+        "knowledge_spheres": [
+            {"id": "system_os", "name": "System & OS Core", "status": "active", "color": "#06b6d4"},
+            {"id": "operator_profile", "name": "Operator Directives", "status": "active", "color": "#38bdf8"},
+            {"id": "knowledge_intel", "name": "Intelligence & Research", "status": "active", "color": "#f59e0b"},
+            {"id": "codebase_dev", "name": "Codebase Architecture", "status": "active", "color": "#8b5cf6"},
+            {"id": "workspace_ops", "name": "Workspace & Cloud Ops", "status": "active", "color": "#10b981"},
+            {"id": "security_groundtruth", "name": "Security & Ground Truth", "status": "active", "color": "#f43f5e"},
         ]
     }
 
@@ -1011,9 +1018,55 @@ async def websocket_live_bridge(ws: WebSocket):
         await gemini_session.close()
 
 
+# ─── Serve Spatial Stage & AI-Visualizer Suite ───────────────────────────────
+
+root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+visualizer_dir = os.path.join(root_dir, "ai-visualizer")
+barehands_dir = os.path.join(root_dir, "barehands")
+dist_dir = os.path.join(root_dir, "dist")
+
+if os.path.exists(visualizer_dir):
+    app.mount("/visualizer", StaticFiles(directory=visualizer_dir), name="visualizer")
+
+if os.path.exists(barehands_dir):
+    app.mount("/barehands", StaticFiles(directory=barehands_dir), name="barehands")
+
+
+@app.get("/state")
+async def get_visualizer_state():
+    voice_state = "speaking" if gemini_session.is_connected and getattr(gemini_session, "is_speaking", False) else "listening" if gemini_session.is_connected else "idle"
+    voice_state_file = os.path.join(root_dir, ".voice_state")
+    if os.path.exists(voice_state_file):
+        try:
+            with open(voice_state_file, "r") as f:
+                content = f.read().strip()
+                if content:
+                    voice_state = content
+        except Exception:
+            pass
+    return {
+        "state": voice_state,
+        "sample_rate": 24000,
+        "rms": 0.0,
+        "volume": 0.0,
+        "samples": [0.0] * 64,
+        "timestamp": int(time.time() * 1000)
+    }
+
+
+@app.get("/config")
+async def get_visualizer_config():
+    return {
+        "name": "JARVIS",
+        "badge": "MK-VII",
+        "default_face": "radial",
+        "thinking_sound": False,
+        "faces": [{"id": "radial", "name": "Radial", "file": "faces/radial/index.html"}]
+    }
+
+
 # ─── Serve React UI Static Build ─────────────────────────────────────────────
 
-dist_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dist")
 if os.path.exists(dist_dir):
     app.mount("/assets", StaticFiles(directory=os.path.join(dist_dir, "assets")), name="assets")
 
@@ -1023,3 +1076,4 @@ if os.path.exists(dist_dir):
         if os.path.exists(file_path) and not os.path.isdir(file_path):
             return FileResponse(file_path)
         return FileResponse(os.path.join(dist_dir, "index.html"))
+

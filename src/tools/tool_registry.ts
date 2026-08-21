@@ -52,6 +52,24 @@ export class ToolRegistry {
     logTool.debug(`Registered tool: ${tool.name} [${tool.tier}]`);
   }
 
+  public hotRegisterDynamicTool(tool: ToolDefinition): void {
+    this.tools.set(tool.name, {
+      ...tool,
+      timeoutMs: tool.timeoutMs || 25000,
+    });
+    logTool.info(`[Capability Forge] Hot-registered dynamic tool: ${tool.name}`);
+    eventBus.emit('tool:registered', { name: tool.name, tier: tool.tier });
+  }
+
+  public hotUnregisterTool(name: string): boolean {
+    const deleted = this.tools.delete(name);
+    if (deleted) {
+      logTool.info(`[Capability Forge] Unregistered dynamic tool: ${name}`);
+      eventBus.emit('tool:unregistered', { name });
+    }
+    return deleted;
+  }
+
   public getTool(name: string): ToolDefinition | undefined {
     return this.tools.get(name);
   }
@@ -798,6 +816,90 @@ export class ToolRegistry {
         };
       },
     });
+
+    // --- Barehands Spatial Air-Board Stage Tools ---
+    this.register({
+      name: 'stage_present',
+      description: 'Present a titled text note center-stage with dynamic spotlighting on the Barehands gesture air-board.',
+      tier: 'tier2_system_shell',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'STRING', description: 'Title of the card to present' },
+          body: { type: 'STRING', description: 'Body text content of the note' },
+        },
+        required: ['title', 'body'],
+      },
+      handler: async (args) => {
+        const { stagePresent } = await import('./stage_tools');
+        return await stagePresent(args.title, args.body);
+      },
+    });
+
+    this.register({
+      name: 'stage_add_card',
+      description: 'Add an interactive glass card to the Barehands spatial board.',
+      tier: 'tier2_system_shell',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'STRING', description: 'Card title' },
+          body: { type: 'STRING', description: 'Card content' },
+          orb: { type: 'STRING', description: 'Orb category name (default: notes)' },
+        },
+        required: ['title', 'body'],
+      },
+      handler: async (args) => {
+        const { stageAddCard } = await import('./stage_tools');
+        return await stageAddCard(args.title, args.body, args.orb);
+      },
+    });
+
+    this.register({
+      name: 'stage_add_media',
+      description: 'Stage an image, transparent effect prop, or 3D hologram model onto the Barehands air-board.',
+      tier: 'tier2_system_shell',
+      parameters: {
+        type: 'object',
+        properties: {
+          file: { type: 'STRING', description: 'Filename or relative path inside media/ folder' },
+          caption: { type: 'STRING', description: 'Optional caption description' },
+        },
+        required: ['file'],
+      },
+      handler: async (args) => {
+        const { stageAddMedia } = await import('./stage_tools');
+        return await stageAddMedia(args.file, args.caption);
+      },
+    });
+
+    this.register({
+      name: 'stage_clear',
+      description: 'Clear all active notes and props from the Barehands air-board stage.',
+      tier: 'tier2_system_shell',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+      handler: async () => {
+        const { stageClear } = await import('./stage_tools');
+        return await stageClear();
+      },
+    });
+
+    this.register({
+      name: 'stage_get_state',
+      description: 'Read what cards and props are currently displayed on the Barehands board.',
+      tier: 'tier2_system_shell',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+      handler: async () => {
+        const { stageGetState } = await import('./stage_tools');
+        return await stageGetState();
+      },
+    });
   }
 }
 
@@ -811,12 +913,16 @@ import { registerCronTools } from './cron_tool';
 import { registerSkillsTools } from './skills_tool';
 import { registerPythonTools } from './python_plugin_tool';
 import { registerMemorySearchTools } from './memory_search_tool';
+import { registerForgeTools } from './forge_tool';
+import { registerCodebaseTools } from './codebase_tool';
 
 registerDelegationTool();
 registerCronTools();
 registerSkillsTools();
 registerPythonTools();
 registerMemorySearchTools();
+registerForgeTools();
+registerCodebaseTools();
 
 
 

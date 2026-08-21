@@ -49,6 +49,8 @@ import { lifecycleManager, ResourceCategory } from '../core/lifecycle_manager';
 import { watchdog } from '../core/watchdog';
 import { toolRegistry } from '../tools/tool_registry';
 import { primeOrchestrator } from '../core/prime_orchestrator';
+import { capabilityForge } from '../core/capability_forge';
+import { codebaseMemory } from '../core/codebase_memory';
 
 export function createApiRouter(): Router {
   const router = Router();
@@ -755,7 +757,7 @@ export function createApiRouter(): Router {
     const { linkedinService } = await import('../services/linkedin_service');
 
     if (error || !code) {
-      const html = `<!DOCTYPE html><html><body style="background:#090a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(255,255,255,0.05);border-radius:16px;"><h2>❌ LinkedIn Auth Failed</h2><p style="color:#f87171;">${error || 'Missing code parameter'}</p></div><script>if(window.opener){window.opener.postMessage({type:'LINKEDIN_AUTH_FAILED',error:'${error||'Failed'}'},'*');setTimeout(()=>window.close(),1500);}</script></body></html>`;
+      const html = `<!DOCTYPE html><html><body style="background:#090a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(255,255,255,0.05);border-radius:16px;"><h2>❌ LinkedIn Auth Failed</h2><p style="color:#f87171;">${error || 'Missing code parameter'}</p></div><script>if(window.opener){window.opener.postMessage({type:'LINKEDIN_AUTH_FAILED',error:'${error || 'Failed'}'},'*');setTimeout(()=>window.close(),1500);}</script></body></html>`;
       return res.status(400).send(html);
     }
 
@@ -931,7 +933,7 @@ export function createApiRouter(): Router {
     const { githubService } = await import('../services/github_service');
 
     if (error || !code) {
-      const html = `<!DOCTYPE html><html><body style="background:#090a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(255,255,255,0.05);border-radius:16px;"><h2>❌ GitHub Auth Failed</h2><p style="color:#f87171;">${error || 'Missing code parameter'}</p></div><script>if(window.opener){window.opener.postMessage({type:'GITHUB_AUTH_FAILED',error:'${error||'Failed'}'},'*');setTimeout(()=>window.close(),1500);}</script></body></html>`;
+      const html = `<!DOCTYPE html><html><body style="background:#090a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(255,255,255,0.05);border-radius:16px;"><h2>❌ GitHub Auth Failed</h2><p style="color:#f87171;">${error || 'Missing code parameter'}</p></div><script>if(window.opener){window.opener.postMessage({type:'GITHUB_AUTH_FAILED',error:'${error || 'Failed'}'},'*');setTimeout(()=>window.close(),1500);}</script></body></html>`;
       return res.status(400).send(html);
     }
 
@@ -1230,7 +1232,7 @@ export function createApiRouter(): Router {
 
     // 2. Error reported by OAuth provider
     if (error || !code) {
-      const html = `<!DOCTYPE html><html><body style="background:#090a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(255,255,255,0.05);border-radius:16px;max-width:380px;"><h2>❌ Authorization Failed</h2><p style="color:#f87171;font-size:13px;">${error || 'Missing authorization code'}</p></div><script>if(window.opener){window.opener.postMessage({type:'CONNECTORS_AUTH_FAILED',error:'${error||'Failed'}'},'*');setTimeout(()=>window.close(),2000);}</script></body></html>`;
+      const html = `<!DOCTYPE html><html><body style="background:#090a0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center;padding:32px;background:rgba(255,255,255,0.05);border-radius:16px;max-width:380px;"><h2>❌ Authorization Failed</h2><p style="color:#f87171;font-size:13px;">${error || 'Missing authorization code'}</p></div><script>if(window.opener){window.opener.postMessage({type:'CONNECTORS_AUTH_FAILED',error:'${error || 'Failed'}'},'*');setTimeout(()=>window.close(),2000);}</script></body></html>`;
       return res.status(400).send(html);
     }
 
@@ -1566,11 +1568,29 @@ export function createApiRouter(): Router {
     }
   });
 
+  router.get('/system/files/quick-places', (_req: Request, res: Response) => {
+    try {
+      const home = process.env.HOME || '/home/gopi';
+      const fs = require('fs');
+      const places = [
+        { name: 'Home', path: home, icon: 'home' },
+        { name: 'Downloads', path: `${home}/Downloads`, icon: 'download' },
+        { name: 'Documents', path: `${home}/Documents`, icon: 'file-text' },
+        { name: 'Pictures', path: `${home}/Pictures`, icon: 'image' },
+        { name: 'Desktop', path: `${home}/Desktop`, icon: 'monitor' },
+        { name: 'JARVIS Workspace', path: process.cwd(), icon: 'folder-git' },
+      ].filter(p => fs.existsSync(p.path));
+      res.json({ places, home, cwd: process.cwd() });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   router.get('/system/files/search', async (req: Request, res: Response) => {
     try {
       const query = req.query.query as string;
       const searchPath = req.query.searchPath as string | undefined;
-      const maxResults = parseInt(req.query.maxResults as string, 10) || 20;
+      const maxResults = parseInt(req.query.maxResults as string, 10) || 50;
       res.json(await searchLocalFiles({ pattern: query, rootDir: searchPath, maxResults }));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -1581,7 +1601,53 @@ export function createApiRouter(): Router {
     try {
       const dirPath = req.query.dirPath as string || process.env.HOME || '/';
       const showHidden = req.query.showHidden === 'true';
-      res.json(await listDirectory({ dirPath, showHidden }));
+      const limit = parseInt(req.query.limit as string, 10) || 200;
+      res.json(await listDirectory({ dirPath, showHidden, limit }));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/system/files/read', async (req: Request, res: Response) => {
+    try {
+      const { filePath, maxLines, offset } = req.body;
+      if (!filePath) return res.status(400).json({ error: 'filePath is required' });
+      res.json(await readLocalFile({ filePath, maxLines, offset }));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/system/files/write', async (req: Request, res: Response) => {
+    try {
+      const { filePath, content, append } = req.body;
+      if (!filePath) return res.status(400).json({ error: 'filePath is required' });
+      res.json(await writeLocalFile({ filePath, content: content ?? '', append }));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/system/files/mkdir', (req: Request, res: Response) => {
+    try {
+      const { dirPath } = req.body;
+      if (!dirPath) return res.status(400).json({ error: 'dirPath is required' });
+      const resolved = require('path').resolve(dirPath);
+      require('fs').mkdirSync(resolved, { recursive: true });
+      res.json({ success: true, path: resolved, message: `Directory created: ${resolved}` });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/system/files/open', (req: Request, res: Response) => {
+    try {
+      const { filePath } = req.body;
+      if (!filePath) return res.status(400).json({ error: 'filePath is required' });
+      const resolved = require('path').resolve(filePath);
+      const { exec } = require('child_process');
+      exec(`xdg-open "${resolved}" || nautilus "${resolved}"`, () => {});
+      res.json({ success: true, message: `Opened: ${resolved}` });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -1595,9 +1661,46 @@ export function createApiRouter(): Router {
     }
   });
 
+  router.get('/system/clipboard', async (_req: Request, res: Response) => {
+    try {
+      res.json(await clipboardControl({ action: 'read' }));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   router.post('/system/clipboard', async (req: Request, res: Response) => {
     try {
       res.json(await clipboardControl(req.body));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/system/services', async (_req: Request, res: Response) => {
+    try {
+      const { exec } = require('child_process');
+      const util = require('util');
+      const execAsync = util.promisify(exec);
+      const units = ['pipewire', 'wireplumber', 'NetworkManager', 'bluetooth', 'docker', 'cron'];
+      const results = await Promise.all(units.map(async (unit) => {
+        try {
+          const { stdout } = await execAsync(`systemctl --user is-active ${unit} 2>/dev/null || systemctl is-active ${unit} 2>/dev/null || echo "inactive"`);
+          return { name: unit, status: stdout.trim() };
+        } catch {
+          return { name: unit, status: 'inactive' };
+        }
+      }));
+      res.json({ services: results });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/system/services/manage', async (req: Request, res: Response) => {
+    try {
+      const { serviceName, action } = req.body;
+      res.json(await manageSystemdService({ unit: serviceName || req.body.unit, action }));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -1646,6 +1749,217 @@ export function createApiRouter(): Router {
       mode: 'webrtc-signaling-hub',
       timestamp: new Date().toISOString()
     });
+  });
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // Capability Forge & Dynamic Tool Endpoints (Ada-SI)
+  // ════════════════════════════════════════════════════════════════════════════
+
+  router.get('/forge/tools', (_req: Request, res: Response) => {
+    try {
+      const tools = capabilityForge.listTools();
+      res.json({ success: true, count: tools.length, tools });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/forge/tools/:name', (req: Request, res: Response) => {
+    try {
+      const tool = capabilityForge.getTool(req.params.name);
+      if (!tool) {
+        return res.status(404).json({ success: false, error: 'Tool not found' });
+      }
+      res.json({ success: true, tool });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/forge/audit', async (req: Request, res: Response) => {
+    try {
+      const { code } = req.body;
+      const result = await capabilityForge.runAstAudit(code || '');
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ valid: false, errors: [err.message] });
+    }
+  });
+
+  router.post('/forge/verify', async (req: Request, res: Response) => {
+    try {
+      const { name, code, testCode, requirements } = req.body;
+      const result = await capabilityForge.verifyInSandbox(
+        name || 'test_tool',
+        code || '',
+        testCode || '',
+        requirements || []
+      );
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ passed: false, error: err.message });
+    }
+  });
+
+  router.post('/forge/install', async (req: Request, res: Response) => {
+    try {
+      const { name, description, code, testCode, requirements, uiLayout } = req.body;
+      const result = await capabilityForge.installTool(
+        name,
+        description || 'Dynamically forged tool',
+        code,
+        testCode || '',
+        requirements || [],
+        uiLayout || 'none'
+      );
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.delete('/forge/tools/:name', (req: Request, res: Response) => {
+    try {
+      const result = capabilityForge.deleteTool(req.params.name);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/forge/tools/:name/execute', async (req: Request, res: Response) => {
+    try {
+      const result = await capabilityForge.executeForgedTool(req.params.name, req.body.args || {});
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/forge/tools/:name/test', async (req: Request, res: Response) => {
+    try {
+      const tool = capabilityForge.getTool(req.params.name);
+      if (!tool) {
+        return res.status(404).json({ success: false, error: 'Tool not found' });
+      }
+      const result = await capabilityForge.verifyInSandbox(
+        tool.name,
+        tool.code,
+        tool.testCode,
+        tool.requirements
+      );
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ passed: false, error: err.message });
+    }
+  });
+
+  // --- Codebase Memory & Graph Intelligence ---
+  router.get('/codebase/architecture', async (_req: Request, res: Response) => {
+    try {
+      const arch = await codebaseMemory.getArchitecture(['all']);
+      res.json({ success: true, architecture: arch });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/codebase/graph', async (req: Request, res: Response) => {
+    try {
+      const query = typeof req.query.query === 'string' ? req.query.query : undefined;
+      const namePattern = typeof req.query.name_pattern === 'string' ? req.query.name_pattern : undefined;
+      const label = typeof req.query.label === 'string' ? req.query.label : undefined;
+      const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 30;
+
+      const results = await codebaseMemory.searchGraph(query, namePattern, label, limit);
+      res.json({ success: true, data: results });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/codebase/search', async (req: Request, res: Response) => {
+    try {
+      const query = String(req.query.q || req.query.query || '');
+      const filePattern = typeof req.query.file_pattern === 'string' ? req.query.file_pattern : undefined;
+      const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 30;
+
+      const results = await codebaseMemory.searchCode(query, filePattern, limit);
+      res.json({ success: true, data: results });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/codebase/snippet', async (req: Request, res: Response) => {
+    try {
+      const qn = String(req.query.name || req.query.qualified_name || '');
+      const filePath = typeof req.query.file === 'string' ? req.query.file : undefined;
+
+      const snippet = await codebaseMemory.getCodeSnippet(qn, filePath);
+      res.json({ success: true, data: snippet });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/codebase/trace', async (req: Request, res: Response) => {
+    try {
+      const fnName = String(req.query.function || req.query.name || '');
+      const direction = (req.query.direction as any) || 'both';
+      const depth = req.query.depth ? parseInt(String(req.query.depth), 10) : 3;
+
+      const trace = await codebaseMemory.tracePath(fnName, direction, depth);
+      res.json({ success: true, data: trace });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/codebase/changes', async (req: Request, res: Response) => {
+    try {
+      const since = typeof req.query.since === 'string' ? req.query.since : undefined;
+      const changes = await codebaseMemory.detectChanges(since);
+      res.json({ success: true, data: changes });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/codebase/sync', async (_req: Request, res: Response) => {
+    try {
+      const result = await codebaseMemory.syncRepository();
+      res.json({ success: true, result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/codebase/file', (req: Request, res: Response) => {
+    try {
+      const filePath = String(req.query.path || '');
+      const startLine = req.query.start ? parseInt(String(req.query.start), 10) : undefined;
+      const endLine = req.query.end ? parseInt(String(req.query.end), 10) : undefined;
+
+      const data = codebaseMemory.readFile(filePath, startLine, endLine);
+      res.json({ success: true, ...data });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/codebase/edit', async (req: Request, res: Response) => {
+    try {
+      const { filePath, targetSnippet, replacementSnippet } = req.body;
+      if (!filePath || !targetSnippet || replacementSnippet === undefined) {
+        return res.status(400).json({ success: false, error: 'Missing required parameters' });
+      }
+
+      const result = await codebaseMemory.editFile(filePath, targetSnippet, replacementSnippet);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
   });
 
   return router;

@@ -56,10 +56,8 @@ export type LogEntry = { id: string; text: string; at: number };
 export type ViewKey =
   | "dashboard"
   | "memory"
-  | "agents"
   | "connectors"
   | "mission"
-  | "workflows"
   | "settings";
 
 export const uid = () => Math.random().toString(36).slice(2, 10);
@@ -68,7 +66,7 @@ export const seedAgents: Agent[] = [
   {
     id: "jarvis",
     name: "JARVIS",
-    desc: "Chief Executive Officer & Principal Tactical Architect. Executive control and Linux OS commander.",
+    desc: "Sovereign AI Chief of Staff & Tactical Operating Partner. Autonomous Linux Control & Spatial Stage.",
     icon: "◎",
     accent: "var(--cyan-hud)",
     status: "running",
@@ -76,54 +74,6 @@ export const seedAgents: Agent[] = [
     uptimeMin: 0,
     load: 0,
     voiceName: "Puck"
-  },
-  {
-    id: "friday",
-    name: "FRIDAY",
-    desc: "Supreme AI & Tech Research Leader. Continuous global web scraping and arXiv intelligence.",
-    icon: "🌐",
-    accent: "var(--orange-hud)",
-    status: "running",
-    tasks: 0,
-    uptimeMin: 0,
-    load: 0,
-    voiceName: "Kore"
-  },
-  {
-    id: "ultron",
-    name: "ULTRON",
-    desc: "Chief Security Officer & Cybernetic Hegemony Architect. Kernel safety, port traps, and RAM optimizer.",
-    icon: "💀",
-    accent: "var(--rose-hud)",
-    status: "running",
-    tasks: 0,
-    uptimeMin: 0,
-    load: 0,
-    voiceName: "Charon"
-  },
-  {
-    id: "edith",
-    name: "EDITH",
-    desc: "Strategic Architecture Planner & Deep Reasoning Core. 3-Stage Coding Council consensus engine.",
-    icon: "🕶",
-    accent: "var(--blue-hud)",
-    status: "running",
-    tasks: 0,
-    uptimeMin: 0,
-    load: 0,
-    voiceName: "Zephyr"
-  },
-  {
-    id: "karen",
-    name: "KAREN",
-    desc: "Director of Autonomous Workflows & Automation Agency. YouTube pipelines and WhatsApp relays.",
-    icon: "⚡",
-    accent: "var(--amber-hud)",
-    status: "running",
-    tasks: 0,
-    uptimeMin: 0,
-    load: 0,
-    voiceName: "Aoede"
   }
 ];
 

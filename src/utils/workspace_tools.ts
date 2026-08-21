@@ -787,20 +787,58 @@ export const WORKSPACE_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
       properties: {}
     }
   },
-  // --- MULTI-AGENT VOICE TRANSFER PROTOCOL ---
+  // --- BAREHANDS SPATIAL AIR-BOARD STAGE PROTOCOL ---
   {
-    name: 'switch_persona',
-    description: 'Switch the conversational voice persona to a different agent. ONLY call this if the user EXPLICITLY asks to switch, talk, or transfer to another agent (e.g. "Switch to Hermes", "Switch to Ultron", "Talk to Friday", "Transfer to Edith").',
+    name: 'stage_present',
+    description: 'Present a titled text note or document center-stage with spotlighting and enlarged scale on the Barehands air-board.',
     parameters: {
       type: 'OBJECT',
       properties: {
-        targetPersonaId: {
-          type: 'STRING',
-          description: 'The ID of the persona to switch to: "jarvis", "hermes", "friday", "ultron", "edith", "karen", "vision".',
-          enum: ['jarvis', 'hermes', 'friday', 'ultron', 'edith', 'karen', 'vision']
-        }
+        title: { type: 'STRING', description: 'Title of the note card to present' },
+        body: { type: 'STRING', description: 'Body text or markdown content' }
       },
-      required: ['targetPersonaId']
+      required: ['title', 'body']
+    }
+  },
+  {
+    name: 'stage_add_card',
+    description: 'Add an interactive floating glass card to the Barehands air-board stage.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        title: { type: 'STRING', description: 'Card title' },
+        body: { type: 'STRING', description: 'Card content' },
+        orb: { type: 'STRING', description: 'Orb category (e.g. "notes", "media")' }
+      },
+      required: ['title', 'body']
+    }
+  },
+  {
+    name: 'stage_add_media',
+    description: 'Stage an image, transparent effect prop, or 3D hologram model onto the Barehands air-board.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        file: { type: 'STRING', description: 'Filename or relative path inside media/ folder' },
+        caption: { type: 'STRING', description: 'Optional caption description' }
+      },
+      required: ['file']
+    }
+  },
+  {
+    name: 'stage_clear',
+    description: 'Clear all active notes, cards, and props from the Barehands air-board stage.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {}
+    }
+  },
+  {
+    name: 'stage_get_state',
+    description: 'Get the live state of cards and props on the Barehands board.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {}
     }
   },
   // --- AGENT REACH: INTERNET CAPABILITY & ZERO-HALLUCINATION WEB INTELLIGENCE ---
@@ -1937,14 +1975,14 @@ export async function executeWorkspaceTool(
         };
       }
 
-      // --- MULTI-AGENT DELEGATION & COLLABORATION ---
+      // --- SUBAGENT TASK DELEGATION ---
       case 'delegate_agent_task': {
         const { multiAgentOrchestrator } = await import('../utils/multi_agent_orchestrator');
         const res = await multiAgentOrchestrator.delegateTask(args.taskDescription, args.targetManagerId, accessToken);
         return {
           success: res.success,
           result: res,
-          summary: res.relayedEvent?.relayedSummary || `Delegated task to ${args.targetManagerId}.`
+          summary: res.summary || `Delegated task to subagent.`
         };
       }
     }
@@ -2703,14 +2741,55 @@ export async function executeWorkspaceTool(
       }
 
       // -------------------------------------------------------------
-      // VOICE TRANSFER PROTOCOL: switch_persona
+      // BAREHANDS SPATIAL AIR-BOARD STAGE PROTOCOL
       // -------------------------------------------------------------
-      case 'switch_persona': {
-        const { targetPersonaId } = args;
+      case 'stage_present': {
+        const { stagePresent } = await import('../tools/stage_tools');
+        const res = await stagePresent(args.title, args.body);
         return {
-          success: true,
-          result: { targetPersonaId, status: 'switched' },
-          summary: `Switched conversational persona to ${targetPersonaId}`
+          success: res.success,
+          result: res,
+          summary: res.message
+        };
+      }
+
+      case 'stage_add_card': {
+        const { stageAddCard } = await import('../tools/stage_tools');
+        const res = await stageAddCard(args.title, args.body, args.orb);
+        return {
+          success: res.success,
+          result: res,
+          summary: res.message
+        };
+      }
+
+      case 'stage_add_media': {
+        const { stageAddMedia } = await import('../tools/stage_tools');
+        const res = await stageAddMedia(args.file, args.caption);
+        return {
+          success: res.success,
+          result: res,
+          summary: res.message
+        };
+      }
+
+      case 'stage_clear': {
+        const { stageClear } = await import('../tools/stage_tools');
+        const res = await stageClear();
+        return {
+          success: res.success,
+          result: res,
+          summary: res.message
+        };
+      }
+
+      case 'stage_get_state': {
+        const { stageGetState } = await import('../tools/stage_tools');
+        const res = await stageGetState();
+        return {
+          success: res.success,
+          result: res.state,
+          summary: 'Retrieved Barehands stage state'
         };
       }
 

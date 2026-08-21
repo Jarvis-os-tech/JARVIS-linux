@@ -13,7 +13,9 @@ import { memoryRepo } from '../db/db';
 import { toolRegistry } from '../tools/tool_registry';
 import { latencyResponseSystem } from '../core/latency_response_system';
 import { groundTruthRegistry } from '../core/ground_truth_registry';
+import { capabilityForge } from '../core/capability_forge';
 import { turnLogger } from '../memory/turn_logger';
+import { updateVoiceStateSignal } from '../utils/voice_signals';
 
 export function attachWebSocketServer(server: http.Server): WebSocketServer {
   const wss = new WebSocketServer({ server, path: '/live' });
@@ -68,10 +70,10 @@ export function attachWebSocketServer(server: http.Server): WebSocketServer {
         try {
           if (item.type === 'audio') {
             session.sendRealtimeInput({
-              audio: {
+              mediaChunks: [{
                 data: item.payload,
                 mimeType: 'audio/pcm;rate=16000'
-              }
+              }]
             });
           } else if (item.type === 'text') {
             session.sendClientContent({
@@ -83,10 +85,10 @@ export function attachWebSocketServer(server: http.Server): WebSocketServer {
             });
           } else if (item.type === 'image') {
             session.sendRealtimeInput({
-              video: {
+              mediaChunks: [{
                 data: item.payload.image || item.payload,
                 mimeType: item.payload.mimeType || 'image/jpeg'
-              }
+              }]
             });
           }
         } catch (err) {
@@ -140,6 +142,29 @@ export function attachWebSocketServer(server: http.Server): WebSocketServer {
         }));
       }
     });
+    connectionCleanups.add(removeOrchestratorListener);
+
+    // Register Dynamic Tool Hot-Reload Notification
+    const onDynamicToolRegistered = (evt: { name: string; tier?: string }) => {
+      if (session) {
+        try {
+          session.sendClientContent({
+            turns: [{
+              role: 'user',
+              parts: [{
+                text: `[SYSTEM_HOT_RELOAD]: The dynamic capability tool '${evt.name}' has been verified in the Linux sandbox and hot-registered. You can now execute '${evt.name}' directly or via execute_forged_tool(tool_name='${evt.name}', args={...}) for any user request.`
+              }]
+            }],
+            turnComplete: true
+          });
+          logVoice.info(`[Voice Bridge] Injected live hot-reload declaration for '${evt.name}' into active Gemini Live session.`);
+        } catch (err: any) {
+          logVoice.warn(`Failed to inject dynamic tool notification into session: ${err.message}`);
+        }
+      }
+    };
+    eventBus.on('tool:registered', onDynamicToolRegistered);
+    connectionCleanups.add(() => eventBus.off('tool:registered', onDynamicToolRegistered));
 
     clientWs.on('error', (err) => {
       logVoice.error(`Client socket error: ${err.message}`);
@@ -205,8 +230,9 @@ ${groundTruthContext}`;
         const { dualStoreMemory } = await import('../memory/dual_store');
         const memorySnapshot = dualStoreMemory.getFrozenSnapshot();
         const universalMemoryPrompt = `\n${memorySnapshot.combinedFormattedPrompt}\n`;
+        const personaInstruction = config.systemInstruction || (activePersona as any).systemInstruction || (activePersona as any).prompt || '';
         const capabilityPrompt = groundTruthRegistry.getCanonicalCapabilityManifest();
-        const systemInstruction = `${config.systemInstruction || activePersona.systemInstruction}\n${workspaceInstruction}\n${universalMemoryPrompt}\n${capabilityPrompt}`;
+        const systemInstruction = `${personaInstruction}\n${workspaceInstruction}\n${universalMemoryPrompt}\n${capabilityPrompt}`;
 
         const unifiedTools = groundTruthRegistry.getUnifiedFunctionDeclarations();
         logVoice.info(`Connecting to Gemini Live with persona: ${activePersona.name}, voice: ${voiceName}, model: ${model} (${unifiedTools.length} tools registered)`);
@@ -233,6 +259,7 @@ ${groundTruthContext}`;
                 if (parts && parts.length > 0) {
                   for (const part of parts) {
                     if (part.inlineData?.data) {
+                      updateVoiceStateSignal('speaking');
                       clientWs.send(JSON.stringify({
                         type: 'audio',
                         data: part.inlineData.data,
@@ -265,6 +292,7 @@ ${groundTruthContext}`;
                 // Handle tool calls from Gemini Live
                 const toolCalls = message.toolCall?.functionCalls;
                 if (toolCalls && toolCalls.length > 0) {
+                  updateVoiceStateSignal('thinking');
                   for (const call of toolCalls) {
                     logTool.info(`[Gemini Live Tool Call] ${call.name} (id: ${call.id})`);
                     logVoice.info(`[Voice Tool] Executing: ${call.name}`);
@@ -308,9 +336,13 @@ ${groundTruthContext}`;
                     try {
                       const toolArgs = (call.args as Record<string, any>) || {};
                       const registryTool = toolRegistry.getTool(call.name);
-                      
+                      const forgedTool = capabilityForge.getTool(call.name);
+
                       if (registryTool) {
                         toolResult = await toolRegistry.execute(call.name, toolArgs);
+                      } else if (forgedTool) {
+                        logTool.info(`[Capability Forge] Direct dispatch for forged tool: ${call.name}`);
+                        toolResult = await capabilityForge.executeForgedTool(call.name, toolArgs);
                       } else {
                         toolResult = await executeWorkspaceTool(
                           call.name,
@@ -353,40 +385,6 @@ ${groundTruthContext}`;
                           mode: toolResult.visionControl.mode
                         }));
                       }
-
-                      if (call.name === 'switch_persona' && (call.args as any)?.targetPersonaId) {
-                        const targetPersonaId = String((call.args as any).targetPersonaId).toLowerCase();
-                        const swapResult = masterOrchestratorInstance.swapActivePersona(targetPersonaId);
-                        const targetPersona = PERSONAS.find(p => p.id === targetPersonaId) || PERSONAS[0];
-                        const targetProfile = targetPersona.audioProfile || getPersonaAudioProfile(targetPersona.id);
-
-                        clientWs.send(JSON.stringify({
-                          type: 'switch_persona_tool_call',
-                          targetPersonaId: targetPersona.id,
-                          persona: targetPersona,
-                          audioProfile: targetProfile,
-                          ...swapResult
-                        }));
-
-                        // Reinitialize Live session with the new persona's voice so the AI immediately speaks with the new voice
-                        setTimeout(() => {
-                          initSession({
-                            personaId: targetPersona.id,
-                            voiceName: targetPersona.voiceName,
-                            systemInstruction: `${targetPersona.systemInstruction}\n${VOICE_TRANSFER_SYSTEM_INSTRUCTION}`
-                          }).then(() => {
-                            if (session) {
-                              session.sendClientContent({
-                                turns: [{
-                                  role: 'user',
-                                  parts: [{ text: `[VOICE_TRANSFER_PROTOCOL_ACTIVE]: Voice transfer complete. You are now active as ${targetPersona.name} with voice '${targetPersona.voiceName}'. Greet the user immediately in character with 1 short greeting sentence.` }]
-                                }],
-                                turnComplete: true
-                              });
-                            }
-                          }).catch(err => logVoice.error('Error reinitializing session on switch_persona tool call:', err));
-                        }, 120);
-                      }
                     }
 
                     // Send tool response back to Gemini Live
@@ -408,6 +406,7 @@ ${groundTruthContext}`;
 
                 // Handle Interrupted
                 if (message.serverContent?.interrupted) {
+                  updateVoiceStateSignal('listening');
                   latencyResponseSystem.interruptActiveTask('server_interrupted');
                   eventBus.emit('voice:interrupted');
                   clientWs.send(JSON.stringify({ type: 'interrupted' }));
@@ -415,6 +414,7 @@ ${groundTruthContext}`;
 
                 // Handle Turn Complete
                 if (message.serverContent?.turnComplete) {
+                  updateVoiceStateSignal('listening');
                   const currentActive = masterOrchestratorInstance.getActivePersona();
                   const userText = accumulatedUserSpeech.trim();
                   const modelText = accumulatedModelSpeech.trim();
@@ -527,11 +527,11 @@ ${groundTruthContext}`;
           if (session && !isConnecting) {
             try {
               session.sendRealtimeInput({
-                audio: {
+                mediaChunks: [{
                   data: msg.audio,
                   mimeType: 'audio/pcm;rate=16000'
-                }
-              } as any);
+                }]
+              });
             } catch (err) {
               logVoice.error('Error sending audio input, scheduling reconnect:', err);
               pendingLiveMessages.push({ type: 'audio', payload: msg.audio });
@@ -641,10 +641,10 @@ ${groundTruthContext}`;
           if (session && !isConnecting) {
             try {
               session.sendRealtimeInput({
-                video: {
+                mediaChunks: [{
                   data: msg.image,
                   mimeType: msg.mimeType || 'image/jpeg'
-                }
+                }]
               });
             } catch (err) {
               logVoice.error('Error sending image input, scheduling reconnect:', err);
@@ -663,32 +663,6 @@ ${groundTruthContext}`;
               initSession(lastSessionConfig);
             }
           }
-        }
-
-        if (msg.type === 'swap_persona' && msg.personaId) {
-          const swapResult = masterOrchestratorInstance.swapActivePersona(msg.personaId);
-          const targetPersona = PERSONAS.find(p => p.id === msg.personaId.toLowerCase()) || PERSONAS[0];
-          const targetProfile = targetPersona.audioProfile || getPersonaAudioProfile(targetPersona.id);
-
-          // Re-initialize Live API session with target persona's voice and system instruction
-          await initSession({
-            voiceName: targetPersona.voiceName,
-            systemInstruction: `${targetPersona.systemInstruction}\n${VOICE_TRANSFER_SYSTEM_INSTRUCTION}`,
-            googleAccessToken: currentAccessToken
-          });
-
-          if (swapResult.contextShiftDirective) {
-            pendingLiveMessages.push({ type: 'text', payload: swapResult.contextShiftDirective });
-            flushPendingMessages();
-          }
-
-          clientWs.send(JSON.stringify({
-            type: 'persona_swapped',
-            persona: targetPersona,
-            audioProfile: targetProfile,
-            ...swapResult
-          }));
-          return;
         }
 
         if (msg.type === 'delegate_task' && msg.task && msg.managerId) {

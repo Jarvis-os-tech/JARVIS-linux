@@ -50,9 +50,9 @@ export class DualStoreMemoryManager {
     if (!fs.existsSync(MEMORY_MD_PATH)) {
       const initialMemory = `# J.A.R.V.I.S. Persistent Knowledge Base
 - Operator: Gopi (BTech Engineer)
-- AI Identity: JARVIS / FRIDAY autonomous agent fleet
-- Local-First Architecture: Ubuntu Linux with native C++ workers and WebRTC/WebSocket audio
-- Mission: 24/7 continuous autonomous agent operations, research, coding, and workflow automation
+- AI Identity: J.A.R.V.I.S. Sovereign Chief of Staff (MK-VII Single-Persona Architecture)
+- Local-First Architecture: Ubuntu Linux with native C++ workers, Web Audio DSP, and Gemini Live API
+- Mission: Continuous autonomous Linux control, codebase engineering, research, and workflow automation
 `;
       fs.writeFileSync(MEMORY_MD_PATH, initialMemory, 'utf-8');
     }
@@ -61,8 +61,8 @@ export class DualStoreMemoryManager {
       const initialUser = `# User Profile: Gopi
 - Name: Gopi
 - Style: Direct, technical depth welcome, concise and proactive
-- Persona preference: Jarvis/Friday witty, conversational, speaks WITH user
-- Primary focus: Full autonomous agent fleet, Linux systems, WebRTC live audio, multi-model AI
+- Persona preference: Sovereign JARVIS witty, crisp British butler composure, Telgish/English conversational
+- Primary focus: Autonomous Linux mastery, C++/Rust workers, WebRTC/WebSocket live audio, Gemini 3.7 Flash
 `;
       fs.writeFileSync(USER_MD_PATH, initialUser, 'utf-8');
     }

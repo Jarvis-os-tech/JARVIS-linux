@@ -125,6 +125,10 @@ export class FeatureSwitchManager {
     return Array.from(this.cache.values());
   }
 
+  public getAllSwitches(): FeatureSwitch[] {
+    return this.getAll();
+  }
+
   public getByTier(tier: FeatureTier): FeatureSwitch[] {
     return Array.from(this.cache.values()).filter((f) => f.tier === tier);
   }

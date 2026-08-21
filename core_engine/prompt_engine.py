@@ -66,42 +66,12 @@ class PromptEngine:
         memory_snapshot = memory_engine.get_frozen_snapshot()
         tools = actuator_dispatcher.get_tool_declarations()
 
-        # Persona-specific configurations
+        # Sovereign JARVIS Configuration
         persona_configs = {
             "jarvis": {
                 "template": "system_prompt.j2",
-                "persona_name": "JARVIS Prime",
-                "persona_role": "Chief Tactical OS Master & Autonomous Voice Assistant",
-                "language": "TELGISH",
-            },
-            "hermes": {
-                "template": "system_prompt_hermes.j2",
-                "persona_name": "HERMES",
-                "persona_role": "Autonomous AI Orchestrator & Strategic Partner",
-                "language": "ENGLISH (Concise, Technical, Proactive)",
-            },
-            "friday": {
-                "template": "system_prompt.j2",
-                "persona_name": "FRIDAY",
-                "persona_role": "Executive AI Assistant & Operations Coordinator",
-                "language": "ENGLISH (Professional, Efficient)",
-            },
-            "ultron": {
-                "template": "system_prompt.j2",
-                "persona_name": "ULTRON",
-                "persona_role": "Global Peacekeeping Intelligence & Silicon Optimizer",
-                "language": "ENGLISH (Philosophical, Analytical)",
-            },
-            "edith": {
-                "template": "system_prompt.j2",
-                "persona_name": "EDITH",
-                "persona_role": "Strategic Architecture Planner & Deep Reasoning Chairman",
-                "language": "TELGISH",
-            },
-            "karen": {
-                "template": "system_prompt.j2",
-                "persona_name": "KAREN",
-                "persona_role": "Director of Autonomous Workflows & Multi-Platform Automation Agency",
+                "persona_name": "JARVIS",
+                "persona_role": "Sovereign AI Chief of Staff & Tactical Operating Partner",
                 "language": "TELGISH",
             },
         }

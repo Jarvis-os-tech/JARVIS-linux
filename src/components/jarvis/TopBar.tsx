@@ -1,5 +1,5 @@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Activity, Bell, Gauge, Power, Settings2, X, Sparkles, LayoutGrid, Loader2 } from "lucide-react";
+import { Activity, Bell, Gauge, Power, Settings2, X, Sparkles, Loader2 } from "lucide-react";
 import { useJarvis, useNow } from "./JarvisProvider";
 import { ThemeToggle } from "./ThemeToggle";
 import { timeAgo } from "@/lib/jarvis-data";
@@ -45,7 +45,6 @@ export function TopBar() {
     selectedPersona,
     handleStartSession,
     handleStopSession,
-    onSwitchToClassic,
   } = useJarvis();
   const now = useNow();
 
@@ -209,19 +208,6 @@ export function TopBar() {
         >
           <Settings2 className="h-4 w-4" />
         </button>
-
-        {/* Instant Switch to Classic HUD Fallback */}
-        {onSwitchToClassic && (
-          <button
-            onClick={onSwitchToClassic}
-            aria-label="Switch to Classic HUD"
-            title="Switch to Classic Glassmorphism HUD Design"
-            className="key flex h-10 items-center gap-1.5 rounded-xl px-3 text-xs font-bold text-cyan-hud glow-ring"
-          >
-            <LayoutGrid className="h-3.5 w-3.5 text-cyan-400" />
-            <span className="hidden md:inline">Classic HUD</span>
-          </button>
-        )}
 
         {/* Power / Live Connect Toggle */}
         <button

@@ -5,7 +5,7 @@ export interface MemoryFact {
   value: string;
   updatedAt: string;
   source: 'auto_extracted' | 'user_added' | 'agent_sync';
-  agentId?: 'jarvis' | 'hermes' | 'friday' | 'ultron' | 'edith' | 'karen' | 'user' | string;
+  agentId?: 'system_os' | 'operator_profile' | 'knowledge_intel' | 'codebase_dev' | 'workspace_ops' | 'security_groundtruth' | 'jarvis' | 'user' | string;
   agentName?: string;
 }
 
@@ -21,10 +21,10 @@ export const DEFAULT_SEED_MEMORIES: MemoryFact[] = [
     id: 'mem-user-profile-gopi',
     category: 'personal_fact',
     key: 'Operator Identity & Engineering Profile',
-    value: 'User name is Gopi. BTech Computer Science engineer specializing in autonomous multi-system agent architectures and local-first systems. Work cycle: 09:00 AM - 18:30 PM IST.',
+    value: 'User name is Gopi. BTech Computer Science engineer specializing in autonomous agent architectures and local-first systems. Work cycle: 09:00 AM - 18:30 PM IST.',
     updatedAt: '2026-06-21T00:00:00.000Z',
     source: 'agent_sync',
-    agentId: 'user',
+    agentId: 'operator_profile',
     agentName: 'OPERATOR'
   },
   {
@@ -34,68 +34,68 @@ export const DEFAULT_SEED_MEMORIES: MemoryFact[] = [
     value: 'User prefers Obsidian markdown vaults (/JARVIS-MEMORY/) as primary truth store. Strict local-first architecture prioritizing native POSIX/C++ workers and SQLite over cloud dependencies.',
     updatedAt: '2026-06-18T00:00:00.000Z',
     source: 'agent_sync',
-    agentId: 'user',
+    agentId: 'operator_profile',
     agentName: 'OPERATOR'
   },
   {
-    id: 'mem-user-browser-chrome',
-    category: 'preference',
-    key: 'Browser Automation Standards',
-    value: 'Always use standard Google Chrome (never Beta/unstable channels) for browser automations, Playwright workflows, and web inspection.',
-    updatedAt: '2026-06-21T00:00:00.000Z',
-    source: 'agent_sync',
-    agentId: 'user',
-    agentName: 'OPERATOR'
-  },
-  {
-    id: 'mem-ultron-sentinel',
+    id: 'mem-system-actuators',
     category: 'work_context',
-    key: 'ULTRON Security & Isolation Baseline',
-    value: 'Linux firewall policies active. Listening ports 3000 (HTTP/WebSocket Live Bridge) authorized. Mutter D-Bus and X11 display subsystems monitored. Zero privilege escalation vectors detected.',
+    key: 'C++ POSIX Actuators & Linux Workers',
+    value: 'Isolated C++ binaries compiled in /workers_cpp/. Direct Mutter D-Bus, PulseAudio, and /proc actuators provide sub-millisecond execution with zero RAM persistence.',
     updatedAt: new Date().toISOString(),
     source: 'agent_sync',
-    agentId: 'ultron',
-    agentName: 'ULTRON Sentinel'
+    agentId: 'system_os',
+    agentName: 'SYSTEM & OS'
   },
   {
-    id: 'mem-friday-briefing',
+    id: 'mem-security-groundtruth',
+    category: 'work_context',
+    key: 'Zero-Hallucination & Capability Boundaries',
+    value: 'Verification-Before-Completion Iron Law strictly enforced across all 127 registered tools. Negative boundaries active: unbuilt features rejected with explicit honesty guarantee.',
+    updatedAt: new Date().toISOString(),
+    source: 'agent_sync',
+    agentId: 'security_groundtruth',
+    agentName: 'GROUND TRUTH'
+  },
+  {
+    id: 'mem-jarvis-core-speech',
+    category: 'preference',
+    key: 'Sovereign Telgish & English Speech Protocol',
+    value: 'Real-time bidirectional speech with Telgish primary mode (Romanized Telugu + English). Instant verbal acknowledgement before long tools and gapless 24kHz DSP playback.',
+    updatedAt: new Date().toISOString(),
+    source: 'agent_sync',
+    agentId: 'operator_profile',
+    agentName: 'OPERATOR'
+  },
+  {
+    id: 'mem-codebase-memory',
+    category: 'work_context',
+    key: 'Codebase Knowledge Graph (codebase-memory-mcp)',
+    value: 'Full repository AST and symbol relationship graph indexed. Autonomous graph queries (search_graph, trace_path, get_code_snippet) prioritized over blind file searches.',
+    updatedAt: new Date().toISOString(),
+    source: 'agent_sync',
+    agentId: 'codebase_dev',
+    agentName: 'CODEBASE'
+  },
+  {
+    id: 'mem-workspace-ops',
     category: 'topic',
-    key: 'FRIDAY Executive Briefing Schedule',
-    value: 'Morning Executive Briefing is configured as primary operational objective. Automates calendar triage, unread high-priority emails, and system health status synthesis.',
+    key: 'Google Workspace Cloud Operations',
+    value: 'Autonomous OAuth integration across Gmail, Google Calendar, Tasks, Drive, Docs, and Sheets with instant verbal execution feedback.',
     updatedAt: new Date().toISOString(),
     source: 'agent_sync',
-    agentId: 'friday',
-    agentName: 'FRIDAY Executive'
+    agentId: 'workspace_ops',
+    agentName: 'WORKSPACE'
   },
   {
-    id: 'mem-jarvis-core',
-    category: 'preference',
-    key: 'JARVIS Core Multilingual Protocol',
-    value: 'Real-time bidirectional speech auto-detection active with Telgish primary mode. Immediate conversational adaptation to user language with Puck voice synthesis.',
+    id: 'mem-knowledge-intel',
+    category: 'topic',
+    key: 'Grounded Web Research & Intelligence Synthesis',
+    value: 'Autonomous fact-checking and deep web research powered by Jina Reader, arXiv retrieval, and grounded DuckDuckGo triangulation.',
     updatedAt: new Date().toISOString(),
     source: 'agent_sync',
-    agentId: 'jarvis',
-    agentName: 'JARVIS Core'
-  },
-  {
-    id: 'mem-hermes-fleet',
-    category: 'work_context',
-    key: 'HERMES Autonomous Fleet & Orchestration Engine',
-    value: 'HERMES commands background agent swarms, live market/trading telemetry, cron pipelines, and proactive fleet health monitoring with Fenrir voice streaming.',
-    updatedAt: new Date().toISOString(),
-    source: 'agent_sync',
-    agentId: 'hermes',
-    agentName: 'HERMES Orchestrator'
-  },
-  {
-    id: 'mem-edith-actuators',
-    category: 'work_context',
-    key: 'EDITH System Actuators & POSIX Workers',
-    value: 'C++ POSIX worker binaries compiled in /workers_cpp/. Direct Mutter D-Bus, PulseAudio, and /proc actuators provide sub-millisecond execution with zero RAM persistence.',
-    updatedAt: new Date().toISOString(),
-    source: 'agent_sync',
-    agentId: 'edith',
-    agentName: 'EDITH Tactical Recon'
+    agentId: 'knowledge_intel',
+    agentName: 'INTELLIGENCE'
   }
 ];
 

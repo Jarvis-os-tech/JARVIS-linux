@@ -52,65 +52,67 @@ const DEFAULT_CATEGORIES = [
   { id: "custom", label: "Custom Entities", icon: Sparkles },
 ] as const;
 
-export const AGENT_MAP: Record<
+export const SOVEREIGN_SPHERES: Record<
   string,
   { name: string; title: string; color: string; border: string; bg: string; icon: any; role: string }
 > = {
-  ultron: {
-    name: "ULTRON",
-    title: "Autonomous Security & Isolation Sentinel",
-    color: "#f43f5e",
-    border: "border-rose-500/40",
-    bg: "rgba(244,63,94,0.12)",
-    icon: Shield,
-    role: "Security & Isolation",
-  },
-  friday: {
-    name: "FRIDAY",
-    title: "AI & Tech Research Department Leader",
-    color: "#f59e0b",
-    border: "border-amber-500/40",
-    bg: "rgba(245,158,11,0.12)",
-    icon: Globe,
-    role: "Research & Intelligence",
-  },
-  jarvis: {
-    name: "JARVIS",
-    title: "Chief Executive Tactical Core & OS Master",
+  system_os: {
+    name: "SYSTEM & OS",
+    title: "Linux Kernel, Hardware Sensors & C++ Actuators",
     color: "#06b6d4",
     border: "border-cyan-500/40",
     bg: "rgba(6,182,212,0.12)",
-    icon: Bot,
-    role: "Tactical OS Core",
+    icon: Cpu,
+    role: "System Actuation & Telemetry",
   },
-  edith: {
-    name: "EDITH",
-    title: "Tactical Recon & POSIX Actuator Controller",
-    color: "#8b5cf6",
-    border: "border-violet-500/40",
-    bg: "rgba(139,92,246,0.12)",
-    icon: Eye,
-    role: "POSIX Recon & Actuators",
-  },
-  karen: {
-    name: "KAREN",
-    title: "Infrastructure & Continuous Automation Core",
-    color: "#10b981",
-    border: "border-emerald-500/40",
-    bg: "rgba(16,185,129,0.12)",
-    icon: Layers,
-    role: "Continuous Automation",
-  },
-  user: {
+  operator_profile: {
     name: "OPERATOR",
-    title: "User-Defined Knowledge & Directives",
+    title: "Gopi's Profile, Preferences & Telgish Protocols",
     color: "#38bdf8",
     border: "border-sky-500/40",
     bg: "rgba(56,189,248,0.12)",
     icon: User,
     role: "Operator Directives",
   },
+  knowledge_intel: {
+    name: "INTELLIGENCE",
+    title: "Grounded Research, Executive Briefings & arXiv",
+    color: "#f59e0b",
+    border: "border-amber-500/40",
+    bg: "rgba(245,158,11,0.12)",
+    icon: Globe,
+    role: "Research & Grounded Intel",
+  },
+  codebase_dev: {
+    name: "CODEBASE",
+    title: "Codebase Knowledge Graph, AST & Git Architecture",
+    color: "#8b5cf6",
+    border: "border-violet-500/40",
+    bg: "rgba(139,92,246,0.12)",
+    icon: Code2,
+    role: "Codebase Memory & Graph",
+  },
+  workspace_ops: {
+    name: "WORKSPACE",
+    title: "Google Workspace, Gmail, Calendar, Docs & Drive",
+    color: "#10b981",
+    border: "border-emerald-500/40",
+    bg: "rgba(16,185,129,0.12)",
+    icon: Layers,
+    role: "Cloud Services & Tasks",
+  },
+  security_groundtruth: {
+    name: "GROUND TRUTH",
+    title: "Zero-Hallucination Contract & Capability Guardrails",
+    color: "#f43f5e",
+    border: "border-rose-500/40",
+    bg: "rgba(244,63,94,0.12)",
+    icon: Shield,
+    role: "Security & Anti-Hallucination",
+  },
 };
+
+export const AGENT_MAP = SOVEREIGN_SPHERES;
 
 const CATEGORY_STYLES: Record<string, { label: string; badgeCls: string }> = {
   work_context: { label: "Work Context", badgeCls: "text-blue-400 border-blue-500/30 bg-blue-500/10" },
@@ -168,62 +170,75 @@ export function MemoryView() {
   const [newKey, setNewKey] = useState("");
   const [newValue, setNewValue] = useState("");
   const [newCategory, setNewCategory] = useState<MemoryFact["category"]>("work_context");
-  const [newAgentId, setNewAgentId] = useState<string>("ultron");
+  const [newAgentId, setNewAgentId] = useState<string>("system_os");
 
   // In-place Editing State for Selected Fact
   const [isEditing, setIsEditing] = useState(false);
   const [editKey, setEditKey] = useState("");
   const [editValue, setEditValue] = useState("");
   const [editCategory, setEditCategory] = useState<MemoryFact["category"]>("work_context");
-  const [editAgentId, setEditAgentId] = useState<string>("ultron");
+  const [editAgentId, setEditAgentId] = useState<string>("system_os");
   const [copied, setCopied] = useState(false);
   const [copiedId, setCopiedId] = useState(false);
 
-  // Derive memory items enriched with Agent metadata
+  // Derive memory items enriched with Sovereign Sphere metadata
   const memoryItems = useMemo(() => {
     return agentMemoryState.facts.map((f, i) => {
-      let resolvedAgentId = f.agentId || "user";
-      if (!f.agentId) {
+      let resolvedSphereId = f.agentId || "operator_profile";
+      if (!f.agentId || !SOVEREIGN_SPHERES[f.agentId]) {
         const lowerKey = (f.key || "").toLowerCase();
         const lowerVal = (f.value || "").toLowerCase();
         if (
-          lowerKey.includes("ultron") ||
-          lowerVal.includes("firewall") ||
+          lowerKey.includes("firewall") ||
+          lowerKey.includes("security") ||
+          lowerKey.includes("ground") ||
+          lowerKey.includes("truth") ||
+          lowerKey.includes("boundary") ||
+          lowerVal.includes("hallucination") ||
           lowerVal.includes("security") ||
-          lowerVal.includes("ports")
+          lowerKey.includes("ultron")
         ) {
-          resolvedAgentId = "ultron";
+          resolvedSphereId = "security_groundtruth";
         } else if (
-          lowerKey.includes("friday") ||
-          lowerVal.includes("briefing") ||
-          lowerVal.includes("research") ||
-          lowerVal.includes("priorities")
+          lowerKey.includes("system") ||
+          lowerKey.includes("actuator") ||
+          lowerKey.includes("posix") ||
+          lowerKey.includes("telemetry") ||
+          lowerVal.includes("c++") ||
+          lowerVal.includes("mutter") ||
+          lowerKey.includes("edith")
         ) {
-          resolvedAgentId = "friday";
+          resolvedSphereId = "system_os";
         } else if (
-          lowerKey.includes("edith") ||
-          lowerVal.includes("actuator") ||
-          lowerVal.includes("recon") ||
-          lowerVal.includes("posix")
+          lowerKey.includes("briefing") ||
+          lowerKey.includes("research") ||
+          lowerKey.includes("intel") ||
+          lowerVal.includes("arxiv") ||
+          lowerVal.includes("search") ||
+          lowerKey.includes("friday")
         ) {
-          resolvedAgentId = "edith";
+          resolvedSphereId = "knowledge_intel";
         } else if (
-          lowerKey.includes("karen") ||
-          lowerVal.includes("pipeline") ||
-          lowerVal.includes("automation") ||
-          lowerVal.includes("webhook")
+          lowerKey.includes("codebase") ||
+          lowerKey.includes("ast") ||
+          lowerKey.includes("graph") ||
+          lowerVal.includes("repo")
         ) {
-          resolvedAgentId = "karen";
+          resolvedSphereId = "codebase_dev";
         } else if (
-          lowerKey.includes("jarvis") ||
-          lowerVal.includes("multilingual") ||
-          lowerVal.includes("tactical")
+          lowerKey.includes("workspace") ||
+          lowerKey.includes("gmail") ||
+          lowerKey.includes("calendar") ||
+          lowerVal.includes("google") ||
+          lowerKey.includes("karen")
         ) {
-          resolvedAgentId = "jarvis";
+          resolvedSphereId = "workspace_ops";
+        } else {
+          resolvedSphereId = "operator_profile";
         }
       }
 
-      const agentInfo = AGENT_MAP[resolvedAgentId.toLowerCase()] || AGENT_MAP.user;
+      const sphereInfo = SOVEREIGN_SPHERES[resolvedSphereId.toLowerCase()] || SOVEREIGN_SPHERES.operator_profile;
 
       return {
         ...f,
@@ -232,15 +247,16 @@ export function MemoryView() {
         desc: f.value,
         tag: f.category,
         source: f.source || "user_added",
-        agentId: resolvedAgentId,
-        agentInfo,
+        agentId: resolvedSphereId,
+        sphereInfo,
+        agentInfo: sphereInfo,
         updatedAt: f.updatedAt || new Date().toISOString(),
-        color: agentInfo.color,
+        color: sphereInfo.color,
       };
     });
   }, [agentMemoryState.facts]);
 
-  // Construct OpenHuman Graph Nodes & Links
+  // Construct Sovereign Knowledge Graph Nodes & Links
   const { graphNodes, graphLinks } = useMemo(() => {
     const nodes: GraphNodeData[] = [];
     const links: GraphLinkData[] = [];
@@ -256,22 +272,23 @@ export function MemoryView() {
       radius: 22,
     });
 
-    // 2. Persona Sub-Hubs
-    const personaHubs = [
-      { id: "hub-ultron", title: "ULTRON Security & Isolation", agentId: "ultron", color: "#F43F5E" },
-      { id: "hub-friday", title: "FRIDAY Intelligence & Web", agentId: "friday", color: "#F59E0B" },
-      { id: "hub-edith", title: "EDITH Architecture & POSIX", agentId: "edith", color: "#8B5CF6" },
-      { id: "hub-karen", title: "KAREN Autonomous Pipelines", agentId: "karen", color: "#10B981" },
-      { id: "hub-user", title: "OPERATOR Directives", agentId: "user", color: "#38BDF8" },
+    // 2. Sovereign Knowledge Spheres Sub-Hubs
+    const sphereHubs = [
+      { id: "hub-system_os", title: "System & Linux Actuators", sphereId: "system_os", color: "#06B6D4" },
+      { id: "hub-operator_profile", title: "Operator Profile & Directives", sphereId: "operator_profile", color: "#38BDF8" },
+      { id: "hub-knowledge_intel", title: "Intelligence & Research", sphereId: "knowledge_intel", color: "#F59E0B" },
+      { id: "hub-codebase_dev", title: "Codebase Architecture & AST", sphereId: "codebase_dev", color: "#8B5CF6" },
+      { id: "hub-workspace_ops", title: "Workspace & Cloud Tasks", sphereId: "workspace_ops", color: "#10B981" },
+      { id: "hub-security_groundtruth", title: "Security & Ground Truth", sphereId: "security_groundtruth", color: "#F43F5E" },
     ];
 
-    for (const hub of personaHubs) {
+    for (const hub of sphereHubs) {
       nodes.push({
         id: hub.id,
         title: hub.title,
-        content: `Domain specialist memory cluster for ${hub.title}`,
+        content: `Sovereign knowledge cluster for ${hub.title}`,
         kind: "source",
-        scope: hub.agentId,
+        scope: hub.sphereId,
         level: 1,
         color: hub.color,
         radius: 16,
@@ -336,7 +353,7 @@ export function MemoryView() {
     setEditKey(fact.key);
     setEditValue(fact.value);
     setEditCategory(fact.category);
-    setEditAgentId(fact.agentId || "ultron");
+    setEditAgentId(fact.agentId || "system_os");
   };
 
   const cancelEditing = () => {
@@ -354,7 +371,7 @@ export function MemoryView() {
           value: editValue.trim(),
           category: editCategory,
           agentId: editAgentId,
-          agentName: AGENT_MAP[editAgentId]?.name || editAgentId.toUpperCase(),
+          agentName: SOVEREIGN_SPHERES[editAgentId]?.name || editAgentId.toUpperCase(),
           updatedAt: new Date().toISOString(),
         };
       }
@@ -388,7 +405,7 @@ export function MemoryView() {
       updatedAt: new Date().toISOString(),
       source: "user_added",
       agentId: newAgentId,
-      agentName: AGENT_MAP[newAgentId]?.name || newAgentId.toUpperCase(),
+      agentName: SOVEREIGN_SPHERES[newAgentId]?.name || newAgentId.toUpperCase(),
     };
 
     const nextState = {
@@ -549,18 +566,18 @@ export function MemoryView() {
             </span>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5">
-                <span className="text-[11px] text-muted-foreground font-mono">Agent Link:</span>
+                <span className="text-[11px] text-muted-foreground font-mono">Knowledge Sphere:</span>
                 <select
                   value={newAgentId}
                   onChange={(e) => setNewAgentId(e.target.value)}
                   className="neu-inset rounded-lg px-2.5 py-1 text-xs text-foreground bg-transparent outline-none cursor-pointer border border-white/10"
                 >
-                  <option value="ultron" className="bg-slate-900 text-white">ULTRON (Security)</option>
-                  <option value="friday" className="bg-slate-900 text-white">FRIDAY (Research)</option>
-                  <option value="jarvis" className="bg-slate-900 text-white">JARVIS (Tactical)</option>
-                  <option value="edith" className="bg-slate-900 text-white">EDITH (Recon)</option>
-                  <option value="karen" className="bg-slate-900 text-white">KAREN (Automation)</option>
-                  <option value="user" className="bg-slate-900 text-white">Operator (User)</option>
+                  <option value="system_os" className="bg-slate-900 text-white">System &amp; OS (Linux &amp; C++ Actuators)</option>
+                  <option value="operator_profile" className="bg-slate-900 text-white">Operator Profile &amp; Directives</option>
+                  <option value="knowledge_intel" className="bg-slate-900 text-white">Intelligence &amp; Research</option>
+                  <option value="codebase_dev" className="bg-slate-900 text-white">Codebase Architecture &amp; AST</option>
+                  <option value="workspace_ops" className="bg-slate-900 text-white">Workspace &amp; Cloud Tasks</option>
+                  <option value="security_groundtruth" className="bg-slate-900 text-white">Security &amp; Ground Truth</option>
                 </select>
               </div>
 
@@ -585,7 +602,7 @@ export function MemoryView() {
             <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="text"
-                placeholder="Key / Identifier (e.g. ULTRON Firewall Policies, Workstation Specs, Primary Codebase)…"
+                placeholder="Key / Identifier (e.g. System Actuator Specs, Gopi Profile, Ground Truth Boundaries)…"
                 value={newKey}
                 onChange={(e) => setNewKey(e.target.value)}
                 className="sm:w-1/3 neu-inset rounded-xl px-3.5 py-2.5 text-xs text-foreground outline-none placeholder:text-muted-foreground border border-white/10 focus:border-cyan-400"
@@ -625,7 +642,7 @@ export function MemoryView() {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search memory graph (keys, raw values, or agent sources)…"
+            placeholder="Search memory graph (keys, raw values, or knowledge spheres)…"
             className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
           />
           {q && (
@@ -638,7 +655,7 @@ export function MemoryView() {
           )}
         </div>
 
-        {/* Agent Filter Selector */}
+        {/* Sovereign Spheres Filter Selector */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
           <button
             onClick={() => setAgentFilter("all")}
@@ -649,9 +666,9 @@ export function MemoryView() {
                 : "key text-muted-foreground hover:text-foreground"
             )}
           >
-            <Layers className="w-3 h-3" /> All Agents
+            <Layers className="w-3 h-3" /> All Spheres
           </button>
-          {Object.entries(AGENT_MAP).map(([id, ag]) => {
+          {Object.entries(SOVEREIGN_SPHERES).map(([id, ag]) => {
             const Icon = ag.icon;
             const isSelected = agentFilter === id;
             return (
@@ -1066,19 +1083,19 @@ export function MemoryView() {
 
                       <div>
                         <label className="text-[10.5px] font-bold text-muted-foreground tracking-wider uppercase block mb-1">
-                          Attributed Agent Link
+                          Knowledge Sphere Link
                         </label>
                         <select
                           value={editAgentId}
                           onChange={(e) => setEditAgentId(e.target.value)}
                           className="w-full neu-inset rounded-xl px-3.5 py-2 text-xs text-foreground bg-transparent outline-none cursor-pointer border border-white/10"
                         >
-                          <option value="ultron" className="bg-slate-900 text-white">ULTRON (Security Sentinel)</option>
-                          <option value="friday" className="bg-slate-900 text-white">FRIDAY (AI &amp; Research)</option>
-                          <option value="jarvis" className="bg-slate-900 text-white">JARVIS (Tactical Core)</option>
-                          <option value="edith" className="bg-slate-900 text-white">EDITH (Recon &amp; Actuators)</option>
-                          <option value="karen" className="bg-slate-900 text-white">KAREN (Automation)</option>
-                          <option value="user" className="bg-slate-900 text-white">Operator (Direct User)</option>
+                          <option value="system_os" className="bg-slate-900 text-white">System &amp; OS (Linux &amp; C++ Actuators)</option>
+                          <option value="operator_profile" className="bg-slate-900 text-white">Operator Profile &amp; Directives</option>
+                          <option value="knowledge_intel" className="bg-slate-900 text-white">Intelligence &amp; Research</option>
+                          <option value="codebase_dev" className="bg-slate-900 text-white">Codebase Architecture &amp; AST</option>
+                          <option value="workspace_ops" className="bg-slate-900 text-white">Workspace &amp; Cloud Tasks</option>
+                          <option value="security_groundtruth" className="bg-slate-900 text-white">Security &amp; Ground Truth</option>
                         </select>
                       </div>
                     </div>

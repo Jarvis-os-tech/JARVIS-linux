@@ -39,6 +39,26 @@ async function bootstrapJarvisServer() {
   // 2. Mount Decoupled Modular REST API Router
   app.use('/api', createApiRouter());
 
+  // 2.1 Mount Spatial Stage and AI-Visualizer Suite
+  app.use('/barehands', express.static(path.join(process.cwd(), 'barehands')));
+  app.use('/visualizer', express.static(path.join(process.cwd(), 'ai-visualizer')));
+
+  // 2.2 Direct Visualizer State & Config Bus Endpoints
+  app.get('/state', async (_req, res) => {
+    const { getCurrentVoiceStatePayload } = await import('./src/utils/voice_signals');
+    res.json(getCurrentVoiceStatePayload());
+  });
+
+  app.get('/config', (_req, res) => {
+    res.json({
+      name: "JARVIS",
+      badge: "MK-VII",
+      default_face: "radial",
+      thinking_sound: false,
+      faces: [{ id: "radial", name: "Radial", file: "faces/radial/index.html" }]
+    });
+  });
+
   // 3. Attach Gemini Live & Realtime WebSocket Transport
   attachWebSocketServer(server);
 
@@ -62,7 +82,8 @@ async function bootstrapJarvisServer() {
     const url = `http://${HOST}:${PORT}`;
     logServer.info(`J.A.R.V.I.S. OS Prime Orchestrator Server running on ${url}`);
 
-    if (process.env.NODE_ENV !== 'production') {
+    const isTauriDesktop = !!(process.env.IS_TAURI || process.env.JARVIS_DESKTOP || process.env.TAURI_ENV_PLATFORM || process.env.JARVIS_NO_BROWSER);
+    if (process.env.NODE_ENV !== 'production' && !isTauriDesktop) {
       try {
         const { exec } = await import('child_process');
         const startCommand =

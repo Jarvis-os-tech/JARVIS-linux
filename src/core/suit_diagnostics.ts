@@ -6,7 +6,7 @@
  * 1. Native C++ Actuators & Linux Kernel Sensors
  * 2. SQLite Database, Dual-Store Memory & Obsidian Vault
  * 3. Cloud Connectors (Google Workspace, GitHub, LinkedIn, Web Reach)
- * 4. Multi-Agent Persona Mesh (JARVIS, FRIDAY, ULTRON, EDITH, KAREN) & Voice DSP
+ * 4. Sovereign JARVIS Core (MK-VII Single-Persona Architecture) & Web Audio DSP
  * 5. Progressive Skills Registry (1,500+ skills) & Tool Guardrails
  * 6. UI Gateway, REST Endpoints & Real-Time WebSocket Infrastructure
  */
@@ -373,40 +373,36 @@ export class SuitDiagnosticsEngine {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // TIER 4: Multi-Agent Persona Swarm & Audio DSP Chain
+    // TIER 4: Sovereign JARVIS Core & Audio DSP Chain
     // ──────────────────────────────────────────────────────────────────────────
 
-    // 4.1 5-Agent Persona Mesh
+    // 4.1 Sovereign JARVIS Persona
     try {
       const activePersona = masterOrchestratorInstance.getActivePersona();
-      const allPersonas = PERSONAS;
-      const expectedIds = ['jarvis', 'friday', 'ultron', 'edith', 'karen'];
-      const missing = expectedIds.filter((id) => !allPersonas.find((p) => p.id === id));
-
       items.push({
-        id: 'swarm_personas',
-        name: '5-Agent AI Persona Mesh (JARVIS, FRIDAY, ULTRON, EDITH, KAREN)',
+        id: 'sovereign_jarvis',
+        name: 'Sovereign JARVIS Core (Chief of Staff)',
         category: 'persona_swarm',
-        status: missing.length === 0 ? 'passed' : 'warning',
+        status: 'passed',
         latencyMs: 1,
-        details: `Active Voice: ${activePersona.name} (${activePersona.voiceName}) | Swarm Members: ${allPersonas.map((p) => p.name).join(', ')}`,
-        metric: `${allPersonas.length} Personas`
+        details: `Active Voice: ${activePersona.name} (${activePersona.voiceName}) | Primary Model: Gemini 3.7 Flash`,
+        metric: 'Sovereign Online'
       });
     } catch (err: any) {
       items.push({
-        id: 'swarm_personas',
-        name: '5-Agent AI Persona Mesh',
+        id: 'sovereign_jarvis',
+        name: 'Sovereign JARVIS Core',
         category: 'persona_swarm',
         status: 'warning',
         latencyMs: 2,
-        details: `Persona mesh status: ${err.message}`
+        details: `JARVIS status: ${err.message}`
       });
     }
 
     // 4.2 Studio Audio DSP Pipeline & Headroom
     try {
       let dspStatus: 'passed' | 'warning' = 'passed';
-      let dspDetails = 'All 5 persona profiles calibrated: 0.98 gain, low shelf 220Hz, mid 2.8kHz, high shelf 7.5kHz, -20dB compressor, 1.5dB master limiter.';
+      let dspDetails = 'Studio DSP audio pipeline calibrated: 1.0 gain, low shelf 150Hz, mid 1.5kHz, high shelf 6kHz, -22dB compressor.';
 
       for (const p of PERSONAS) {
         const prof = p.audioProfile || getPersonaAudioProfile(p.id);

@@ -82,6 +82,18 @@ export interface JarvisEventMap {
   'memory:kg_updated': (data: { subject: string; predicate: string; newObject: string }) => void;
   'memory:tree_sealed': (data: { summaryId: string; nodeCount: number }) => void;
   'memory:secret_blocked': (data: { attemptId: string; reason: string }) => void;
+
+  // Capability Forge & Dynamic Tool Events (Ada-SI)
+  'forge:tool_created': (data: { name: string; description: string; status: string }) => void;
+  'forge:tool_deleted': (data: { name: string }) => void;
+  'forge:tool_quarantined': (data: { name: string; failures: number; total: number }) => void;
+  'tool:registered': (data: { name: string; tier: string }) => void;
+
+  // Codebase Memory & AST Graph Events
+  'codebase:synced': (data: { timestamp: number }) => void;
+  'codebase:file_modified': (data: { path: string; eventType: string }) => void;
+  'codebase:changed': (data: any) => void;
+  'tool:unregistered': (data: { name: string }) => void;
 }
 
 export class JarvisEventBus extends EventEmitter<JarvisEventMap> {

@@ -303,7 +303,7 @@ export class AudioQueuePlayer {
       }
     });
     this.activeSources = [];
-    this.lastPlaybackEndTime = 0;
+    this.lastPlaybackEndTimeMs = 0;
     this.isBufferingInitial = true;
     if (this.ctx) {
       this.nextStartTime = this.ctx.currentTime;
