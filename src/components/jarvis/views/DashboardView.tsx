@@ -1,6 +1,7 @@
 import { Mic, MicOff, Camera, Monitor, Square, Play, Loader2, AlertTriangle, RefreshCw } from "lucide-react";
 import { Conversation } from "../Conversation";
 import { OrbStage } from "../OrbStage";
+import { SwarmTelemetryBar } from "../SwarmTelemetryBar";
 import { useJarvis } from "../JarvisProvider";
 import { cn } from "@/lib/utils";
 
@@ -158,6 +159,9 @@ export function DashboardView() {
           </button>
         </div>
       )}
+
+      {/* Multi-Agent Swarm Telemetry Bar */}
+      <SwarmTelemetryBar />
 
       {/* Main Electric Blue Radial Orbit Visualizer Frame */}
       <OrbStage />

@@ -66,6 +66,38 @@ export function createApiRouter(): Router {
     });
   });
 
+  // --- Autonomous Swarm Telemetry & Approvals ---
+  router.get('/swarm', (_req: Request, res: Response) => {
+    try {
+      res.json({
+        personas: masterOrchestratorInstance.getAllPersonas(),
+        timestamp: new Date().toISOString()
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/approvals', async (_req: Request, res: Response) => {
+    try {
+      const { toolApproval } = await import('../core/tool_approval');
+      res.json({
+        approvals: toolApproval.getPendingApprovals()
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/learning-graph', async (_req: Request, res: Response) => {
+    try {
+      const { learningGraph } = await import('../core/learning_graph');
+      res.json(learningGraph.getFullGraph());
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // --- SQLite Memory Endpoints (Long-Term Vault Synchronization) ---
   router.get('/memory', (_req: Request, res: Response) => {
     try {
@@ -1366,6 +1398,11 @@ export function createApiRouter(): Router {
   router.get('/providers/status', async (_req: Request, res: Response) => {
     res.json({
       activeEngines: {
+        cerebras: {
+          configured: !!process.env.CEREBRAS_API_KEY,
+          role: 'Ultra-High-Speed Compute Engine (2,000+ tok/s Wafer-Scale Engine)',
+          defaultModel: 'llama-3.3-70b'
+        },
         groq: {
           configured: !!process.env.GROQ_API_KEY,
           role: 'Ultra-Fast Execution & Instant Tactical Tool Calls (sub-50ms)',
@@ -1383,6 +1420,53 @@ export function createApiRouter(): Router {
         }
       }
     });
+  });
+
+  router.post('/cerebras/benchmark', async (req: Request, res: Response) => {
+    try {
+      const apiKey = process.env.CEREBRAS_API_KEY;
+      if (!apiKey) {
+        return res.status(400).json({ error: 'CEREBRAS_API_KEY is not configured in .env' });
+      }
+      const prompt = req.body?.prompt || 'Provide a concise 1-sentence status of J.A.R.V.I.S. neural telemetry.';
+      const model = req.body?.model || 'llama-3.3-70b';
+      const t0 = Date.now();
+
+      const response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.2,
+          max_tokens: 128
+        })
+      });
+
+      if (!response.ok) {
+        const err = await response.text();
+        return res.status(response.status).json({ error: err });
+      }
+
+      const data: any = await response.json();
+      const latencyMs = Date.now() - t0;
+      const usage = data.usage || {};
+      const tokensPerSec = usage.completion_tokens && latencyMs > 0 ? ((usage.completion_tokens / (latencyMs / 1000))).toFixed(1) : 'N/A';
+
+      res.json({
+        success: true,
+        text: data.choices?.[0]?.message?.content,
+        model,
+        latencyMs,
+        tokensPerSec,
+        usage
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   router.post('/nlu/analyze', (req: Request, res: Response) => {

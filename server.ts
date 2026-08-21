@@ -4,6 +4,7 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
 import { primeOrchestrator } from './src/core/prime_orchestrator';
+import { jarvisDaemon } from './src/core/jarvis_daemon';
 import { logServer } from './src/core/logger';
 import { createApiRouter } from './src/server/routes';
 import { attachWebSocketServer } from './src/server/ws_handler';
@@ -50,6 +51,9 @@ async function bootstrapJarvisServer() {
 
   // 1. Initialize Central Prime Orchestrator Core (Event Bus, SQLite, Watchdog)
   await primeOrchestrator.bootstrap();
+
+  // 1.1 Start Headless Autonomous Daemon Supervisor
+  jarvisDaemon.start();
 
   // 2. Mount Decoupled Modular REST API Router
   app.use('/api', createApiRouter());
@@ -118,7 +122,8 @@ async function bootstrapJarvisServer() {
   const handleShutdown = async (signal: string) => {
     logServer.warn(`Received ${signal}. Shutting down J.A.R.V.I.S. Core...`);
 
-    // 1. Gracefully tear down all ephemeral resources and stop watchdog
+    // 1. Gracefully tear down all ephemeral resources, daemon, and watchdog
+    jarvisDaemon.stop();
     await primeOrchestrator.shutdown();
 
     // 2. Close HTTP & WebSocket server

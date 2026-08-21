@@ -8,7 +8,7 @@ import { groundTruthRegistry } from '../core/ground_truth_registry';
 import { toolRegistry } from '../tools/tool_registry';
 import { logOrchestrator } from '../core/logger';
 
-export type AiProvider = 'gemini' | 'groq' | 'auto';
+export type AiProvider = 'gemini' | 'cerebras' | 'groq' | 'auto';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -32,7 +32,7 @@ export interface UnifiedChatOptions {
 
 export interface UnifiedChatResult {
   text: string;
-  providerUsed: 'gemini' | 'groq';
+  providerUsed: 'gemini' | 'cerebras' | 'groq';
   modelUsed: string;
   actions: Array<{ toolName: string; args: any; result: any }>;
   latencyMs: number;
@@ -118,7 +118,51 @@ export async function executeGeminiChat(
   };
 }
 
-// 2. High-Speed Fallback Engine: Groq (Llama 3.3 70B)
+// 2. Ultra-High-Speed Engine: Cerebras (Wafer-Scale Engine, 2,000+ tok/sec)
+export async function executeCerebrasChat(
+  messages: ChatMessage[],
+  tools: any[],
+  model = 'llama-3.3-70b',
+  timeoutMs = 4000
+): Promise<any> {
+  const apiKey = process.env.CEREBRAS_API_KEY;
+  if (!apiKey) {
+    throw new Error('CEREBRAS_API_KEY is not configured in .env');
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch('https://api.cerebras.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model,
+        messages,
+        tools: tools && tools.length > 0 ? tools : undefined,
+        tool_choice: tools && tools.length > 0 ? 'auto' : undefined,
+        temperature: 0.2,
+        max_tokens: 2048
+      })
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      throw new Error(`Cerebras API returned ${response.status}: ${errBody}`);
+    }
+
+    return await response.json();
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// 3. High-Speed Fallback Engine: Groq (Llama 3.3 70B)
 export async function executeGroqChat(
   messages: ChatMessage[],
   tools: any[],
@@ -162,7 +206,7 @@ export async function executeGroqChat(
   }
 }
 
-// 3. Unified Sovereign Chat Execution
+// 4. Unified Sovereign Chat Execution
 export async function executeUnifiedAiChat(options: UnifiedChatOptions): Promise<UnifiedChatResult> {
   const startTime = Date.now();
   const token = options.googleAccessToken || '';
@@ -187,10 +231,51 @@ ${groundTruthContext}`;
 
   const primaryGeminiModel = options.model || 'gemini-3.7-flash';
   const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY);
+  const hasCerebrasKey = Boolean(process.env.CEREBRAS_API_KEY);
   const hasGroqKey = Boolean(process.env.GROQ_API_KEY);
 
+  // Direct Cerebras execution requested
+  if (options.provider === 'cerebras' && hasCerebrasKey) {
+    try {
+      const openAiTools = groundTruthRegistry.getOpenAiUnifiedTools();
+      const messages: ChatMessage[] = [
+        { role: 'system', content: combinedSystemPrompt },
+        ...(options.history || []).map((h) => ({ role: h.role, content: h.content })),
+        { role: 'user', content: options.message }
+      ];
+
+      const completion = await executeCerebrasChat(messages, openAiTools, 'llama-3.3-70b');
+      const choice = completion.choices?.[0];
+      const actionsExecuted: Array<{ toolName: string; args: any; result: any }> = [];
+
+      if (choice?.message?.tool_calls?.length > 0) {
+        for (const tc of choice.message.tool_calls) {
+          const fn = tc.function.name;
+          let parsedArgs = {};
+          try { parsedArgs = JSON.parse(tc.function.arguments || '{}'); } catch {}
+          let result;
+          try {
+            const reg = toolRegistry.getTool(fn);
+            result = reg ? await toolRegistry.execute(fn, parsedArgs) : await executeWorkspaceTool(fn, parsedArgs, token);
+          } catch (e: any) { result = { success: false, error: e.message }; }
+          actionsExecuted.push({ toolName: fn, args: parsedArgs, result });
+        }
+      }
+
+      return {
+        text: choice?.message?.content || 'Action executed at ultra-speed via Cerebras, Sir.',
+        providerUsed: 'cerebras',
+        modelUsed: 'llama-3.3-70b',
+        actions: actionsExecuted,
+        latencyMs: Date.now() - startTime
+      };
+    } catch (cerebrasErr: any) {
+      fallbackTrace.push(`Cerebras failed: ${cerebrasErr.message}`);
+    }
+  }
+
   // 1. PRIMARY: Google Gemini 3.7 Flash
-  if (hasGeminiKey && options.provider !== 'groq') {
+  if (hasGeminiKey && options.provider !== 'groq' && options.provider !== 'cerebras') {
     try {
       const res = await executeGeminiChat(options.message, combinedSystemPrompt, token, primaryGeminiModel, options.history || []);
       return {
@@ -207,7 +292,49 @@ ${groundTruthContext}`;
     }
   }
 
-  // 2. FALLBACK: Groq (Llama 3.3 70B)
+  // 2. ULTRA-FAST FALLBACK: Cerebras (Llama 3.3 70B @ 2,000+ tok/s)
+  if (hasCerebrasKey) {
+    try {
+      const openAiTools = groundTruthRegistry.getOpenAiUnifiedTools();
+      const messages: ChatMessage[] = [
+        { role: 'system', content: combinedSystemPrompt },
+        ...(options.history || []).map((h) => ({ role: h.role, content: h.content })),
+        { role: 'user', content: options.message }
+      ];
+
+      const completion = await executeCerebrasChat(messages, openAiTools, 'llama-3.3-70b');
+      const choice = completion.choices?.[0];
+      const actionsExecuted: Array<{ toolName: string; args: any; result: any }> = [];
+
+      if (choice?.message?.tool_calls?.length > 0) {
+        for (const tc of choice.message.tool_calls) {
+          const fn = tc.function.name;
+          let parsedArgs = {};
+          try { parsedArgs = JSON.parse(tc.function.arguments || '{}'); } catch {}
+          let result;
+          try {
+            const reg = toolRegistry.getTool(fn);
+            result = reg ? await toolRegistry.execute(fn, parsedArgs) : await executeWorkspaceTool(fn, parsedArgs, token);
+          } catch (e: any) { result = { success: false, error: e.message }; }
+          actionsExecuted.push({ toolName: fn, args: parsedArgs, result });
+        }
+      }
+
+      return {
+        text: choice?.message?.content || 'Action executed at ultra-speed via Cerebras CS-3, Sir.',
+        providerUsed: 'cerebras',
+        modelUsed: 'llama-3.3-70b',
+        actions: actionsExecuted,
+        latencyMs: Date.now() - startTime,
+        fallbackOccurred: true,
+        fallbackTrace
+      };
+    } catch (cerebrasErr: any) {
+      fallbackTrace.push(`Cerebras fallback failed: ${cerebrasErr.message}`);
+    }
+  }
+
+  // 3. SECONDARY FALLBACK: Groq (Llama 3.3 70B)
   if (hasGroqKey) {
     try {
       const openAiTools = groundTruthRegistry.getOpenAiUnifiedTools();
@@ -250,7 +377,7 @@ ${groundTruthContext}`;
   }
 
   return {
-    text: 'Apologies Sir, all cognitive interfaces are currently unreachable. Please check GEMINI_API_KEY in your .env file.',
+    text: 'Apologies Sir, all cognitive interfaces are currently unreachable. Please check GEMINI_API_KEY or CEREBRAS_API_KEY in your .env file.',
     providerUsed: 'gemini',
     modelUsed: primaryGeminiModel,
     actions: [],

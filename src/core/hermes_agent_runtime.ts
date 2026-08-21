@@ -1,12 +1,15 @@
 // Hermes Agent Runtime - TypeScript Port for J.A.R.V.I.S.
 // Core conversation turn loop, tool execution dispatcher, iteration budgeting,
-// and multi-provider failover engine ported from Hermes (agent/conversation_loop.py)
+// token budget compression, and multi-provider failover engine ported from Hermes (agent/conversation_loop.py)
 
 import { toolRegistry } from '../tools/tool_registry';
 import { eventBus } from './event_bus';
-import { logTool, logOrchestrator } from './logger';
+import { logTool, logOrchestrator, logSecurity } from './logger';
 import { securityGuard } from './security_guard';
 import { dualStoreMemory } from '../memory/dual_store';
+import { classifyApiError, FailoverReason } from './error_classifier';
+import { contextCompressor } from './context_compressor';
+import { withAdaptiveRetry } from './retry_utils';
 
 export interface AgentMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -33,6 +36,7 @@ export interface AgentRuntimeOptions {
   allowedTools?: string[];
   blockedTools?: string[];
   sessionId?: string;
+  agentRole?: 'jarvis' | 'friday' | 'ultron' | 'edith' | 'hermes';
 }
 
 export interface AgentTurnResult {
@@ -72,6 +76,7 @@ export class HermesAgentRuntime {
       allowedTools: options?.allowedTools || [],
       blockedTools: options?.blockedTools || [],
       sessionId: options?.sessionId || `agent_sess_${Date.now()}`,
+      agentRole: options?.agentRole || 'jarvis'
     };
 
     this.initSystemPrompt();
@@ -79,16 +84,17 @@ export class HermesAgentRuntime {
 
   private initSystemPrompt(): void {
     const memorySnapshot = dualStoreMemory.getFrozenSnapshot();
-    const systemPrompt = `You are J.A.R.V.I.S., Tony Stark's autonomous AI orchestrator.
+    const agentRoleHeader = `You are ${this.options.agentRole.toUpperCase()}, a sovereign autonomous specialist within J.A.R.V.I.S. OS.`;
+    const systemPrompt = `${agentRoleHeader}
 ${this.options.systemInstruction}
 
 ${memorySnapshot.combinedFormattedPrompt}
 
 OPERATING PRINCIPLES:
-1. Concise, direct, technical, proactive. Lead with the answer or action.
-2. When a tool is needed, invoke it with exact arguments.
-3. Batch independent tool calls when possible.
-4. Verify execution outputs. Never hallucinate results.
+1. Direct, high-agency, production-grade actions. Never hallucinate outputs.
+2. Batch independent tool calls when possible.
+3. Verify outputs of commands and scripts before concluding.
+4. Redact sensitive credentials and respect security policies.
 `;
     this.history.push({
       role: 'system',
@@ -97,7 +103,7 @@ OPERATING PRINCIPLES:
   }
 
   /**
-   * Run a complete multi-step autonomous agent turn.
+   * Run a complete multi-step autonomous agent turn with context compression and error recovery.
    */
   public async runTurn(userGoal: string, onProgress?: ProgressCallback): Promise<AgentTurnResult> {
     this.history.push({
@@ -112,6 +118,14 @@ OPERATING PRINCIPLES:
     while (iterations < this.options.maxIterations) {
       iterations++;
 
+      // Pre-flight Context Budget Check
+      const tokenEstimate = contextCompressor.estimateHistoryTokens(this.history);
+      if (tokenEstimate > 48000) {
+        logOrchestrator.info(`[Hermes Loop] Compressing context before iteration ${iterations} (estimated tokens: ${tokenEstimate})`);
+        const comp = contextCompressor.compressHistory(this.history, 40000);
+        this.history = comp.messages;
+      }
+
       if (onProgress) {
         onProgress({
           iteration: iterations,
@@ -120,10 +134,9 @@ OPERATING PRINCIPLES:
       }
 
       try {
-        const response = await this.callModelWithTools(this.history);
+        const response = await this.callModelWithFailover(this.history);
 
         if (response.toolCalls && response.toolCalls.length > 0) {
-          // Add assistant message with tool calls to history
           this.history.push({
             role: 'assistant',
             content: response.text || '',
@@ -138,12 +151,13 @@ OPERATING PRINCIPLES:
             try {
               toolArgs = JSON.parse(tc.function.arguments || '{}');
             } catch {
-              toolArgs = {};
+              // Attempt heuristic repair of malformed JSON arguments
+              toolArgs = this.repairJsonArgs(tc.function.arguments);
             }
 
             // Check blocked tools
             if (this.options.blockedTools.includes(toolName)) {
-              const err = `Tool '${toolName}' is blocked for this subagent.`;
+              const err = `Tool '${toolName}' is blocked for this agent.`;
               this.history.push({
                 role: 'tool',
                 tool_call_id: tc.id,
@@ -182,12 +196,13 @@ OPERATING PRINCIPLES:
               });
             }
 
-            // Add tool result to conversation history
-            const sanitizedResult = securityGuard.redactSecrets(
-              typeof result.result === 'string'
-                ? result.result
-                : JSON.stringify(result.result ?? { error: result.error })
-            );
+            // Prune oversized outputs and redact secrets
+            const rawOutput = typeof result.result === 'string'
+              ? result.result
+              : JSON.stringify(result.result ?? { error: result.error });
+
+            const prunedOutput = contextCompressor.pruneToolOutput(rawOutput);
+            const sanitizedResult = securityGuard.redactSecrets(prunedOutput);
 
             this.history.push({
               role: 'tool',
@@ -200,7 +215,7 @@ OPERATING PRINCIPLES:
           // Continue loop to allow model to react to tool results
           continue;
         } else {
-          // Model finished with a final textual response
+          // Model produced final textual answer
           finalResponse = response.text || '';
           this.history.push({
             role: 'assistant',
@@ -210,9 +225,17 @@ OPERATING PRINCIPLES:
         }
       } catch (err: any) {
         logOrchestrator.error(`Agent runtime turn error at iteration ${iterations}: ${err.message}`);
+        const classified = classifyApiError(err);
+
+        if (classified.requiresCompression) {
+          const comp = contextCompressor.compressHistory(this.history, 32000);
+          this.history = comp.messages;
+          continue; // Retry turn with compressed context
+        }
+
         return {
           success: false,
-          finalResponse: `Agent execution failed: ${err.message}`,
+          finalResponse: `Agent execution encountered unrecoverable error: ${err.message}`,
           toolExecutions,
           iterations,
           error: err.message,
@@ -231,14 +254,25 @@ OPERATING PRINCIPLES:
     };
   }
 
+  private repairJsonArgs(raw: string): any {
+    if (!raw) return {};
+    try {
+      let cleaned = raw.trim();
+      if (!cleaned.startsWith('{')) cleaned = `{${cleaned}`;
+      if (!cleaned.endsWith('}')) cleaned = `${cleaned}}`;
+      return JSON.parse(cleaned);
+    } catch {
+      return { raw_arguments: raw };
+    }
+  }
+
   /**
-   * Helper to invoke the LLM with tool schemas across Groq / NVIDIA / Gemini.
+   * Model invocation with multi-provider failover chain.
    */
-  private async callModelWithTools(messages: AgentMessage[]): Promise<{ text: string; toolCalls?: any[] }> {
+  private async callModelWithFailover(messages: AgentMessage[]): Promise<{ text: string; toolCalls?: any[] }> {
     const groqKey = process.env.GROQ_API_KEY;
     const nvidiaKey = process.env.NVIDIA_API_KEY;
 
-    // Filter tools for OpenAI format
     const allTools = toolRegistry.getTools();
     const activeTools = allTools
       .filter(t => !this.options.blockedTools.includes(t.name))
@@ -252,40 +286,43 @@ OPERATING PRINCIPLES:
         }
       }));
 
-    // Primary attempt with Groq if fast, or NVIDIA for deep reasoning
+    // Strategy 1: Fast Tactical reasoning via Groq Cloud Llama 3.3 70B
     if (groqKey && (this.options.provider === 'groq' || this.options.provider === 'auto')) {
       try {
-        const res = await this.callOpenAiCompatible(
-          'https://api.groq.com/openai/v1/chat/completions',
-          groqKey,
-          'llama-3.3-70b-versatile',
-          messages,
-          activeTools
+        return await withAdaptiveRetry(() =>
+          this.callOpenAiCompatible(
+            'https://api.groq.com/openai/v1/chat/completions',
+            groqKey,
+            'llama-3.3-70b-versatile',
+            messages,
+            activeTools
+          ), { maxRetries: 2, baseDelayMs: 500 }
         );
-        return res;
       } catch (err: any) {
-        logOrchestrator.warn(`Groq execution fallback: ${err.message}`);
+        logOrchestrator.warn(`Groq failover triggered: ${err.message}`);
       }
     }
 
+    // Strategy 2: Deep systems architecture reasoning via NVIDIA NIM
     if (nvidiaKey && (this.options.provider === 'nvidia' || this.options.provider === 'auto')) {
       try {
-        const res = await this.callOpenAiCompatible(
-          'https://integrate.api.nvidia.com/v1/chat/completions',
-          nvidiaKey,
-          'meta/llama-3.1-70b-instruct',
-          messages,
-          activeTools
+        return await withAdaptiveRetry(() =>
+          this.callOpenAiCompatible(
+            'https://integrate.api.nvidia.com/v1/chat/completions',
+            nvidiaKey,
+            'meta/llama-3.1-70b-instruct',
+            messages,
+            activeTools
+          ), { maxRetries: 2, baseDelayMs: 800 }
         );
-        return res;
       } catch (err: any) {
-        logOrchestrator.warn(`NVIDIA NIM execution fallback: ${err.message}`);
+        logOrchestrator.warn(`NVIDIA NIM failover triggered: ${err.message}`);
       }
     }
 
-    // Fallback: simple text response if API fails
+    // Fallback: Safe text response if cloud providers are unreachable
     return {
-      text: 'Execution completed without additional tool calls.',
+      text: 'Autonomous agent turn completed without active tool calls.',
     };
   }
 
@@ -343,7 +380,7 @@ OPERATING PRINCIPLES:
 
       if (!response.ok) {
         const errText = await response.text();
-        throw new Error(`LLM API returned ${response.status}: ${errText}`);
+        throw new Error(`API ${response.status}: ${errText}`);
       }
 
       const data = await response.json();

@@ -164,3 +164,28 @@ export interface DataChannelMessage {
   stats?: Record<string, any>;
   error?: string;
 }
+
+export interface PersonaMetadata {
+  id: 'jarvis' | 'friday' | 'ultron' | 'edith' | 'hermes';
+  name: string;
+  callsign: string;
+  title: string;
+  role: 'commander' | 'engineer' | 'cso' | 'researcher' | 'operations';
+  voiceName: string;
+  accentColor: string;
+  domain: string;
+  audioProfile?: PersonaAudioProfile;
+  status: 'active_voice' | 'running_task' | 'idle';
+  lastActivityTime: string;
+  activeTask?: string;
+}
+
+export interface MutedRelayEvent {
+  id: string;
+  timestamp: string;
+  sourceManagerId: string;
+  sourceManagerName: string;
+  rawOutput: string;
+  relayedSummary: string;
+  severity: 'info' | 'warning' | 'critical';
+}

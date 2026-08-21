@@ -1,16 +1,15 @@
-// Hermes Delegation Tool - TypeScript Port for J.A.R.V.I.S.
-// Enables spawning isolated subagents with full tool access for parallel autonomous work
-
-import { toolRegistry, ToolDefinition } from './tool_registry';
 import { eventBus } from '../core/event_bus';
-import { logTool } from '../core/logger';
+import { logTool, logOrchestrator } from '../core/logger';
 import { HermesAgentRuntime } from '../core/hermes_agent_runtime';
 import { subagentRepo } from '../db/db';
+import { subagentWorktreeManager } from '../core/subagent_worktree';
+import { delegationLiveLog } from '../core/delegation_live_log';
 
 export interface DelegationTask {
   goal: string;
   context?: string;
-  role?: 'leaf' | 'orchestrator';
+  role?: 'friday' | 'ultron' | 'edith' | 'hermes' | 'leaf' | 'orchestrator';
+  isolated_worktree?: boolean;
   output_schema?: Record<string, any>;
 }
 
@@ -18,7 +17,8 @@ export interface DelegationOptions {
   tasks?: DelegationTask[];
   goal?: string;
   context?: string;
-  role?: 'leaf' | 'orchestrator';
+  role?: 'friday' | 'ultron' | 'edith' | 'hermes' | 'leaf' | 'orchestrator';
+  isolated_worktree?: boolean;
   output_schema?: Record<string, any>;
   background?: boolean;
 }
@@ -27,9 +27,11 @@ export interface SubagentRecord {
   subagent_id: string;
   goal: string;
   context: string;
-  role: 'leaf' | 'orchestrator';
+  role: string;
   status: 'dispatched' | 'running' | 'completed' | 'failed' | 'stalled';
   start_time: number;
+  worktree_path?: string;
+  worktree_branch?: string;
   progress: {
     api_calls: number;
     current_tool: string | null;
@@ -49,311 +51,241 @@ export interface DelegationResult {
   subagent_ids?: string[];
   results?: Array<{
     subagent_id: string;
+    role: string;
     goal: string;
     result: any;
     success: boolean;
+    worktree?: { path: string; branch: string; commitsAhead: number; isDirty: boolean };
     error?: string;
   }>;
   error?: string;
 }
 
-// Tools that children must never have access to
-const DELEGATE_BLOCKED_TOOLS = [
-  'delegate_task',
-  'clarify',
-  'memory',
-  'send_message',
-  'cronjob',
+const FORBIDDEN_CHILD_TOOLS = [
+  'delegate_subagent',
+  'spawn_subagent',
+  'reset_system_state',
+  'shutdown_system'
 ];
 
-const activeSubagents = new Map<string, SubagentRecord>();
-let maxConcurrentChildren = 10;
+export class DelegationDispatcher {
+  private static instance: DelegationDispatcher;
+  private activeSubagents: Map<string, SubagentRecord> = new Map();
 
-export function initDelegationConfig(config: { max_concurrent_children?: number }) {
-  maxConcurrentChildren = config.max_concurrent_children ?? 10;
-}
-
-export function canSpawn(): { allowed: boolean; reason?: string } {
-  const runningCount = Array.from(activeSubagents.values())
-    .filter(s => s.status === 'running' || s.status === 'dispatched').length;
-    
-  if (runningCount >= maxConcurrentChildren) {
-    return { allowed: false, reason: `Max concurrent children (${maxConcurrentChildren}) reached` };
-  }
-  return { allowed: true };
-}
-
-// Execute a single subagent (synchronous)
-async function runSubagent(
-  task: DelegationTask,
-  sessionId: string
-): Promise<{ success: boolean; result: any; error?: string }> {
-  const subagentId = `sub_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-  const startTime = Date.now();
-  
-  const record: SubagentRecord = {
-    subagent_id: subagentId,
-    goal: task.goal,
-    context: task.context || '',
-    role: task.role || 'leaf',
-    status: 'dispatched',
-    start_time: startTime,
-    progress: {
-      api_calls: 0,
-      current_tool: null,
-      last_progress_time: startTime,
-    },
-    accepting_steer: true,
-  };
-  
-  activeSubagents.set(subagentId, record);
-  eventBus.emit('subagent:spawned', { subagentId, goal: task.goal, role: task.role || 'leaf' });
-
-  // Record in SQLite
-  subagentRepo.create({
-    id: subagentId,
-    role: task.role || 'leaf',
-    goal: task.goal,
-    context: task.context || undefined,
-    status: 'running',
-    max_iterations: 25,
-    started_at: startTime,
-  });
-  
-  try {
-    record.status = 'running';
-    
-    const runtime = new HermesAgentRuntime({
-      systemInstruction: `You are an isolated specialist subagent of J.A.R.V.I.S.
-Role: ${task.role || 'leaf'}
-Context from parent: ${task.context || 'None'}
-Goal: ${task.goal}`,
-      maxIterations: 25,
-      blockedTools: DELEGATE_BLOCKED_TOOLS,
-      sessionId: `${sessionId}_${subagentId}`,
-    });
-    
-    const turnResult = await runtime.runTurn(task.goal, (update) => {
-      record.progress.api_calls = update.iteration;
-      record.progress.current_tool = update.toolName || null;
-      record.progress.last_progress_time = Date.now();
-      eventBus.emit('subagent:progress', {
-        subagentId,
-        api_calls: update.iteration,
-        currentTool: update.toolName || null,
-      });
-      subagentRepo.update(subagentId, {
-        iterations: update.iteration,
-        progress: Math.min(Math.round((update.iteration / 25) * 100), 99),
-      });
-    });
-    
-    record.status = turnResult.success ? 'completed' : 'failed';
-    record.result = turnResult.finalResponse;
-    record.error = turnResult.error;
-    record.accepting_steer = false;
-
-    subagentRepo.update(subagentId, {
-      status: turnResult.success ? 'completed' : 'failed',
-      result_json: JSON.stringify(turnResult),
-      error: turnResult.error,
-      progress: 100,
-      completed_at: Date.now(),
-    });
-    
-    if (turnResult.success) {
-      eventBus.emit('subagent:completed', { subagentId, result: turnResult.finalResponse, success: true });
-      return { success: true, result: turnResult.finalResponse };
-    } else {
-      eventBus.emit('subagent:failed', { subagentId, error: turnResult.error || 'Subagent execution failed' });
-      return { success: false, result: null, error: turnResult.error };
+  public static getInstance(): DelegationDispatcher {
+    if (!DelegationDispatcher.instance) {
+      DelegationDispatcher.instance = new DelegationDispatcher();
     }
-  } catch (error: any) {
-    record.status = 'failed';
-    record.error = error.message;
-    record.accepting_steer = false;
-    
-    subagentRepo.update(subagentId, {
-      status: 'failed',
-      error: error.message,
-      completed_at: Date.now(),
-    });
-
-    eventBus.emit('subagent:failed', { subagentId, error: error.message });
-    return { success: false, result: null, error: error.message };
-  } finally {
-    setTimeout(() => {
-      activeSubagents.delete(subagentId);
-    }, 60000);
+    return DelegationDispatcher.instance;
   }
-}
 
-// Main delegation tool handler
-export async function handleDelegation(options: DelegationOptions): Promise<DelegationResult> {
-  const canSpawnResult = canSpawn();
-  if (!canSpawnResult.allowed) {
-    return {
-      success: false,
-      error: `Cannot spawn subagent: ${canSpawnResult.reason}`,
+  constructor() {
+    // Registered explicitly via registerDelegationTool()
+  }
+
+  public registerTool(): void {
+    const delegateToolDef: ToolDefinition = {
+      name: 'delegate_subagent',
+      description: 'Delegate an autonomous engineering, security, research, or operational task to a specialized subagent (FRIDAY: Code/Build, ULTRON: Security/Audit, EDITH: Research/CDP, HERMES: 24/7 Ops) with optional Git worktree isolation.',
+      tier: 'tier2_system_shell',
+      parameters: {
+        type: 'object',
+        properties: {
+          goal: { type: 'string', description: 'Clear, concise description of the task objective.' },
+          context: { type: 'string', description: 'Relevant technical background, file paths, and constraints.' },
+          role: {
+            type: 'string',
+            enum: ['friday', 'ultron', 'edith', 'hermes', 'leaf'],
+            description: 'Specialist persona to assign (friday = Code Engineer, ultron = Security Auditor, edith = Researcher, hermes = Ops)'
+          },
+          isolated_worktree: { type: 'boolean', description: 'Whether to isolate filesystem modifications in a dedicated Git worktree branch.' },
+          background: { type: 'boolean', description: 'Run asynchronously in background (recommended for long tasks) vs synchronously.' },
+          tasks: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                goal: { type: 'string' },
+                context: { type: 'string' },
+                role: { type: 'string', enum: ['friday', 'ultron', 'edith', 'hermes', 'leaf'] },
+                isolated_worktree: { type: 'boolean' }
+              },
+              required: ['goal']
+            },
+            description: 'Batch of parallel tasks to delegate concurrently.'
+          }
+        },
+        required: []
+      },
+      handler: async (args: DelegationOptions) => this.handleDelegation(args)
     };
-  }
-  
-  const tasks: DelegationTask[] = options.tasks 
-    ? options.tasks 
-    : [{ goal: options.goal || '', context: options.context, role: options.role, output_schema: options.output_schema }];
-  
-  if (tasks.length === 0 || !tasks[0].goal) {
-    return { success: false, error: 'At least one task goal is required for delegation.' };
-  }
 
-  // Background execution mode
-  if (options.background) {
-    const handle = `bg_del_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    
-    (async () => {
-      const results: Array<{ subagent_id: string; goal: string; result: any; success: boolean; error?: string }> = [];
-      for (const t of tasks) {
-        const res = await runSubagent(t, 'jarvis_root');
-        results.push({
-          subagent_id: handle,
-          goal: t.goal,
-          result: res.result,
-          success: res.success,
-          error: res.error,
-        });
-      }
-      eventBus.emit('delegation:async_completed', { handle, results });
-    })().catch((err) => {
-      logTool.error(`Background delegation error: ${err.message}`);
+    toolRegistry.register(delegateToolDef);
+    toolRegistry.register({
+      ...delegateToolDef,
+      name: 'delegate',
+      description: 'Alias for delegate_subagent'
     });
-
-    const primaryTask = tasks[0];
-    return {
-      success: true,
-      background: true,
-      handle,
-      status: `Successfully dispatched background ${primaryTask?.role || 'specialist'} subagent for: "${primaryTask?.goal || 'Task'}".`,
-      voice_instruction: `Talk directly to the user out loud right now to confirm that the ${primaryTask?.role || 'specialist'} subagent has been dispatched and is actively executing "${primaryTask?.goal || 'the task'}".`,
-    };
   }
 
-  // Batch parallel or sequential execution
-  const results = await Promise.all(
-    tasks.map(async (task) => {
-      const subRes = await runSubagent(task, 'jarvis_root');
-      return {
-        subagent_id: `task_${Date.now()}`,
-        goal: task.goal,
-        result: subRes.result,
-        success: subRes.success,
-        error: subRes.error,
+  public async handleDelegation(options: DelegationOptions): Promise<DelegationResult> {
+    const rawTasks: DelegationTask[] = options.tasks && options.tasks.length > 0
+      ? options.tasks
+      : options.goal
+        ? [{
+            goal: options.goal,
+            context: options.context,
+            role: options.role || 'friday',
+            isolated_worktree: options.isolated_worktree ?? true,
+            output_schema: options.output_schema
+          }]
+        : [];
+
+    if (rawTasks.length === 0) {
+      return { success: false, error: 'Must provide either "goal" or "tasks" list.' };
+    }
+
+    const isBackground = options.background ?? (rawTasks.length > 1);
+    const subagentIds: string[] = [];
+
+    const executionPromises = rawTasks.map(async (t) => {
+      const subagentId = `sub_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
+      subagentIds.push(subagentId);
+      const role = t.role || 'friday';
+
+      // 1. Setup isolated worktree if requested
+      const worktreeInfo = t.isolated_worktree
+        ? await subagentWorktreeManager.createWorktree(subagentId)
+        : { worktreePath: process.cwd(), branch: 'main', repoRoot: process.cwd(), isIsolated: false };
+
+      const record: SubagentRecord = {
+        subagent_id: subagentId,
+        goal: t.goal,
+        context: t.context || '',
+        role,
+        status: 'dispatched',
+        start_time: Date.now(),
+        worktree_path: worktreeInfo.worktreePath,
+        worktree_branch: worktreeInfo.branch,
+        progress: { api_calls: 0, current_tool: null, last_progress_time: Date.now() },
+        accepting_steer: true
       };
-    })
-  );
 
-  return {
-    success: results.every(r => r.success),
-    results,
-    status: `Subagent tasks finished.`,
-    voice_instruction: `Summarize the findings verbally to the user now: ${results.map(r => r.result?.answer || r.result || (r.success ? 'Done' : r.error)).join('; ')}`,
-  };
+      this.activeSubagents.set(subagentId, record);
+      subagentRepo.createSubagent({
+        subagent_id: subagentId,
+        parent_session_id: 'jarvis_main',
+        goal: t.goal,
+        context: t.context || '',
+        role
+      });
+
+      eventBus.emit('subagent:dispatched', { subagentId, goal: t.goal, role, worktree: worktreeInfo.worktreePath });
+      delegationLiveLog.record(subagentId, role, 'status', `Subagent dispatched with goal: ${t.goal}`);
+
+      const runWorker = async () => {
+        record.status = 'running';
+        eventBus.emit('subagent:started', { subagentId, role });
+
+        const runtime = new HermesAgentRuntime({
+          systemInstruction: `You are specialist agent ${role.toUpperCase()}. Context:\n${t.context || ''}\nWorking Directory: ${worktreeInfo.worktreePath}`,
+          blockedTools: FORBIDDEN_CHILD_TOOLS,
+          agentRole: role as any,
+          maxIterations: 20
+        });
+
+        try {
+          const res = await runtime.runTurn(t.goal, (prog) => {
+            record.progress.api_calls = prog.iteration;
+            record.progress.current_tool = prog.toolName || null;
+            record.progress.last_progress_time = Date.now();
+            delegationLiveLog.record(subagentId, role, 'status', prog.status, { tool: prog.toolName });
+            eventBus.emit('subagent:progress', { subagentId, role, ...prog });
+          });
+
+          // Inspect and clean/keep worktree
+          const worktreeCleanup = await subagentWorktreeManager.cleanupWorktree(worktreeInfo);
+
+          record.status = res.success ? 'completed' : 'failed';
+          record.result = res.finalResponse;
+          record.error = res.error;
+
+          subagentRepo.updateSubagentStatus(subagentId, record.status, record.result, record.error);
+          eventBus.emit('subagent:completed', { subagentId, role, success: res.success, result: res.finalResponse });
+          delegationLiveLog.record(subagentId, role, 'status', `Task completed: ${res.finalResponse.slice(0, 150)}`);
+
+          return {
+            subagent_id: subagentId,
+            role,
+            goal: t.goal,
+            result: res.finalResponse,
+            success: res.success,
+            worktree: {
+              path: worktreeInfo.worktreePath,
+              branch: worktreeInfo.branch,
+              commitsAhead: worktreeCleanup.commitsAhead,
+              isDirty: worktreeCleanup.isDirty
+            },
+            error: res.error
+          };
+        } catch (err: any) {
+          record.status = 'failed';
+          record.error = err.message;
+          subagentRepo.updateSubagentStatus(subagentId, 'failed', null, err.message);
+          eventBus.emit('subagent:failed', { subagentId, role, error: err.message });
+          delegationLiveLog.record(subagentId, role, 'error', `Task failed: ${err.message}`);
+          return {
+            subagent_id: subagentId,
+            role,
+            goal: t.goal,
+            result: null,
+            success: false,
+            error: err.message
+          };
+        }
+      };
+
+      if (isBackground) {
+        runWorker(); // Fire and forget
+        return {
+          subagent_id: subagentId,
+          role,
+          goal: t.goal,
+          result: `Dispatched in background as ${subagentId}`,
+          success: true
+        };
+      } else {
+        return await runWorker();
+      }
+    });
+
+    if (isBackground) {
+      return {
+        success: true,
+        background: true,
+        status: 'dispatched',
+        subagent_ids: subagentIds,
+        voice_instruction: `Dispatched ${rawTasks.length} specialist task${rawTasks.length > 1 ? 's' : ''} in the background. I will notify you once complete.`
+      };
+    }
+
+    const results = await Promise.all(executionPromises);
+    return {
+      success: results.every(r => r.success),
+      background: false,
+      status: 'completed',
+      subagent_ids: subagentIds,
+      results
+    };
+  }
+
+  public getActiveSubagents(): SubagentRecord[] {
+    return Array.from(this.activeSubagents.values());
+  }
 }
 
-export function steerSubagent(subagentId: string, message: string): { success: boolean; message: string } {
-  const record = activeSubagents.get(subagentId);
-  if (!record) return { success: false, message: `Subagent ${subagentId} not found` };
-  if (!record.accepting_steer) return { success: false, message: `Subagent ${subagentId} not accepting steering` };
-  
-  logTool.info(`Steering subagent ${subagentId}: "${message}"`);
-  return { success: true, message: `Steering directive queued for ${subagentId}` };
-}
-
-export function stopSubagent(subagentId: string): { success: boolean; message: string } {
-  const record = activeSubagents.get(subagentId);
-  if (!record) return { success: false, message: `Subagent ${subagentId} not found` };
-  
-  record.status = 'failed';
-  record.error = 'Stopped by parent operator';
-  record.accepting_steer = false;
-  
-  subagentRepo.update(subagentId, { status: 'cancelled', error: 'Cancelled by operator', completed_at: Date.now() });
-  eventBus.emit('subagent:failed', { subagentId, error: 'Cancelled by operator' });
-  return { success: true, message: `Subagent ${subagentId} stopped` };
-}
-
-export function listSubagents(): SubagentRecord[] {
-  return Array.from(activeSubagents.values());
-}
+export const delegationDispatcher = DelegationDispatcher.getInstance();
 
 export function registerDelegationTool(): void {
-  toolRegistry.register({
-    name: 'delegate_task',
-    description: 'Spawn isolated specialist subagents to execute tasks autonomously in the background or in parallel. ALWAYS speak to the user out loud to explain what task is being delegated and to which specialist.',
-    tier: 'tier2_system_shell',
-    featureSwitchId: 'multi_agent_mesh',
-    parameters: {
-      type: 'OBJECT',
-      properties: {
-        goal: { type: 'STRING', description: 'Primary task goal for the subagent' },
-        context: { type: 'STRING', description: 'Additional background context and instructions' },
-        role: { type: 'STRING', description: 'Role name, e.g. "trading", "research", "dev", "content", "infra"' },
-        background: { type: 'BOOLEAN', description: 'Whether to run in background and return handle immediately' },
-      },
-      required: ['goal'],
-    },
-    handler: async (args) => {
-      return handleDelegation(args);
-    },
-  });
-
-  toolRegistry.register({
-    name: 'steer_subagent',
-    description: 'Send a real-time course correction or directive to an active running subagent.',
-    tier: 'tier2_system_shell',
-    featureSwitchId: 'multi_agent_mesh',
-    parameters: {
-      type: 'OBJECT',
-      properties: {
-        subagent_id: { type: 'STRING', description: 'The subagent ID to steer' },
-        message: { type: 'STRING', description: 'Course correction directive message' },
-      },
-      required: ['subagent_id', 'message'],
-    },
-    handler: async (args) => {
-      return steerSubagent(args.subagent_id, args.message);
-    },
-  });
-
-  toolRegistry.register({
-    name: 'stop_subagent',
-    description: 'Terminate an active subagent task immediately.',
-    tier: 'tier2_system_shell',
-    featureSwitchId: 'multi_agent_mesh',
-    parameters: {
-      type: 'OBJECT',
-      properties: {
-        subagent_id: { type: 'STRING', description: 'The subagent ID to stop' },
-      },
-      required: ['subagent_id'],
-    },
-    handler: async (args) => {
-      return stopSubagent(args.subagent_id);
-    },
-  });
-
-  toolRegistry.register({
-    name: 'list_subagents',
-    description: 'List all running and recent subagent tasks with progress telemetry.',
-    tier: 'tier2_system_shell',
-    featureSwitchId: 'multi_agent_mesh',
-    parameters: {
-      type: 'OBJECT',
-      properties: {},
-    },
-    handler: async () => {
-      return { success: true, subagents: listSubagents() };
-    },
-  });
-
-  logTool.info('Delegation and Subagent orchestration tools registered.');
+  DelegationDispatcher.getInstance().registerTool();
 }

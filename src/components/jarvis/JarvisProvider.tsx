@@ -30,7 +30,7 @@ import { AudioQueuePlayer, float32ToInt16Base64, resampleTo16k, calculateVolume 
 import { assistantGreeterInstance } from "@/utils/automatic_greeting";
 import { loadAgentMemory, saveAgentMemory, autoExtractMemoriesFromText, AgentMemoryState } from "@/utils/agent_memory";
 import { analyzeUtterance, NluAnalysisResult } from "@/utils/nlu_engine";
-import { PersonaMetadata, MutedRelayEvent } from "@/utils/multi_agent_orchestrator";
+import { PersonaMetadata, MutedRelayEvent } from "@/types";
 import { clientSpeechQueue, ClientSpeechPriority } from "@/utils/client_speech_queue";
 import { WebRTCManager, isWebRTCSupported } from "@/utils/webrtc_manager";
 import { getWsUrl } from "@/lib/api-config";

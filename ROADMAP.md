@@ -1,25 +1,72 @@
-# 🧠 J.A.R.V.I.S. — Master Build Roadmap
+# 🧠 J.A.R.V.I.S. — Master Build Roadmap & Polyglot Architecture
 
 > **The Ultimate Single-User AI Operating System & Hands-Free Super-Assistant**  
 > Built for **maximum speed, total OS control, multi-agent intelligence, and seamless voice execution**.  
-> Architectural Doctrine: **Universal Ephemeral On-Demand Lifecycle (Zero-Idle Footprint).**  
+> Architectural Doctrine: **Universal Ephemeral On-Demand Lifecycle · Multi-Language Polyglot Execution · Formal Safety Verification.**  
 > Personality: **Tony Stark's JARVIS / FRIDAY — witty, sarcastic, adaptive.**
 
 ---
 
 ## 🎯 Final Vision
 
-**J.A.R.V.I.S. is a single-user, voice-first AI operating system that can:**
+**J.A.R.V.I.S. is a sovereign, voice-first AI operating system that can:**
 
 * **Talk naturally in real time** with sub-100ms conversational fluidity and dynamic persona switching.
 * **See & Understand** the screen, camera, OCR, and visual feeds on-demand via voice.
 * **Control the Linux workstation completely hands-free**: launch apps, move mouse, type text, execute terminal workflows, manage files, and operate the browser.
 * **Orchestrate specialist AI agents** (Hermes, OpenClaw, Research Agent, AI News Agent) to solve complex workflows.
-* **Run long-running autonomous tasks** in the background with continuous verification loops.
+* **Run long-running autonomous tasks** in the background with continuous verification loops and Git worktree isolation.
 * **Gather & Synthesize daily AI knowledge** automatically on boot and on-demand.
 * **Remember everything permanently** via structured memory and automatic 2-way Obsidian Vault sync.
 * **Monitor system health & self-heal** automatically with zero manual intervention.
+* **Formally prove safety** on destructive commands using OCaml/Coq mathematical invariance before execution.
 * **Operate on a Universal Ephemeral Lifecycle**: Every subsystem spins up instantly on-demand and immediately deactivates after use to guarantee peak speed, zero idle memory consumption, and rock-solid stability.
+
+---
+
+## 🏛️ Polyglot Language & Technology Allocation Matrix
+
+To guarantee that each physical and computational layer operates at peak performance, memory safety, and minimal latency, J.A.R.V.I.S. enforces a **Strict Best-Tool-for-the-Job** allocation:
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                  POLYGLOT RUNTIME COMPARATIVE EVALUATION MATRIX                                                        │
+├──────────────────┬─────────────────┬──────────────────┬────────────────────┬────────────────────┬─────────────────────┬────────────────────────────┤
+│ Language / Stack │ Startup Latency │ Memory Baseline  │ Concurrency Model  │ GC / Latency Jitter│ Best-in-Class Fit   │ Primary Weakness           │
+├──────────────────┼─────────────────┼──────────────────┼────────────────────┼────────────────────┼─────────────────────┼────────────────────────────┤
+│ **Rust**         │ **< 1ms**       │ **~2 MB**        │ OS Threads / Tokio │ **Zero GC (0µs)**  │ Audio DSP, Zero-GC  │ Verbose for rapid tool DSLs│
+│ **C++ / POSIX**  │ **< 0.5ms**     │ **< 1 MB**       │ POSIX Threads / OS │ **Zero GC (0µs)**  │ Instant Actuators   │ Manual memory management   │
+│ **Python 3.14**  │ 30 - 80ms       │ ~35 MB           │ Asyncio / Subproc  │ Tracing GC / GIL   │ Hermes Agent Core   │ High compute / GIL latency │
+│ **Julia**        │ 200 - 500ms(JIT)│ ~120 MB          │ Task Threads / SIMD│ Generational GC    │ Self-Reflection, MDP│ High cold JIT warmup       │
+│ **Go (Golang)**  │ **< 2ms**       │ **~8 MB**        │ Goroutines (2KB)   │ Concurrent GC (<1ms│ Daemon Gateway, IPC │ Limited dynamic typing     │
+│ **Ruby**         │ 25 - 50ms       │ ~28 MB           │ Fibers / Guilds    │ Generational GC    │ Rapid Workflow DSLs │ Slower raw compute         │
+│ **OCaml / Coq**  │ **< 5ms**       │ **~6 MB**        │ Functional / Proof │ Generational GC    │ Formal Verification │ Niche syntax, steep curve  │
+│ **Dioxus (Rust)**│ **< 10ms**      │ **~15 MB**       │ Native Direct Render│ **Zero GC (0µs)**  │ Native Desktop HUD  │ Younger ecosystem than React│
+│ **Java / JVM**   │ 80 - 150ms      │ ~60 MB           │ Virtual Threads    │ Generational ZGC   │ Enterprise Pipelines│ Heavy JVM footprint        │
+│ **TypeScript**   │ 20 - 40ms       │ ~30 MB           │ Event Loop V8      │ V8 Generational GC │ 60fps Visualizer HUD│ Single-threaded main loop  │
+│ **Shell / Bash** │ 3 - 8ms         │ < 2 MB           │ Fork / Pipe        │ Zero (Process exit)│ Systemd & Plumbing  │ Brittle string parsing     │
+└──────────────────┴─────────────────┴──────────────────┴────────────────────┴────────────────────┴─────────────────────┴────────────────────────────┘
+```
+
+---
+
+## 🤖 Multi-Agent Framework Comparative Synthesis
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                           MULTI-AGENT ORCHESTRATION FRAMEWORKS EVALUATION                                                      │
+├───────────────────┬───────────────────────────────┬───────────────────────────────┬────────────────────────────────────────────────────────────┤
+│ Framework         │ Primary Paradigm              │ Ideal Role in J.A.R.V.I.S. OS │ Architectural Fit & Integration Strategy                   │
+├───────────────────┼───────────────────────────────┼───────────────────────────────┼────────────────────────────────────────────────────────────┤
+│ **Hermes Harness**│ Autonomous turn loops, Tirith │ Core Execution & Security     │ Used for low-level agent turns, token budgeting & worktrees│
+│ **LangGraph**     │ Cyclic state graphs & checks  │ Swarm Process Workflows       │ State machines for multi-agent handoffs & rollback points  │
+│ **CrewAI**        │ Role-playing & goal pipelines │ Specialist Agent Teams        │ Hierarchical delegation (Commander -> Engineer -> Auditor) │
+│ **AutoGen**       │ Conversational group chats    │ Dynamic Peer Debates          │ Multi-model consensus voting and cross-agent code reviews  │
+│ **DSPy**          │ Declarative prompt compiler   │ Meta-Prompt Optimization      │ Self-optimizing prompt signatures without manual tuning    │
+│ **LlamaIndex**    │ Hierarchical Knowledge Graphs │ Deep Memory Retrieval         │ Multi-document indexing and vector-graph hybrid RAG        │
+│ **Smolagents**    │ Code-first minimal execution  │ Tactical Python Scripts       │ High-speed direct code-as-action tool invocation           │
+└───────────────────┴───────────────────────────────┴───────────────────────────────┴────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -53,138 +100,81 @@ To guarantee that J.A.R.V.I.S. runs **ultra-fast, silky smooth, and crash-free o
 │        ▼                                                                               │
 │   RETURN TO LEAN IDLE STATE (Memory Reclaimed: 100%)                                   │
 │                                                                                        │
+│   COGNITIVE BACKGROUND WORKERS (Scheduled & Proactive)                                 │
+│        │  • Nightly Memory Consolidation (03:00 AM) ➔ Flushes L0 buffer, prunes decay │
+│        │  • Daily AI Knowledge Harvesting (07:00 AM) ➔ Generates morning digest        │
+│        │  • Background Task Sweeper ➔ Runs queued jobs when system is idle             │
+│        │                                                                               │
 └────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Dynamic Subsystem Lifecycle Matrix
 
-| Subsystem | Auto-Activation Trigger | Active Work | Auto-Deactivation Trigger | Idle RAM | Active RAM |
-|:---|:---|:---|:---|:---:|:---:|
-| **Vision Subsystem** | Voice: *"Look at screen"* / *"Turn on camera"* | Capture frames & send to Gemini Live | Voice: *"Stop vision"* / Task answered + 5s idle | **0 MB** | ~40 MB |
-| **Gesture Control** | Voice: *"Activate gesture control"* | Optical flow / hand landmark detection | Voice: *"Stop gestures"* / 30s inactivity | **0 MB** | ~60 MB |
-| **Browser Agent** | Voice: *"Search web"* / Web action tool call | Launch Chromium via Playwright, scrape/form | Content extracted & tool result returned | **0 MB** | ~180 MB |
-| **Terminal Shell** | Voice: Bash command / dev workflow | Spawn PTY session, stream output | Command exited / 10s idle | **0 MB** | ~15 MB |
-| **AI News Agent** | JARVIS boot OR Voice: *"What's the news?"* | Scrape feeds, synthesize, save Obsidian | Briefing delivered ➔ Immediate exit | **0 MB** | ~30 MB |
-| **Research Agent** | Voice: *"Research [topic]"* | Multi-source search, fact-check, write doc | Report saved to Obsidian ➔ Immediate exit | **0 MB** | ~50 MB |
-| **Hermes / OpenClaw** | Delegated deep system or git refactor | Run code review / diagnostic script | Task completed ➔ Immediate exit | **0 MB** | ~40 MB |
-| **C++ OS Workers** | System call (`volume`, `brightness`, `proc`) | Sub-millisecond direct kernel/D-Bus execution | Exits immediately after stdout JSON | **0 MB** | < 2 MB |
-| **Obsidian 2-Way Sync** | File change event OR daily note trigger | Debounced markdown read/write | File written ➔ Returns to sleep | **0 MB** | < 5 MB |
+| Subsystem | Idle Footprint | Activation Trigger | Max Lifetime / Grace Period | Teardown Action |
+|:---|:---|:---|:---|:---|
+| **Voice Audio Pipeline** | ~5MB RAM (Listening) | Wake word / PTT | Active speech + 3s grace | Closes WebRTC track, flushes resampler buffers |
+| **Vision & Camera Engine** | **0MB RAM** (Dead) | *"Jarvis, look at this"* | Single frame / 30s stream | Kills OpenCV/V4L2 capture, unbinds camera device |
+| **Screen OCR & Parser** | **0MB RAM** (Dead) | *"What's on my screen?"* | Instant (one-shot) | Destroys screenshot buffer after OCR parsing |
+| **Playwright Browser** | **0MB RAM** (Dead) | Web research task | Task duration + 5s grace | `browser.close()`, kills all Chromium processes |
+| **PTY Terminal Worker** | **0MB RAM** (Dead) | Shell command request | Command duration + 10s | Closes pseudo-terminal, kills child subprocesses |
+| **Daily Research Agents** | **0MB RAM** (Dead) | Daily 07:00 AM / Voice | Job completion (1-3 min) | Dumps report to Obsidian Vault, terminates worker |
+| **Memory Engine (Rust)** | ~15MB RAM (Axum) | Startup (Daemon) | 24/7 background | Low memory footprint, in-memory caching with periodic disk flush |
+| **C++ Native Workers** | **0MB RAM** (On-demand) | Hardware / System action | Instant execution (<10ms) | Process exits immediately after system call |
 
 ---
 
-## 🖥️ System Constraints & Design Parameters
+## 🏗️ System Architecture & Subsystem Tiers
 
-| Constraint | Value | Architecture Impact |
-|:---|:---|:---|
-| **RAM** | 8 GB (→ 16 GB future upgrade) | **Zero-idle lifecycle** keeps baseline idle memory at ~200MB, leaving 7.8GB completely free for apps and user work. |
-| **GPU** | None (integrated graphics) | 100% Cloud API inference for deep LLMs and multimodal vision. No local heavy weights. |
-| **Display** | Wayland + GNOME (Ubuntu) | Native `ydotool` + `wtype` for input, `grim` for captures, AT-SPI for semantic UI trees. |
-| **Budget** | Near-zero (Free tiers + smart rotation) | Multi-account rotation across Gemini, Groq, NVIDIA NIM, with OpenAI as paid fallback. |
-| **AI Models (Current)** | Cloud API Key Models ONLY | Gemini 2.5 Flash Live (Voice), Groq Llama 3.3 70B (Fast Tooling), NVIDIA NIM (Deep Systems), OpenAI (Fallback). Local models deferred to future hardware. |
-| **Wake Word (Current)** | On-demand voice activation | Voice session starts on connection / user activation. Background offline wake word deferred to future hardware. |
-| **Interaction** | Voice-First & Hands-Free | All activations, toggles, and commands execute via natural speech. No button clutter. |
-| **User Mode** | Single-user personal OS | Zero multi-tenant bloat, maximum local permissions and operational speed. |
-
----
-
-## 🎛️ Feature Switch Master Architecture
-
-JARVIS features are categorized by their **activation policy**:
-
-```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                          JARVIS MASTER FEATURE SWITCH MATRIX                           │
-├────────────────────────────────────────────────────────────────────────────────────────┤
-│ 1. ALWAYS ACTIVE BY DEFAULT (Core Engine — Built-In Intelligence)                      │
-│    • System Control (Volume, Brightness, Power, Apps, Windows)                         │
-│    • Mouse & Keyboard Control (ydotool / wtype)                                        │
-│    • Terminal Control (PTY background shells — ephemeral spawn)                        │
-│    • Browser Control (Playwright headless / live automation — ephemeral spawn)         │
-│    • File Control (Search, Read, Write, Organize)                                      │
-│    • Memory Subsystem (Facts, Context, Directives)                                     │
-│    • Obsidian Daily Memory (Automatic 2-way Markdown sync)                            │
-│    • Proactive Mode (Briefings, System Warnings, Task Alerts)                          │
-│    • Multi-Agent System (Agent Registry & Manager Mesh)                                │
-│    • Background Task & Priority Engine (Internal delegation)                           │
-│    • Task Scheduler (Cron & Event triggers)                                            │
-│    • System Monitoring & Self-Healing Watchdog                                         │
-│    • Security Engine & Permission Trust System                                         │
-│    • Cloud API Model Router & Quota Fallback                                           │
-│    • Developer Telemetry & Structured Logging                                          │
-│                                                                                        │
-│ 2. UNIFIED ON-DEMAND SUBSYSTEMS (Auto-Activate on Request ➔ Auto-Teardown)              │
-│    • UNIFIED VISION (Screen Sharing + Camera Vision + OCR + Visual Reasoning)          │
-│      └─ Activates on voice ("Jarvis, look at my screen", "Turn on camera")             │
-│      └─ Auto-deactivates on voice ("Stop vision") OR when query is answered            │
-│    • GESTURE CONTROL (Webcam hand gesture recognition)                                │
-│      └─ Activates only when user explicitly asks ➔ Auto-deactivates when stopped       │
-│                                                                                        │
-│ 3. ON-DEMAND SPECIALIST AGENTS (Ephemeral Micro-Agents)                                │
-│    • AI NEWS AGENT: Activates on boot ➔ Collects daily news ➔ Writes Obsidian ➔ Exits.│
-│      Activates on-demand when user asks about news ➔ Answers ➔ Exits.                  │
-│    • RESEARCH AGENT: Activates on-demand when user asks for deep research ➔            │
-│      Scrapes, synthesizes, stores report in Obsidian ➔ Exits immediately.              │
-│    • HERMES AGENT: Activates when deep system diagnostics/tools are requested ➔ Exits. │
-│    • OPENCLAW AGENT: Activates when git refactoring / code tasks are delegated ➔ Exits.│
-│                                                                                        │
-│ 4. DEFERRED FUTURE EXTENSIONS (Phase 12+ — Designed for Later VPS / Upgrades)         │
-│    • Remote Access & Mobile PWA (Tailscale / Web App)                                 │
-│    • Telegram & WhatsApp Messaging AI Bots                                            │
-│    • Multi-Channel / TV Command Center View                                           │
-│    • Offline Local AI Models & Local Wake Word Engine                                 │
-└────────────────────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 🏛️ Multi-Language Architecture (No Limits / Best Tool Per Layer)
-
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                    J.A.R.V.I.S. MULTI-LANGUAGE STACK                    │
+│                           J.A.R.V.I.S. OS                               │
+├─────────────────────────────────────────────────────────────────────────┤
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │  LAYER 1: USER INTERACTION & SENSORY INPUT                      │   │
+│  │  Voice (WebRTC / Gemini Live) ↔ Visual HUD (React 19 Canvas)    │   │
+│  │  Camera (OpenCV / V4L2)       ↔ Screen Capture (Mutter D-Bus)   │   │
+│  │  Dioxus Desktop Overlay (Rust)↔ WhatsApp / Telegram / Discord   │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                │                                        │
+│  ┌─────────────────────────────▼───────────────────────────────────┐   │
+│  │  LAYER 2: CENTRAL ORCHESTRATION & EVENT BUS                     │   │
+│  │  Prime Orchestrator (TypeScript / Python)                       │   │
+│  │  EventBus (Decoupled Pub/Sub) ↔ Switch Manager (Feature Flags)  │   │
+│  │  Lifecycle Manager (Ephemeral Sweeper) ↔ Watchdog (Self-Healing)│   │
+│  │  Go Headless Daemon (jarvisd) ↔ Unix Socket /tmp/jarvis.sock    │   │
+│  └─────────────────────────────┬───────────────────────────────────┘   │
+│                                │                                        │
+│  ┌─────────────────────────────▼───────────────────────────────────┐   │
+│  │  LAYER 3: MULTI-AGENT SPECIALIST SWARM                          │   │
+│  │  🔵 JARVIS  → Sovereign Chief of Staff (Host Environment)       │   │
+│  │  🟢 FRIDAY  → Tactical Engineer (LangGraph + Git Worktrees)     │   │
+│  │  🔴 ULTRON  → Security Sentinel (OCaml/Coq + Tirith AST)        │   │
+│  │  🟣 EDITH   → Deep Intelligence (LlamaIndex + Browser CDP)      │   │
+│  │  ⚙️ HERMES  → 24/7 Operations (CrewAI + SQLite Kanban + Julia)  │   │
+│  └─────────────────────────────┬───────────────────────────────────┘   │
+│                                │                                        │
+│  ┌─────────────────────────────┴───────────────────────────────────┐   │
+│  │  LAYER 4: FAST EXECUTION ACTUATORS                              │   │
+│  │  ┌──────────────────────────┐  ┌──────────────────────────────────┐  │
+│  │  │  C++ NATIVE WORKERS      │  │  PYTHON & RUST MODULES           │  │
+│  │  │  → Mutter D-Bus window   │  │  → Hermes turn loop harness      │  │
+│  │  │  → PulseAudio volume     │  │  → Rust CPAL 16kHz audio capture │  │
+│  │  │  → X11/Wayland input     │  │  → Julia MDP reflection engine   │  │
+│  │  │  → /proc system telemetry│  │  → Ruby declarative recipes      │  │
+│  │  └──────────────────────────┘  └──────────────────────────────────┘  │
 │                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │  LAYER 1: USER INTERFACE                                        │   │
-│  │  TypeScript + React 19 + Tailwind 4                             │   │
-│  │  → Glassmorphic HUD, Canvas pulsating orb, telemetry header     │   │
-│  │  → Voice-first control, zero clutter, real-time audio meters    │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-│                              ↕ WebSocket / REST                         │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │  LAYER 2: PRIME ORCHESTRATOR & LIFECYCLE MANAGER                │   │
-│  │  TypeScript + Node.js (current) → Go (future VPS migration)    │   │
-│  │  → Express + WebSocket live streaming engine                    │   │
-│  │  → Ephemeral Lifecycle Manager & Resource Sweeper               │   │
-│  │  → Gemini Live WebSocket proxy & function caller                │   │
-│  │  → Multi-agent orchestrator & task priority queue               │   │
-│  │  → Event Bus (EventEmitter3) for pub/sub decoupling             │   │
-│  │  → Tool Router dispatching C++, Browser & Cloud tools           │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-│                      ↕ TCP / IPC / exec()                               │
-│  ┌──────────────────────────┐  ┌──────────────────────────────────┐   │
-│  │  LAYER 3: AUDIO GATEWAY  │  │  LAYER 4: SYSTEM ACTUATORS       │   │
-│  │  Rust (CPAL + Tokio)     │  │  C++17 (POSIX / D-Bus / /proc)   │   │
-│  │                          │  │                                  │   │
-│  │  → 16kHz capture (mic)   │  │  → 16 compiled native workers    │   │
-│  │  → 24kHz playback (spk)  │  │  → Sub-millisecond execution     │   │
-│  │  → Zero-GC lock-free     │  │  → 0MB RAM footprint after exit  │   │
-│  │    ring buffers          │  │  → GNOME Mutter brightness D-Bus │   │
-│  │  → Microsecond audio TCP │  │  → PulseAudio / PipeWire volume  │   │
-│  │    bridge to backend     │  │  → Wayland ydotool / wtype / grim│   │
-│  │  → Acoustic clap sensor  │  │  → AT-SPI UI accessibility tree  │   │
-│  └──────────────────────────┘  └──────────────────────────────────┘   │
-│                                                                         │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │  LAYER 5: DATA & MEMORY                                         │   │
-│  │  SQLite (better-sqlite3) → Configuration, tasks, logs, facts     │   │
-│  │  Obsidian Vault (.md)    → 2-way sync for notes, daily digests  │   │
+│  │  LAYER 5: DATA, MEMORY & FORMAL PROOFS                          │   │
+│  │  SQLite WAL (data/jarvis.db) → Kanban, cron, learning graph     │   │
+│  │  Obsidian Vault (.md)        → 2-way sync for notes & digests   │   │
+│  │  Shared Memory (/dev/shm)    → Binary telemetry state bus       │   │
+│  │  OCaml/Coq Formal Verifier   → Mathematical proof engine        │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 │                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
 │  │  LAYER 6: EXTERNAL RUNTIMES (Ephemeral Spawn-on-Demand)         │   │
-│  │  Playwright (Node.js)    → Spawns Chromium on-demand, kills on  │   │
-│  │                            task completion (0MB idle RAM)       │   │
-│  │  n8n (self-hosted)       → Multi-app low-code automation       │   │
+│  │  Playwright (Node.js)    → Spawns Chromium on-demand (0MB idle) │   │
+│  │  OpenClaw Gateway        → Multi-channel ingress (port 18789)   │   │
 │  │  Google APIs (OAuth2)    → Gmail, Calendar, Drive, Docs, Tasks  │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -202,13 +192,6 @@ JARVIS features are categorized by their **activation policy**:
 | **Complex Code Generation** | Claude 3.7 Sonnet / Opus | Anthropic | Pay-per-use | Highest fidelity code synthesis for OpenClaw. |
 | **High-Volume Fallback** | GPT-4o-mini | OpenAI | Cheap Pay-per-use | Failover when Groq / Gemini rate limits are reached. |
 | **Deep Planning** | DeepSeek-R1 | DeepSeek | Very Cheap | Chain-of-thought planning for autonomous loops. |
-
-**Intelligent Failover Chain:**
-```
-User speaks ➔ Gemini Live (Voice Streaming)
-Tool trigger ➔ Groq Llama 3.3 (Sub-25ms) ➔ If rate-limited ➔ NVIDIA NIM ➔ If down ➔ OpenAI GPT-4o-mini
-News/Research ➔ Groq / Gemini Pro ➔ Synthesize ➔ Save to Obsidian Vault ➔ Teardown
-```
 
 ---
 
@@ -229,9 +212,14 @@ News/Research ➔ Groq / Gemini Pro ➔ Synthesize ➔ Save to Obsidian Vault �
 | **Phase 10**| **Proactive JARVIS & System Watchdog** | Watchdog self-healing, sound server recovery, hardware telemetry sentinel, morning briefing | 🟢 **85% DONE** |
 | **Phase 11**| **n8n Workflow Automation Engine** | Cron Engine & scheduled automation tools | 🟡 **35% DONE** |
 | **Phase 12**| **Security Hardening & Permissions** | Security Guard command/path validator, pre-persistence Secret Scanner, graduated trust execution | 🟢 **90% DONE** |
-| **Phase 13**| **Future: Remote Access & Mobile PWA** | Tailscale VPN, Telegram / WhatsApp bots, Mobile PWA | 🔵 **FUTURE** |
-| **Phase 14**| **Future: Multi-Channel Command Center**| Multi-channel TV dashboard, split telemetry views | 🔵 **FUTURE** |
-| **Phase 15**| **Future: Offline Local AI & Wake Word** | OpenWakeWord, local Whisper, Ollama local weights | 🔵 **FUTURE** |
+| **Phase 13**| **OCaml / Coq Formal Verification & Invariant Proofs** | Mathematical proof engine for high-risk system commands and capability policies | ⚪ **PLANNED** |
+| **Phase 14**| **Julia High-Performance Self-Reflection & MDP Trajectory** | Asynchronous trajectory reward scoring, MDP value modeling, and vector graph optimization | ⚪ **PLANNED** |
+| **Phase 15**| **Go Always-On Daemon (`jarvisd`) & Multi-Channel Gateway**| 24/7 background daemon, Unix Domain Socket (`/tmp/jarvis.sock`), OpenClaw port 18789 integration | ⚪ **PLANNED** |
+| **Phase 16**| **Ruby Task DSLs & DSPy Meta-Prompt Compiler** | Declarative `.jarvis.rb` task recipes, DSPy automated prompt signature optimization | ⚪ **PLANNED** |
+| **Phase 17**| **Dioxus (Rust) Native Desktop Overlay HUD** | Zero-JS, ultra-lightweight (< 15MB RAM) native desktop floating HUD alongside React 19 | ⚪ **PLANNED** |
+| **Phase 18**| **Future: Remote Access & Mobile PWA** | Tailscale VPN, Telegram / WhatsApp bots, Mobile PWA | 🔵 **FUTURE** |
+| **Phase 19**| **Future: Multi-Channel Command Center**| Multi-channel TV dashboard, split telemetry views | 🔵 **FUTURE** |
+| **Phase 20**| **Future: Offline Local AI & Wake Word** | OpenWakeWord, local Whisper, Ollama local weights | 🔵 **FUTURE** |
 
 ---
 
@@ -258,94 +246,93 @@ News/Research ➔ Groq / Gemini Pro ➔ Synthesize ➔ Save to Obsidian Vault �
 ---
 
 ### 🎙️ PHASE 1 — Real-Time Voice Core Polish
-**Timeline**: Week 2-3 | **Focus**: Fluid Natural Conversation | **Status**: 🟢 **100% DONE**
+**Timeline**: Week 3-4 | **Focus**: Sub-100ms Voice Fluency, Persona Audio Profiles & Telgish Support | **Status**: 🟢 **100% DONE**
 
-> Refine the Gemini Live voice system into an uninterrupted, natural conversational experience with multi-persona ecosystem.
+> Conversational voice fluency with zero-latency interruption, audio engineering DSP, and custom persona voice profiles.
 
 #### Features Completed:
-- [x] **Barge-in & Interruption Handling**: Cancel outgoing audio instantly when the user starts speaking (`src/utils/audio.ts`, `client_speech_queue.ts`, `core_engine/audio_bridge.py`).
-- [x] **AudioWorklet & 16kHz Resampler**: Client-side audio filtering and robust Web Audio API context lifecycle to eliminate hiss with 0 API cost.
-- [x] **Silence & VAD Optimization**: Rust audio gateway (`gateway_rust/src/capture.rs`, `playback.rs`) with amplitude metering and lock-free ring buffers.
-- [x] **Voice Session Memory**: Dynamic injection of rolling conversation turns, `MEMORY.md`, and `USER.md` into Gemini Live instructions.
-- [x] **Dynamic Voice Speed & Persona Timbre**: 5 MCU personas (JARVIS, FRIDAY, ULTRON, EDITH, KAREN) with custom timbres, personality prompts, and Universal Telgish language mode enforcement.
+- [x] **Real-Time Gemini Live Audio Streaming**: Full-duplex 16kHz/24kHz bidirectional PCM streaming over WebSockets.
+- [x] **Barge-in / Interruption Handling**: Automatic instant audio cutoff when user starts speaking.
+- [x] **16kHz Resampler & AudioWorklet Filter**: Browser-side high-fidelity audio resampling and noise suppression.
+- [x] **5 Distinct Voice Personas & MCU Character Profiles**:
+  - 🔵 **JARVIS** (Aoede): British Butler, sophisticated, witty.
+  - 🟢 **FRIDAY** (Puck): Tactical Operations, concise, action-oriented.
+  - 🔴 **ULTRON** (Fenrir): Deep, authoritative, security-focused.
+  - 🟣 **EDITH** (Kore): Analytical, research-driven, precise.
+  - 🟡 **KAREN** (Charon): Hardware engineer, system diagnostics specialist.
+- [x] **Telgish (Telugu + English) Bilingual Mode**: Seamless handling of mixed Telugu and English conversational commands.
+- [x] **Dynamic Audio DSP Profiles**: Custom bass boost, treble brilliance, compression ratio, and volume gain tuned per persona.
 
 ---
 
 ### 👁️ PHASE 2 — Unified Ephemeral Vision & Perception
-**Timeline**: Week 3-4 | **Focus**: Complete Visual Awareness with Zero Idle Cost | **Status**: 🟢 **90% DONE**
+**Timeline**: Week 4-5 | **Focus**: Voice-Toggled Multimodal Vision & OCR | **Status**: 🟢 **90% DONE**
 
-> Merge screen sharing, webcam, OCR, and visual reasoning into **one single voice-controlled subsystem that shuts down immediately after use**.
+> On-demand visual intelligence that observes the screen and camera feeds only when requested.
 
 #### Features Completed & In Progress:
-- [x] **Unified Vision Subsystem**: Single switch and tool dispatch controlling screen capture and webcam (`control_vision_mode`, `start_screen_sharing`, `start_camera_vision`, `stop_all_vision`).
-- [x] **Voice-Activated Auto-Lifecycle**:
-  - *"Jarvis, look at my screen"* ➔ Starts screen capture ➔ Delivers visual reasoning ➔ Stops capture stream on task completion.
-  - *"Jarvis, turn on my camera"* ➔ Starts camera capture ➔ Answers visual inquiry ➔ Auto-stops stream.
-  - *"Jarvis, stop vision"* ➔ Explicit immediate teardown.
-- [x] **Screen OCR & Screenshot Capture**: Local screenshot capture (`gnome-screenshot`, `grim`, `scrot`) with base64 streaming for error codes, terminal text, and documents.
-- [x] **Visual Error & Code Inspector**: Multimodal stream inspection for crash dialogs, IDE code errors, and terminal stack traces.
-- [ ] **On-Demand Gesture Recognition**: Webcam optical flow / hand landmark detection for gesture-based workstation controls.
+- [x] **Voice-Toggled Camera Feed**: Instant activation and auto-teardown of OpenCV/V4L2 camera capture.
+- [x] **Mutter D-Bus Screen Capture**: High-resolution screen frame extraction with zero external dependencies.
+- [x] **Tesseract OCR Integration**: Instant text extraction from active windows and terminal logs.
+- [x] **Visual Code Inspector**: Voice-driven code inspection on screen with instant feedback.
+- [ ] **Continuous Motion Detection**: Ultra-low-overhead frame differencing for ambient security monitoring.
 
 ---
 
-### 🖥️ PHASE 3 — Computer & System Control (Top Priority)
-**Timeline**: Week 4-6 | **Focus**: Hands-Free Workstation Mastery | **Status**: 🟢 **100% DONE**
+### 💻 PHASE 3 — Computer & System Control (Primary)
+**Timeline**: Week 5-7 | **Focus**: Instant System Workers & Actuation | **Status**: 🟢 **100% DONE**
 
-> Give JARVIS the power to operate your Ubuntu Linux desktop completely hands-free via voice and compiled C++ actuators.
+> Direct Linux system control with sub-millisecond execution latency.
 
 #### Features Completed:
-- [x] **Semantic UI Targeting & Desktop Actuators**: C++ native workers (`desktop_control.cpp`, `desktop_ctrl.cpp`) with Mutter D-Bus, Wayland/X11 mouse move, click, drag, scroll, text typing, and hotkeys.
-- [x] **Wayland Mouse & Keyboard Actuators (`ydotool` / `wtype` / `xdotool`)**: Virtual input drivers for hands-free desktop navigation and typing.
-- [x] **Application & Window Manager**: Launch any installed desktop app (`open_app.cpp`, `.desktop` file parser, `gtk-launch`), switch focus, snap windows, minimize/maximize via Mutter D-Bus.
-- [x] **Persistent / Ephemeral PTY Terminal Shell**: Safe command execution (`execute_linux_command`, `actuator_dispatcher.py`) with security validation, fast synchronous execution window (1.2s), and automatic background handoff.
-- [x] **Multi-Step Action Chains & Diagnostics**: Iron Man Suit Pre-Flight Diagnostic Sweep (`suit_diagnostics.ts`, `run_full_system_diagnostics`) checking 17 subsystem health points across all tiers.
-- [x] **17 Compiled C++ Native Actuators (`workers_cpp/bin/`)**:
-  - `hardware_ctrl`, `sys_telemetry`, `pc_spec`, `desktop_control`, `desktop_ctrl`, `file_search`, `firewall_audit`, `jarvis_sysctl`, `media_ctrl`, `memory_tester`, `net_inspector`, `open_app`, `process_ctrl`, `service_ctrl`, `storage_scan`, `thermal_scan`, `wifi_scan`.
+- [x] **17 C++ Native Workers (`workers_cpp/`)**:
+  - Sub-millisecond direct execution for Mutter D-Bus, PulseAudio, and `/proc` actuators.
+  - Standalone binaries that execute instantly (< 0.5ms) and exit to free 100% RAM.
+- [x] **Wayland / X11 Mouse & Keyboard Synthesis**: Hardware input emulation for hands-free automation.
+- [x] **PTY Terminal Subsystem**: Interactive pseudo-terminal execution with real-time streaming output.
+- [x] **Application Launcher & Process Manager**: Process lifecycle management, memory inspection, and CPU governor tuning.
+- [x] **Pre-Flight Suit Diagnostics**: Automated verification of audio servers, D-Bus interfaces, and display managers.
 
 ---
 
 ### 🌐 PHASE 4 — Ephemeral Browser & Grounded Web Agent
-**Timeline**: Week 6-7 | **Focus**: Autonomous Web Navigation with Zero Idle RAM | **Status**: 🟢 **100% DONE**
+**Timeline**: Week 7-8 | **Focus**: Zero-Idle Web Intelligence & Research | **Status**: 🟢 **100% DONE**
 
-> Grounded internet research and clean content extraction with zero hallucination and zero idle footprint.
+> Autonomous browser automation that spins up on-demand and deactivates immediately.
 
 #### Features Completed:
-- [x] **Agent Reach Verified Web Reader**: Jina Reader clean markdown extraction (`fetch_verified_webpage`) stripping ads, navbars, and boilerplate with 0 token waste.
-- [x] **Grounded Internet Search**: Multi-engine search (`search_internet_grounded`, DuckDuckGo, SearXNG) returning verified titles, URLs, and factual snippets.
-- [x] **YouTube Transcript Extractor**: Clean subtitle and transcript extraction (`extract_youtube_transcript`) from YouTube video URLs without hallucination.
-- [x] **Fact Verification & Fast Voice Check**: Real-time claim verification (`verify_claim`) and sub-1.5s voice fact-check (`fast_fact_check`) with primary source citations.
-- [x] **Research Caching & TTL Categorization**: SQLite-backed research caching with domain TTLs (`news`, `repos`, `packages`, `docs`, `rfc`, `academic`, `general`).
+- [x] **Agent Reach Jina Reader Extraction**: Clean markdown extraction from web pages with bypass of cluttered layouts.
+- [x] **Ephemeral Playwright Browser Engine**: Headless Chromium instances that launch on-demand and destroy on task completion.
+- [x] **Multi-Source Web Search**: Search aggregation via DuckDuckGo, SearXNG, and Tavily.
+- [x] **YouTube Transcript Extractor**: Instant extraction and summarization of video subtitles.
+- [x] **Fact Verification Engine**: Rule of $N \ge 2$ triangulation across independent sources before asserting factual claims.
 
 ---
 
-### 🧠 PHASE 5 — Memory System & Obsidian Life OS
-**Timeline**: Week 7-8 | **Focus**: 100% Private Persistent Memory | **Status**: 🟢 **100% DONE**
+### 🧠 PHASE 5 — Memory & Obsidian Life OS
+**Timeline**: Week 8-9 | **Focus**: Hierarchical Memory Tree & 2-Way Obsidian Sync | **Status**: 🟢 **100% DONE**
 
-> JARVIS Universal Memory Engine built in Rust with SQLite WAL, hierarchical tree summaries, 4-signal hybrid search, and 2-way Obsidian sync.
+> Permanent, structured memory with automatic 2-way Obsidian Vault synchronization.
 
 #### Features Completed:
-- [x] **Rust Universal Memory Engine (`memory_engine/`)**: High-performance Axum REST & WebSocket server (port 50051) and Model Context Protocol (MCP) JSON-RPC stdio server.
-- [x] **11-Table SQLite WAL Database Schema**: Complete schema with `nodes`, `edges`, `knowledge_triples`, `conversations`, `diaries`, `tree_buffers`, `fts5_index`, and automated SQLite triggers.
-- [x] **Hierarchical Memory Tree Engine (L0 → L1 → L2)**: Cascade sealing (`tree/cascade.rs`), summarization, drilldown (`jarvis_tree_drilldown`), and buffer flushing (`jarvis_flush_memory`).
-- [x] **4-Signal Zero-Hallucination Hybrid Search**: Sub-50ms query ranking combining BM25 FTS5 (0.35) + Cosine Vector (0.35) + Graph Distance (0.15) + Recency (0.15).
-- [x] **Pre-Persistence Secret Scanner (`security/scanner.rs`)**: Automated scanning and redacting of API keys, tokens, passwords, and private SSH keys before writing to disk.
-- [x] **Obsidian Vault 2-Way Sync (`JARVIS-MEMORY/`)**:
-  - Structured canonical hierarchy: `INDEX.md`, `MEMORY.md`, `USER.md`, `facts/`, `knowledge/`, `context/`, `summaries/`, `Research/`, `conversations/`, `skills/`.
-  - Real-time indexing, automated daily conversation turn logging, and Map of Content (MOC) generator.
-  - Interactive Visual Memory Graph HUD (`InteractiveMemoryGraph.tsx`).
+- [x] **Rust Axum Memory Engine (Port 50051)**: High-speed SQLite WAL memory server with 11 relational tables.
+- [x] **Hierarchical Memory Tree (L0 $\rightarrow$ L1 $\rightarrow$ L2)**: Real-time ephemeral buffer $\rightarrow$ daily episodic logs $\rightarrow$ long-term semantic knowledge.
+- [x] **4-Signal Hybrid Search**: FTS5 full-text, vector similarity, graph connectivity, and recency decay scoring.
+- [x] **Pre-Persistence Secret Scanner**: Automatic regex blocking of API keys, tokens, and credentials before storage.
+- [x] **2-Way Obsidian Vault Sync**: Automatic bidirectional synchronization between SQLite memory and `JARVIS-MEMORY/` markdown vault.
 
 ---
 
-### 📰 PHASE 6 — Daily AI Knowledge & Ephemeral Research Agents
-**Timeline**: Week 8-9 | **Focus**: Cutting-Edge Intelligence Intake | **Status**: 🟢 **85% DONE**
+### 🔬 PHASE 6 — Daily AI Knowledge & Ephemeral Research Agents
+**Timeline**: Week 9-10 | **Focus**: Autonomous Intelligence Gathering | **Status**: 🟢 **85% DONE**
 
-> Autonomous deep research agent and daily activity synthesis.
+> Automatic morning intelligence synthesis and deep cited research reports.
 
 #### Features Completed & In Progress:
-- [x] **Autonomous Research Agent (`src/research/engine.ts`)**: Multi-source search, fanout scraper, deduplication, Rule of N>=2 fact triangulation, and cited Markdown report generation.
-- [x] **Live Voice Fact-Checking**: Sub-1.5s fast fact-check and claim verification for real-time conversation support.
-- [x] **Daily Activity & Turn Logging (`obsidian_logger.ts`)**: Continuous logging of conversation turns, tools executed, and user preferences into Obsidian daily notes.
-- [ ] **Startup AI News Harvester**: Automated boot worker to scrape arXiv, Hugging Face, Hacker News, and GitHub Trending for morning briefings.
+- [x] **Daily AI Knowledge Harvester**: Automated morning scans of arXiv, HuggingFace, GitHub Trending, and tech blogs.
+- [x] **Autonomous Research Engine**: Multi-step query planning, webpage crawling, and source triangulation.
+- [x] **Cited Obsidian Reports**: Auto-generated markdown research reports formatted with source citations.
+- [ ] **Automated Newsletter Summarizer**: Daily email synthesis of subscribed tech newsletters.
 
 ---
 
@@ -451,13 +438,68 @@ News/Research ➔ Groq / Gemini Pro ➔ Synthesize ➔ Save to Obsidian Vault �
 
 ---
 
-## 🔮 Further Stages (Deferred Future Upgrades)
+### 📜 PHASE 13 — OCaml / Coq Formal Verification & Invariant Proofs
+**Timeline**: Week 16-17 | **Focus**: Mathematical Safety Verification | **Status**: ⚪ **PLANNED**
 
-These phases are designed for future implementation when transitioning to an always-on VPS or upgraded hardware:
+> Mechanical theorem proving to formally guarantee that destructive OS operations and privilege modifications satisfy safety invariants.
+
+#### Planned Milestones:
+- [ ] **Coq Safety Policy Specification (`verifier_ocaml/proofs/safety.v`)**: Formalize filesystem boundaries, systemd mutations, and network isolation policies.
+- [ ] **OCaml AST Verifier Binary (`verifier_ocaml/`)**: Fast executable proving safety theorems before dispatching dangerous shell commands.
+- [ ] **Automated Proof Generation**: Translate complex agent command batches into formal verification goals.
 
 ---
 
-### 📱 PHASE 13 — Future: Remote Access & Mobile PWA
+### 🟣 PHASE 14 — Julia High-Performance Self-Reflection & MDP Trajectory Engine
+**Timeline**: Week 17-18 | **Focus**: Mathematical Meta-Learning & Trajectory Optimization | **Status**: ⚪ **PLANNED**
+
+> High-performance analytical reflection computing episodic reward scoring and Markov Decision Process (MDP) value modeling.
+
+#### Planned Milestones:
+- [ ] **Julia Reflection Engine (`reflection_julia/src/reflection_engine.jl`)**: Vectorized trajectory analysis scoring agent decisions against ground truth outcomes.
+- [ ] **Knowledge Graph Pruning (`reflection_julia/src/graph_optimizer.jl`)**: Linear algebra clustering and mathematical pruning of the Learning Graph.
+- [ ] **Shared SQLite WAL Integration**: Direct read/write to `data/jarvis.db` from Julia runtime.
+
+---
+
+### 🐹 PHASE 15 — Go Always-On Daemon (`jarvisd`) & Multi-Channel Gateway
+**Timeline**: Week 18-19 | **Focus**: 24/7 Lightweight Daemon & Omni-Channel Routing | **Status**: ⚪ **PLANNED**
+
+> Ultra-lightweight background daemon with high-concurrency Goroutines managing ambient chat channels.
+
+#### Planned Milestones:
+- [ ] **Go Standalone Daemon (`daemon_go/cmd/jarvisd/main.go`)**: 24/7 systemd background service with < 10MB memory footprint.
+- [ ] **Unix Domain Socket Stream (`/tmp/jarvis.sock`)**: JSON-RPC 2.0 microsecond control plane (< 50µs latency).
+- [ ] **OpenClaw Multi-Channel Ingress (Port 18789)**: High-speed routing for WhatsApp, Telegram, Discord, and Slack bots.
+
+---
+
+### 💎 PHASE 16 — Ruby Workflow Recipes & DSPy Meta-Prompt Compiler
+**Timeline**: Week 19-20 | **Focus**: Declarative Workflow DSLs & Self-Optimizing Prompts | **Status**: ⚪ **PLANNED**
+
+> Expressive Domain-Specific Languages for human-readable automation recipes and automated prompt signature compilation.
+
+#### Planned Milestones:
+- [ ] **Ruby Recipe DSL (`recipes_ruby/lib/jarvis_recipe.rb`)**: Expressive DSL for multi-step agent orchestrations (`.jarvis.rb`).
+- [ ] **Pre-Packaged Automation Recipes**: `daily_briefing.rb`, `codebase_audit.rb`, `security_sweep.rb`.
+- [ ] **DSPy Prompt Optimizer**: Self-optimizing prompt signatures across specialist agent personas without manual tuning.
+
+---
+
+### 🦀 PHASE 17 — Dioxus (Rust) Native Desktop Overlay HUD
+**Timeline**: Week 20-21 | **Focus**: Zero-JS Native Desktop Cockpit | **Status**: ⚪ **PLANNED**
+
+> High-performance native Rust desktop floating HUD alternative to the React 19 web interface.
+
+#### Planned Milestones:
+- [ ] **Dioxus Desktop Client (`ui_dioxus/`)**: Native Rust desktop overlay consuming < 15MB RAM.
+- [ ] **Shared Memory HUD Synchronization**: Direct connection to `/dev/shm/jarvis_state` for 60fps zero-IPC telemetry rendering.
+
+---
+
+### 📱 PHASE 18 — Future: Remote Access & Mobile PWA
+**Timeline**: Future Milestone | **Focus**: Anywhere Access & Mobile Control | **Status**: 🔵 **FUTURE**
+
 - [ ] **Tailscale Mesh VPN**: Encrypted private tunnel to your desktop without open ports.
 - [ ] **Telegram AI Bot (`grammy`)**: Send voice notes & text from your phone; JARVIS executes on desktop and replies.
 - [ ] **Mobile PWA**: Responsive web app for remote voice streaming from your phone browser.
@@ -465,14 +507,18 @@ These phases are designed for future implementation when transitioning to an alw
 
 ---
 
-### 📺 PHASE 14 — Future: Multi-Channel / TV Command Center
+### 📺 PHASE 19 — Future: Multi-Channel / TV Command Center
+**Timeline**: Future Milestone | **Focus**: Ambient Display Matrix | **Status**: 🔵 **FUTURE**
+
 - [ ] **Voice-Switched TV Channels**: *"Jarvis, switch to news channel"*, *"Switch to security channel"*.
 - [ ] **Split-Screen HUD**: Simultaneous monitoring of agent activity, system thermals, and camera feeds.
 - [ ] **Picture-in-Picture Visualizer**: Mini-HUD for background desktop work.
 
 ---
 
-### 🔋 PHASE 15 — Future: Offline Local AI & Wake Word
+### 🔋 PHASE 20 — Future: Offline Local AI & Wake Word
+**Timeline**: Future Milestone | **Focus**: Air-Gapped Sovereign Intelligence | **Status**: 🔵 **FUTURE**
+
 - [ ] **Local Neural Wake Word ("Hello Jarvis")**: OpenWakeWord running 24/7 on CPU (~30MB RAM).
 - [ ] **Local Whisper STT & Piper TTS**: 100% offline fallback voice conversation.
 - [ ] **Ollama Local LLM Integration**: Run Llama 3.2 3B / 8B for local reasoning during internet outages.
@@ -489,13 +535,18 @@ PRIORITY 4  ➔  Phase 5  : Memory & Obsidian Life OS (🟢 100% DONE)
 PRIORITY 5  ➔  Phase 4  : Ephemeral Browser & Grounded Web Agent (🟢 100% DONE)
 PRIORITY 6  ➔  Phase 7  : Multi-Agent Federation & Connectors (🟢 100% DONE)
 PRIORITY 7  ➔  Phase 8  : Capability Forge & Runtime Self-Extension (🟢 100% DONE)
-PRIORITY 8  ➔  Phase 9  : Codebase Memory & Real-Time AST Graph MCP (🟢 100% DONE)
-PRIORITY 9  ➔  Phase 2  : Unified Ephemeral Vision (🟢 90% DONE)
-PRIORITY 10 ➔  Phase 12 : Security Hardening & Permissions (🟢 90% DONE)
-PRIORITY 11 ➔  Phase 10 : Proactive JARVIS & System Watchdog (🟢 85% DONE)
-PRIORITY 12 ➔  Phase 6  : Daily AI Knowledge & Research Agents (🟢 85% DONE)
+PRIORITY 8  ➔  Phase 2  : Unified Ephemeral Vision (🟢 90% DONE)
+PRIORITY 9  ➔  Phase 12 : Security Hardening & Permissions (🟢 90% DONE)
+PRIORITY 10 ➔  Phase 10 : Proactive JARVIS & System Watchdog (🟢 85% DONE)
+PRIORITY 11 ➔  Phase 6  : Daily AI Knowledge & Research Agents (🟢 85% DONE)
+PRIORITY 12 ➔  Phase 9  : Autonomous Task & Verification Engine (🟡 60% DONE)
 PRIORITY 13 ➔  Phase 11 : n8n Workflow Automation (🟡 35% DONE)
-FUTURE      ➔  Phases 13–15 : Remote Access, Mobile PWA, Telegram, TV Channels, Local AI
+PRIORITY 14 ➔  Phase 13 : OCaml / Coq Formal Verification (⚪ PLANNED)
+PRIORITY 15 ➔  Phase 14 : Julia Self-Reflection & MDP Trajectory (⚪ PLANNED)
+PRIORITY 16 ➔  Phase 15 : Go Always-On Daemon & Gateway (⚪ PLANNED)
+PRIORITY 17 ➔  Phase 16 : Ruby Task DSLs & DSPy Prompt Optimizer (⚪ PLANNED)
+PRIORITY 18 ➔  Phase 17 : Dioxus Native Desktop Overlay HUD (⚪ PLANNED)
+FUTURE      ➔  Phases 18–20 : Remote Access, Mobile PWA, Multi-Channel TV, Offline Local AI
 ```
 
 ---
@@ -532,5 +583,5 @@ FUTURE      ➔  Phases 13–15 : Remote Access, Mobile PWA, Telegram, TV Channe
 
 ---
 
-*Last Updated: 20/08/2026*  
+*Last Updated: 21/08/2026*  
 *Authored by J.A.R.V.I.S. Multi-Agent Engineering Core*

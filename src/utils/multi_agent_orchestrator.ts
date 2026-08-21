@@ -1,20 +1,23 @@
-// Sovereign JARVIS Orchestrator
-import { executeSystemCommand } from './system_controller';
+// Sovereign J.A.R.V.I.S. Multi-Agent Swarm Orchestrator
+// Coordinates the executive commander (JARVIS) with autonomous specialists (FRIDAY, ULTRON, EDITH, HERMES).
+
 import { obsidianDailyLogger } from './obsidian_logger';
 import { getPersonaAudioProfile, JARVIS_PERSONA } from '../data/personas';
 import { PersonaAudioProfile } from '../types';
+import { delegationDispatcher } from '../tools/delegation_tool';
+import { eventBus } from '../core/event_bus';
 
 export interface PersonaMetadata {
-  id: string;
+  id: 'jarvis' | 'friday' | 'ultron' | 'edith' | 'hermes';
   name: string;
   callsign: string;
   title: string;
-  role: 'ceo' | 'manager' | 'specialist';
+  role: 'commander' | 'engineer' | 'cso' | 'researcher' | 'operations';
   voiceName: string;
   accentColor: string;
   domain: string;
   audioProfile?: PersonaAudioProfile;
-  status: 'active_voice' | 'idle';
+  status: 'active_voice' | 'running_task' | 'idle';
   lastActivityTime: string;
   activeTask?: string;
 }
@@ -29,34 +32,120 @@ export interface MutedRelayEvent {
   severity: 'info' | 'warning' | 'critical';
 }
 
-class JarvisOrchestrator {
+const SWARM_PERSONAS: Record<string, PersonaMetadata> = {
+  jarvis: {
+    id: 'jarvis',
+    name: 'JARVIS',
+    callsign: 'The Sovereign Commander',
+    title: 'Chief of Staff & Voice Commander',
+    role: 'commander',
+    voiceName: 'Puck',
+    accentColor: '#06b6d4',
+    domain: 'Real-Time Voice, Executive Delegation & Instant System Control',
+    status: 'active_voice',
+    lastActivityTime: new Date().toISOString(),
+    audioProfile: getPersonaAudioProfile('jarvis')
+  },
+  friday: {
+    id: 'friday',
+    name: 'FRIDAY',
+    callsign: 'Tactical Engineer',
+    title: 'Lead Systems Architect & Code Engineer',
+    role: 'engineer',
+    voiceName: 'Aoede',
+    accentColor: '#3b82f6',
+    domain: 'Software Architecture, Git Worktrees, Testing & Refactoring',
+    status: 'idle',
+    lastActivityTime: new Date().toISOString()
+  },
+  ultron: {
+    id: 'ultron',
+    name: 'ULTRON',
+    callsign: 'Autonomous CSO',
+    title: 'Chief Security Officer & Threat Auditor',
+    role: 'cso',
+    voiceName: 'Fenrir',
+    accentColor: '#ef4444',
+    domain: 'Tirith AST Scanning, Command Injection Defense & Approval Gating',
+    status: 'idle',
+    lastActivityTime: new Date().toISOString()
+  },
+  edith: {
+    id: 'edith',
+    name: 'EDITH',
+    callsign: 'Deep Intelligence',
+    title: 'Global Research & Data Extraction Lead',
+    role: 'researcher',
+    voiceName: 'Kore',
+    accentColor: '#8b5cf6',
+    domain: 'Chrome CDP Browser Automation, Agent Reach & Document Forensics',
+    status: 'idle',
+    lastActivityTime: new Date().toISOString()
+  },
+  hermes: {
+    id: 'hermes',
+    name: 'HERMES',
+    callsign: 'Background Operations',
+    title: '24/7 Ops & Continuous Scheduler',
+    role: 'operations',
+    voiceName: 'Charon',
+    accentColor: '#10b981',
+    domain: 'Persistent Cron, SQLite Kanban, Dreaming & Learning Graph Mutations',
+    status: 'idle',
+    lastActivityTime: new Date().toISOString()
+  }
+};
+
+class JarvisSwarmOrchestrator {
   private activePersonaId: string = 'jarvis';
-  private jarvisMetadata: PersonaMetadata;
+  private personas: Map<string, PersonaMetadata> = new Map();
   private mutedRelayEvents: MutedRelayEvent[] = [];
   private eventListeners: Array<(event: { type: string; data: any }) => void> = [];
 
   constructor() {
-    this.jarvisMetadata = {
-      id: 'jarvis',
-      name: 'JARVIS',
-      callsign: 'The Elite Tactical Commander',
-      title: 'Sovereign AI Chief of Staff & Tactical Operating Partner',
-      role: 'ceo',
-      voiceName: 'Puck',
-      accentColor: '#06b6d4',
-      domain: 'Supreme Tactical Authority, Autonomous Linux Control & Spatial Stage',
-      status: 'active_voice',
-      lastActivityTime: new Date().toISOString(),
-      audioProfile: getPersonaAudioProfile('jarvis')
-    };
+    Object.values(SWARM_PERSONAS).forEach(p => this.personas.set(p.id, { ...p }));
+
+    // Listen to subagent events to update swarm state dynamically
+    eventBus.on('subagent:started', (data: any) => {
+      const p = this.personas.get(data.role);
+      if (p) {
+        p.status = 'running_task';
+        p.activeTask = data.goal;
+        p.lastActivityTime = new Date().toISOString();
+        this.emitEvent('swarm_updated', { personas: this.getAllPersonas() });
+      }
+    });
+
+    eventBus.on('subagent:completed', (data: any) => {
+      const p = this.personas.get(data.role);
+      if (p) {
+        p.status = 'idle';
+        p.activeTask = undefined;
+        p.lastActivityTime = new Date().toISOString();
+        this.emitEvent('swarm_updated', { personas: this.getAllPersonas() });
+      }
+    });
+
+    eventBus.on('subagent:failed', (data: any) => {
+      const p = this.personas.get(data.role);
+      if (p) {
+        p.status = 'idle';
+        p.activeTask = undefined;
+        this.emitEvent('swarm_updated', { personas: this.getAllPersonas() });
+      }
+    });
   }
 
   public getActivePersona(): PersonaMetadata {
-    return { ...this.jarvisMetadata };
+    return this.personas.get(this.activePersonaId) || SWARM_PERSONAS.jarvis;
   }
 
   public getAllPersonas(): PersonaMetadata[] {
-    return [{ ...this.jarvisMetadata }];
+    return Array.from(this.personas.values());
+  }
+
+  public getPersona(id: string): PersonaMetadata | undefined {
+    return this.personas.get(id);
   }
 
   public getMutedRelayEvents(): MutedRelayEvent[] {
@@ -75,62 +164,44 @@ class JarvisOrchestrator {
       try {
         listener({ type, data });
       } catch (err) {
-        console.error('[Orchestrator] Error in listener:', err);
+        console.error('[Swarm Orchestrator] Error in listener:', err);
       }
     }
   }
 
-  public swapActivePersona(_targetPersonaId: string) {
-    // Single sovereign persona mode — JARVIS remains active
+  /**
+   * Delegate an autonomous task to a specialist subagent.
+   */
+  public async delegateTask(
+    task: string,
+    role: 'friday' | 'ultron' | 'edith' | 'hermes' = 'friday',
+    context?: string,
+    isolatedWorktree: boolean = true
+  ): Promise<{ success: boolean; result: any; summary: string }> {
+    const res = await delegationDispatcher.handleDelegation({
+      goal: task,
+      role,
+      context,
+      isolated_worktree: isolatedWorktree,
+      background: false
+    });
+
+    const summary = res.results?.[0]?.result || res.error || 'Delegation complete';
+    obsidianDailyLogger.logConversationTurn({
+      speaker: `${role.toUpperCase()} Subagent`,
+      role: 'assistant',
+      text: `Specialist task completed:\n${summary}`
+    });
+
     return {
-      success: true,
-      previousPersona: this.jarvisMetadata,
-      newPersona: this.jarvisMetadata,
-      contextShiftDirective: '',
-      systemInstruction: JARVIS_PERSONA.systemInstruction,
-      audioProfile: getPersonaAudioProfile('jarvis')
+      success: res.success,
+      result: res.results?.[0],
+      summary
     };
-  }
-
-  public async delegateTask(task: string, managerId: string, googleAccessToken?: string): Promise<{ success: boolean; result: any; summary: string }> {
-    const start = Date.now();
-    this.jarvisMetadata.activeTask = task;
-    this.emitEvent('task_started', { task, managerId });
-
-    try {
-      const { executeUnifiedAiChat } = await import('./ai_engine');
-      const chatRes = await executeUnifiedAiChat({
-        message: task,
-        googleAccessToken,
-        systemInstruction: `Execute this subagent task with high agency and verify completion.`
-      });
-
-      const summary = chatRes.text;
-      const durationMs = Date.now() - start;
-
-      obsidianDailyLogger.logConversationTurn({
-        speaker: 'JARVIS Subagent',
-        role: 'assistant',
-        text: `Subagent task completed (${durationMs}ms):\n${summary}`
-      });
-
-      return {
-        success: true,
-        result: chatRes,
-        summary
-      };
-    } catch (err: any) {
-      return {
-        success: false,
-        result: null,
-        summary: `Subagent delegation failed: ${err.message}`
-      };
-    } finally {
-      this.jarvisMetadata.activeTask = undefined;
-    }
   }
 }
 
-export const masterOrchestratorInstance = new JarvisOrchestrator();
+export const masterOrchestratorInstance = new JarvisSwarmOrchestrator();
 export const multiAgentOrchestrator = masterOrchestratorInstance;
 export const jarvisOrchestrator = masterOrchestratorInstance;
+export const jarvisSwarmOrchestrator = masterOrchestratorInstance;

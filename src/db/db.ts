@@ -247,6 +247,7 @@ export class JarvisDatabase {
 }
 
 export const jarvisDb = JarvisDatabase.getInstance();
+export const db = jarvisDb.db;
 
 // ─── Repository Access Layer ──────────────────────────────────────────────────
 

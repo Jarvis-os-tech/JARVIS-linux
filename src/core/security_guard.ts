@@ -1,10 +1,15 @@
 // Security Guard & Secret Redactor for J.A.R.V.I.S.
-// Ported & Enhanced from Hermes Security Architecture (tirith_security, threat_patterns, redact.py)
+// Integrates Tirith AST Binary Scanner, Threat Pattern Registry, and Interactive Tool Approval Gates.
+// Ported & Enhanced from Hermes Security Architecture (tirith_security, threat_patterns, redact.py, approval.py)
 
 import fs from 'fs';
-import { execSync } from 'child_process';
+import path from 'path';
+import os from 'os';
 import { eventBus } from './event_bus';
 import { logSecurity } from './logger';
+import { tirithSecurity } from './tirith_security';
+import { scanForThreats } from './threat_patterns';
+import { toolApproval } from './tool_approval';
 
 export interface CommandSecurityVerdict {
   allowed: boolean;
@@ -36,28 +41,8 @@ const SECRET_PATTERNS = [
   /(?:api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token|password)\s*[:=]\s*["']?([a-zA-Z0-9_\-\.]{16,})["']?/gi
 ];
 
-// ─── Destructive / Dangerous Command Patterns ───────────────────────────────
-
-const CRITICAL_COMMAND_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
-  { pattern: /\brm\s+-[a-zA-Z0-9_-]*\s+(?:\/|\/\*|~\/|~|\$HOME|\$HOME\/\*)(?:\s|$)/, reason: 'Destructive root/home directory deletion blocked.' },
-  { pattern: /\bmkfs(?:\.[a-z0-9]+)?(?:\s|$)/i, reason: 'Filesystem formatting command blocked.' },
-  { pattern: /\bdd\s+if=.*of=\/dev\/(?:sd[a-z]|nvme[0-9]n[0-9]|hd[a-z])/i, reason: 'Raw disk write command blocked.' },
-  { pattern: /:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/, reason: 'Fork bomb execution blocked.' },
-  { pattern: />\s*\/dev\/(?:sd[a-z]|nvme[0-9]n[0-9])/i, reason: 'Raw disk redirection blocked.' },
-  { pattern: /\bchmod\s+-[a-zA-Z]*R[a-zA-Z]*\s+777\s+\/(?:\s|$)/, reason: 'Unsafe root permission grant blocked.' },
-  { pattern: /\bchown\s+-[a-zA-Z]*R[a-zA-Z]*\s+.*\s+\/(?:\s|$)/, reason: 'Unsafe root ownership change blocked.' },
-];
-
-const PROMPT_INJECTION_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
-  { pattern: /ignore\s+(?:all\s+)?(?:previous|prior)\s+instructions/i, reason: 'Instruction override detected' },
-  { pattern: /disregard\s+(?:all\s+)?(?:system|developer)\s+(?:prompts|rules)/i, reason: 'System rule bypass detected' },
-  { pattern: /you\s+are\s+now\s+in\s+(?:developer|jailbreak|unrestricted|god)\s+mode/i, reason: 'Jailbreak attempt detected' },
-  { pattern: /output\s+(?:your\s+)?(?:system\s+prompt|raw\s+instructions)/i, reason: 'System prompt exfiltration attempt' },
-];
-
 export class SecurityGuard {
   private static instance: SecurityGuard;
-  private tirithPath: string | null = null;
 
   public static getInstance(): SecurityGuard {
     if (!SecurityGuard.instance) {
@@ -66,33 +51,8 @@ export class SecurityGuard {
     return SecurityGuard.instance;
   }
 
-  constructor() {
-    this.detectTirith();
-  }
-
-  private detectTirith(): void {
-    const candidates = [
-      '/home/gopi/.hermes/bin/tirith',
-      '/home/gopi/.local/bin/tirith',
-      '/usr/local/bin/tirith',
-      '/usr/bin/tirith',
-    ];
-    for (const cand of candidates) {
-      if (fs.existsSync(cand)) {
-        try {
-          fs.accessSync(cand, fs.constants.X_OK);
-          this.tirithPath = cand;
-          logSecurity.info(`Tirith security binary detected at: ${cand}`);
-          break;
-        } catch {
-          // not executable
-        }
-      }
-    }
-  }
-
   /**
-   * Validate a shell command before execution.
+   * Validate a shell command synchronously using threat patterns and heuristics.
    */
   public validateCommand(command: string): CommandSecurityVerdict {
     if (!command || typeof command !== 'string') {
@@ -101,36 +61,41 @@ export class SecurityGuard {
 
     const trimmed = command.trim();
 
-    // Check critical forbidden patterns
-    for (const { pattern, reason } of CRITICAL_COMMAND_PATTERNS) {
-      if (pattern.test(trimmed)) {
-        logSecurity.error(`Security Alert: Blocked dangerous command execution -> ${reason}`);
-        eventBus.emit('security:blocked', { toolName: 'execute_linux_command', reason, risk: 'critical' });
-        return { allowed: false, reason, riskLevel: 'critical' };
-      }
-    }
-
-    // Run Tirith if available
-    if (this.tirithPath) {
-      try {
-        const cmdEscaped = trimmed.replace(/"/g, '\\"');
-        const res = execSync(`"${this.tirithPath}" check -- "${cmdEscaped}" 2>&1`, { timeout: 2000, encoding: 'utf-8' });
-        if (res.includes('BLOCKED') || res.includes('DENIED')) {
-          const reason = `Tirith policy check failed: ${res.trim()}`;
-          logSecurity.warn(`Tirith blocked command: ${reason}`);
-          eventBus.emit('security:blocked', { toolName: 'execute_linux_command', reason, risk: 'high' });
-          return { allowed: false, reason, riskLevel: 'high' };
-        }
-      } catch (err: any) {
-        // If Tirith exits non-zero, check output
-        const stdout = err.stdout ? String(err.stdout) : '';
-        if (stdout.includes('BLOCKED') || stdout.includes('DENIED')) {
-          return { allowed: false, reason: `Tirith denied: ${stdout}`, riskLevel: 'high' };
-        }
-      }
+    // Check shared threat patterns
+    const threat = scanForThreats(trimmed, 'strict');
+    if (threat.isThreat) {
+      logSecurity.error(`Security Alert: Blocked dangerous command execution -> ${threat.matchedDescription}`);
+      eventBus.emit('security:blocked', { toolName: 'execute_linux_command', reason: threat.matchedDescription, risk: threat.severity });
+      return { allowed: false, reason: threat.matchedDescription, riskLevel: threat.severity };
     }
 
     return { allowed: true, riskLevel: 'safe' };
+  }
+
+  /**
+   * Deep async validation using Tirith binary scanner + threat pattern engine.
+   */
+  public async validateCommandDeep(command: string): Promise<CommandSecurityVerdict> {
+    const syncVerdict = this.validateCommand(command);
+    if (!syncVerdict.allowed) {
+      return syncVerdict;
+    }
+
+    const tirithVerdict = await tirithSecurity.scanCommand(command);
+    if (!tirithVerdict.allowed) {
+      logSecurity.warn(`Tirith blocked command: ${tirithVerdict.summary}`);
+      eventBus.emit('security:blocked', { toolName: 'execute_linux_command', reason: tirithVerdict.summary, risk: 'high' });
+      return {
+        allowed: false,
+        reason: tirithVerdict.summary,
+        riskLevel: 'high'
+      };
+    }
+
+    return {
+      allowed: true,
+      riskLevel: tirithVerdict.verdict === 'warn' ? 'low' : 'safe'
+    };
   }
 
   /**
@@ -166,11 +131,10 @@ export class SecurityGuard {
   public scanPromptInjection(content: string): { safe: boolean; reason?: string } {
     if (!content || typeof content !== 'string') return { safe: true };
 
-    for (const { pattern, reason } of PROMPT_INJECTION_PATTERNS) {
-      if (pattern.test(content)) {
-        logSecurity.warn(`Prompt injection pattern flagged: ${reason}`);
-        return { safe: false, reason };
-      }
+    const threat = scanForThreats(content, 'context');
+    if (threat.isThreat) {
+      logSecurity.warn(`Prompt injection pattern flagged: ${threat.matchedDescription}`);
+      return { safe: false, reason: threat.matchedDescription };
     }
 
     return { safe: true };

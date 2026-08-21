@@ -72,6 +72,10 @@ export interface JarvisEventMap {
   // Security & Threat Guard Events
   'security:blocked': (data: { toolName: string; reason: string; risk: string }) => void;
   'security:redacted': (data: { count: number; subsystem: string }) => void;
+  'security:approval_required': (data: any) => void;
+  'security:approval_timeout': (data: any) => void;
+  'security:approved': (data: any) => void;
+  'security:rejected': (data: any) => void;
 
   // Memory & Skills Hub Events
   'memory:synced': (data: { source: string; factsCount: number }) => void;

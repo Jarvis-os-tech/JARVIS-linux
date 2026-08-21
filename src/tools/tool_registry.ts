@@ -915,6 +915,9 @@ import { registerPythonTools } from './python_plugin_tool';
 import { registerMemorySearchTools } from './memory_search_tool';
 import { registerForgeTools } from './forge_tool';
 import { registerCodebaseTools } from './codebase_tool';
+import { registerKanbanTools } from './kanban_tool';
+import { registerBrowserTools } from './browser_cdp_tool';
+import { registerTerminalTools } from './terminal_tool';
 
 registerDelegationTool();
 registerCronTools();
@@ -923,6 +926,9 @@ registerPythonTools();
 registerMemorySearchTools();
 registerForgeTools();
 registerCodebaseTools();
+registerKanbanTools();
+registerBrowserTools();
+registerTerminalTools();
 
 
 
